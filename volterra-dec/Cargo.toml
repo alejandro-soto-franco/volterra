@@ -1,0 +1,19 @@
+[package]
+name = "volterra-dec"
+description = "Discrete exterior calculus layer: simplicial complexes, Hodge operators, and covariant differential operators on Riemannian manifolds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+volterra-core    = { path = "../volterra-core" }
+cartan-core      = { workspace = true }
+cartan-manifolds = { workspace = true }
+nalgebra         = { workspace = true }
+rayon            = { workspace = true }
+thiserror        = { workspace = true }
+serde            = { workspace = true }
