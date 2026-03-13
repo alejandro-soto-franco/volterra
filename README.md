@@ -12,7 +12,7 @@ The primary objects of study are the topological defects of the nematic order pa
 
 ## Physics
 
-Active nematics are materials composed of self-driven elongated units -- collections of cytoskeletal filaments driven by molecular motors, for instance -- that spontaneously develop orientational order and generate internal stresses. The nematic order parameter Q is a symmetric traceless rank-2 tensor field. Its topological defects (points in 2D, lines in 3D) carry a topological charge of +/-1/2 and are the primary objects of physical and mathematical interest.
+Active nematics are materials composed of self-driven elongated units (collections of cytoskeletal filaments driven by molecular motors, for instance) that spontaneously develop orientational order and generate internal stresses. The nematic order parameter Q is a symmetric traceless rank-2 tensor field. Its topological defects (points in 2D, lines in 3D) carry a topological charge of +/-1/2 and are the primary objects of physical and mathematical interest.
 
 The equations of motion couple Q-tensor dynamics to an incompressible flow field:
 
@@ -30,7 +30,7 @@ All derivatives are covariant with respect to the Levi-Civita connection of the 
 
 volterra is designed around three principles:
 
-**Correctness of the geometry.** The Laplacian acting on Q is the Lichnerowicz operator -- the Bochner (connection) Laplacian plus a Riemann curvature correction. The background manifold geometry enters the equations of motion exactly, not as a perturbation. This makes volterra suitable for studying systems where curvature is itself the variable of interest.
+**Correctness of the geometry.** The Laplacian acting on Q is the Lichnerowicz operator (the Bochner connection Laplacian plus a Riemann curvature correction). The background manifold geometry enters the equations of motion exactly, not as a perturbation. This makes volterra suitable for studying systems where curvature is itself the variable of interest.
 
 **Cache-friendly DEC.** Differential operators are built from DEC on well-centered Delaunay meshes. Well-centered meshes give diagonal Hodge stars, so the full Laplace-Beltrami operator is two sparse {0, +1, -1} matrix-vector products interleaved with diagonal scalings. Simplices are Hilbert-curve reordered for spatial locality. Field arrays use structure-of-arrays layout for SIMD vectorization.
 
@@ -39,11 +39,11 @@ volterra is designed around three principles:
 ## Crate structure
 
 ```
-volterra          -- facade crate (start here)
-volterra-core     -- trait definitions and error types
-volterra-dec      -- DEC mesh, Hodge operators, covariant differential operators
-volterra-fields   -- Q-tensor, velocity, pressure, and stress field types
-volterra-solver   -- equations of motion, time integration, defect tracking
+volterra          facade crate (start here)
+volterra-core     trait definitions and error types
+volterra-dec      DEC mesh, Hodge operators, covariant differential operators
+volterra-fields   Q-tensor, velocity, pressure, and stress field types
+volterra-solver   equations of motion, time integration, defect tracking
 ```
 
 ## Substrate
