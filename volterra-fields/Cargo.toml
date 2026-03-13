@@ -1,0 +1,19 @@
+[package]
+name = "volterra-fields"
+description = "Tensor field types over DEC meshes: Q-tensor, velocity, pressure, and derived fields for active nematics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+volterra-core    = { path = "../volterra-core" }
+volterra-dec     = { path = "../volterra-dec" }
+cartan-core      = { workspace = true }
+nalgebra         = { workspace = true }
+rayon            = { workspace = true }
+thiserror        = { workspace = true }
+serde            = { workspace = true }

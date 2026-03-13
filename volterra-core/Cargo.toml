@@ -1,0 +1,16 @@
+[package]
+name = "volterra-core"
+description = "Trait definitions and error types for the volterra active nematics framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+cartan-core      = { workspace = true }
+nalgebra         = { workspace = true }
+thiserror        = { workspace = true }
+serde            = { workspace = true }
