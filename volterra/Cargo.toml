@@ -1,0 +1,16 @@
+[package]
+name = "volterra"
+description = "Covariant active nematics simulation on Riemannian manifolds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+volterra-core    = { path = "../volterra-core" }
+volterra-dec     = { path = "../volterra-dec" }
+volterra-fields  = { path = "../volterra-fields" }
+volterra-solver  = { path = "../volterra-solver" }

@@ -1,0 +1,21 @@
+[package]
+name = "volterra-solver"
+description = "Beris-Edwards nematohydrodynamics solver: time integration, equations of motion, and defect tracking for active nematics on Riemannian manifolds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+volterra-core    = { path = "../volterra-core" }
+volterra-dec     = { path = "../volterra-dec" }
+volterra-fields  = { path = "../volterra-fields" }
+cartan-core      = { workspace = true }
+nalgebra         = { workspace = true }
+rayon            = { workspace = true }
+thiserror        = { workspace = true }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
