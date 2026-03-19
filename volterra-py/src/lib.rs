@@ -17,8 +17,15 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use volterra_core::MarsParams;
-use volterra_fields::QField2D;
-use volterra_solver::{DefectInfo, SnapStats, k0_convolution, run_mars_component1, scan_defects};
+use volterra_fields::{QField2D, VelocityField2D};
+use volterra_solver::{
+    DefectInfo, SnapStats,
+    k0_convolution,
+    run_mars_component1,
+    run_mars_component1_hydro,
+    scan_defects,
+    stokes_solve,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PyMarsParams
@@ -35,6 +42,7 @@ pub struct PyMarsParams {
 impl PyMarsParams {
     #[new]
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta, a_landau, c_landau, lambda_, k_l, gamma_l, xi_l, noise_amp=0.0))]
     fn new(
         nx: usize,
         ny: usize,
@@ -46,14 +54,15 @@ impl PyMarsParams {
         eta: f64,
         a_landau: f64,
         c_landau: f64,
-        lambda: f64,
+        lambda_: f64,
         k_l: f64,
         gamma_l: f64,
         xi_l: f64,
+        noise_amp: f64,
     ) -> PyResult<Self> {
         let p = MarsParams {
             nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta,
-            a_landau, c_landau, lambda, k_l, gamma_l, xi_l,
+            a_landau, c_landau, lambda: lambda_, k_l, gamma_l, xi_l, noise_amp,
         };
         p.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: p })
@@ -74,10 +83,13 @@ impl PyMarsParams {
     #[getter] fn eta(&self) -> f64     { self.inner.eta }
     #[getter] fn a_landau(&self) -> f64{ self.inner.a_landau }
     #[getter] fn c_landau(&self) -> f64{ self.inner.c_landau }
-    #[getter] fn lambda(&self) -> f64  { self.inner.lambda }
-    #[getter] fn k_l(&self) -> f64     { self.inner.k_l }
-    #[getter] fn gamma_l(&self) -> f64 { self.inner.gamma_l }
-    #[getter] fn xi_l(&self) -> f64    { self.inner.xi_l }
+    #[getter] fn lambda_(&self) -> f64    { self.inner.lambda }
+    #[getter] fn k_l(&self) -> f64        { self.inner.k_l }
+    #[getter] fn gamma_l(&self) -> f64   { self.inner.gamma_l }
+    #[getter] fn xi_l(&self) -> f64      { self.inner.xi_l }
+    #[getter] fn noise_amp(&self) -> f64 { self.inner.noise_amp }
+
+    #[setter] fn set_noise_amp(&mut self, v: f64) { self.inner.noise_amp = v; }
 
     #[setter] fn set_zeta_eff(&mut self, v: f64) { self.inner.zeta_eff = v; }
     #[setter] fn set_dt(&mut self, v: f64)        { self.inner.dt = v; }
@@ -199,6 +211,39 @@ impl PyQField2D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PyVelocityField2D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 2D velocity field with numpy interop.
+#[pyclass(name = "VelocityField2D")]
+#[derive(Clone)]
+pub struct PyVelocityField2D {
+    inner: VelocityField2D,
+}
+
+#[pymethods]
+impl PyVelocityField2D {
+    /// Export as numpy array of shape (nx*ny, 2). Reshape to (nx, ny, 2) in Python.
+    fn to_numpy<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let n = self.inner.v.len();
+        let mut arr = Array2::<f64>::zeros((n, 2));
+        for (k, [vx, vy]) in self.inner.v.iter().enumerate() {
+            arr[[k, 0]] = *vx;
+            arr[[k, 1]] = *vy;
+        }
+        arr.into_pyarray(py)
+    }
+
+    #[getter] fn nx(&self) -> usize { self.inner.nx }
+    #[getter] fn ny(&self) -> usize { self.inner.ny }
+    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+
+    fn __repr__(&self) -> String {
+        format!("VelocityField2D(nx={}, ny={}, dx={:.3})", self.inner.nx, self.inner.ny, self.inner.dx)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PySnapStats
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -297,6 +342,42 @@ fn scan_defects_py(q: &PyQField2D, threshold: f64) -> Vec<PyDefectInfo> {
         .collect()
 }
 
+/// Run Component 1 with full hydrodynamic flow coupling (spectral Stokes).
+///
+/// At each time step the Stokes velocity field is re-computed from the active
+/// stress `σ^a = ζ_eff Q` via the stream-function biharmonic equation solved
+/// spectrally. This enables the active flow instability that drives turbulence
+/// with the scaling `ρ_d ~ ζ_eff / K_r`.
+///
+/// Returns `(QField2D, list[SnapStats])`.
+#[pyfunction]
+#[pyo3(name = "run_mars_component1_hydro")]
+fn run_mars_component1_hydro_py(
+    q_init: &PyQField2D,
+    params: &PyMarsParams,
+    n_steps: usize,
+    snap_every: usize,
+) -> (PyQField2D, Vec<PySnapStats>) {
+    let (q_final, stats) = run_mars_component1_hydro(
+        &q_init.inner,
+        &params.inner,
+        n_steps,
+        snap_every,
+    );
+    let py_stats = stats.into_iter().map(|s| PySnapStats { inner: s }).collect();
+    (PyQField2D { inner: q_final }, py_stats)
+}
+
+/// Solve the 2D incompressible Stokes equation for the active velocity field.
+///
+/// Returns the velocity field driven by `σ^a = ζ_eff Q` via spectral inversion
+/// of the stream-function biharmonic equation.
+#[pyfunction]
+#[pyo3(name = "stokes_solve")]
+fn stokes_solve_py(q: &PyQField2D, params: &PyMarsParams) -> PyVelocityField2D {
+    PyVelocityField2D { inner: stokes_solve(&q.inner, &params.inner) }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Module
 // ─────────────────────────────────────────────────────────────────────────────
@@ -320,9 +401,12 @@ fn scan_defects_py(q: &PyQField2D, threshold: f64) -> Vec<PyDefectInfo> {
 fn volterra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMarsParams>()?;
     m.add_class::<PyQField2D>()?;
+    m.add_class::<PyVelocityField2D>()?;
     m.add_class::<PySnapStats>()?;
     m.add_class::<PyDefectInfo>()?;
     m.add_function(wrap_pyfunction!(run_mars_component1_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_mars_component1_hydro_py, m)?)?;
+    m.add_function(wrap_pyfunction!(stokes_solve_py, m)?)?;
     m.add_function(wrap_pyfunction!(k0_convolution_py, m)?)?;
     m.add_function(wrap_pyfunction!(scan_defects_py, m)?)?;
     Ok(())
