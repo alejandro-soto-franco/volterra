@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "volterra"
+version = "0.1.0"
+description = "Python bindings for the volterra active nematics simulation library"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy >= 1.24",
+]
+
+[tool.maturin]
+# Build the volterra-py crate (not the facade library crate)
+manifest-path = "volterra-py/Cargo.toml"
+# The lib.name in volterra-py/Cargo.toml is "volterra", so the Python
+# module is imported as `import volterra`.
+module-name = "volterra"
+# Always build with --release for scientific workloads
+profile = "release"
+# stub files live alongside the .so, not in a separate source tree
+
+[project.optional-dependencies]
+dev = [
+    "maturin >= 1.5",
+    "pytest >= 7.0",
+    "matplotlib >= 3.7",
+    "scipy >= 1.10",
+]
