@@ -11,6 +11,5 @@ categories.workspace = true
 
 [dependencies]
 volterra-core    = { path = "../volterra-core" }
-volterra-dec     = { path = "../volterra-dec" }
 volterra-fields  = { path = "../volterra-fields" }
 volterra-solver  = { path = "../volterra-solver" }
