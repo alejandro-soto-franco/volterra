@@ -92,6 +92,15 @@ pub struct MarsParams {
     /// λ = 1.0 for flow-aligning; |λ| < 1 for tumbling.
     pub lambda: f64,
 
+    // ── Langevin noise ────────────────────────────────────────────────────
+    /// RMS amplitude of the Langevin noise term added at each time step.
+    ///
+    /// The noise is applied as `Q += noise_amp * sqrt(dt) * W` where `W` is
+    /// an i.i.d. standard Gaussian per component per grid vertex.  This models
+    /// the stochastic reorientation fluctuations of the MARS rod ensemble.
+    /// Set to 0.0 (default) to disable noise.
+    pub noise_amp: f64,
+
     // ── Lipid phase (Component 2: one-way coupling) ───────────────────────
     /// Lipid Frank elastic constant K_l.
     pub k_l: f64,
@@ -156,6 +165,9 @@ impl MarsParams {
         if self.xi_l <= 0.0 {
             return Err(VError::InvalidParams("xi_l must be positive".into()));
         }
+        if self.noise_amp < 0.0 {
+            return Err(VError::InvalidParams("noise_amp must be non-negative".into()));
+        }
         Ok(())
     }
 
@@ -176,6 +188,7 @@ impl MarsParams {
             a_landau: -0.5,
             c_landau: 4.5,
             lambda: 0.7,
+            noise_amp: 0.0,
             k_l: 0.5,
             gamma_l: 1.0,
             xi_l: 5.0,
