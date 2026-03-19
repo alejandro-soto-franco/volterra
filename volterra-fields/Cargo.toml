@@ -11,9 +11,11 @@ categories.workspace = true
 
 [dependencies]
 volterra-core    = { path = "../volterra-core" }
-volterra-dec     = { path = "../volterra-dec" }
 cartan-core      = { workspace = true }
 nalgebra         = { workspace = true }
 rayon            = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
+
+[dev-dependencies]
+approx           = { workspace = true }
