@@ -24,6 +24,7 @@ class MarsParams:
     a_landau: float
     c_landau: float
     lambda_: float
+    noise_amp: float
     k_l: float
     gamma_l: float
     xi_l: float
@@ -44,6 +45,7 @@ class MarsParams:
         k_l: float,
         gamma_l: float,
         xi_l: float,
+        noise_amp: float = 0.0,
     ) -> None: ...
 
     @staticmethod
@@ -109,6 +111,19 @@ class QField2D:
 
     def mean_order_param(self) -> float: ...
     def max_norm(self) -> float: ...
+
+# ---------------------------------------------------------------------------
+# VelocityField2D
+# ---------------------------------------------------------------------------
+
+class VelocityField2D:
+    nx: int
+    ny: int
+    dx: float
+
+    def to_numpy(self) -> npt.NDArray[np.float64]:
+        """Export as (nx*ny, 2) float64 array. Reshape to (nx, ny, 2) in Python."""
+        ...
 
 # ---------------------------------------------------------------------------
 # SnapStats
@@ -177,6 +192,31 @@ def k0_convolution(q_rot: QField2D, params: MarsParams) -> QField2D:
     -------
     QField2D
         Driven lipid Q-field.
+    """
+    ...
+
+def run_mars_component1_hydro(
+    q_init: QField2D,
+    params: MarsParams,
+    n_steps: int,
+    snap_every: int,
+) -> tuple[QField2D, list[SnapStats]]:
+    """
+    Run Component 1 with full hydrodynamic flow coupling (spectral Stokes solver).
+
+    At each step the Stokes velocity field is re-solved from the active stress
+    sigma^a = zeta_eff * Q, enabling the active flow instability and turbulence.
+
+    Returns (QField2D, list[SnapStats]).
+    """
+    ...
+
+def stokes_solve(q: QField2D, params: MarsParams) -> VelocityField2D:
+    """
+    Solve the 2D incompressible Stokes equation for the active velocity.
+
+    Returns the velocity field driven by sigma^a = zeta_eff * Q via spectral
+    inversion of the stream-function biharmonic equation.
     """
     ...
 

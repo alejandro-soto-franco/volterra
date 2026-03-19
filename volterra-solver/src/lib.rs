@@ -58,6 +58,10 @@
 //! - Giomi, L. (2015). "Geometry and topology of turbulence in active nematics."
 //!   *Phys. Rev. X* **5**, 031003.
 
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
+use rand::Rng;
+use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::{Integrator, MarsParams};
 use volterra_fields::{QField2D, VelocityField2D};
 
@@ -421,6 +425,222 @@ pub fn k0_convolution(q_rot: &QField2D, params: &MarsParams) -> QField2D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Spectral Stokes solver (active stress → incompressible velocity field)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Solve the 2D incompressible Stokes equation for the active velocity field.
+///
+/// Given the Q-tensor field, computes the incompressible flow driven by the
+/// active stress `σ^a = ζ_eff Q` via the stream-function biharmonic equation:
+///
+/// ```text
+/// η ∇⁴ψ = ∂_x F_y - ∂_y F_x,   F = ∇·σ^a = ζ_eff ∇·Q
+/// ```
+///
+/// Solved spectrally (pseudospectral FFT on a periodic grid):
+///
+/// ```text
+/// ψ̂(k) = ζ [(k_y² - k_x²) q̂_2 + 2 k_x k_y q̂_1] / [η (k²)²]
+/// ```
+///
+/// The velocity components follow from `v_x = ∂_y ψ`, `v_y = -∂_x ψ`.
+/// The k=0 mode (uniform translation) is set to zero.
+///
+/// Returns a [`VelocityField2D`] on the same grid.
+pub fn stokes_solve(q: &QField2D, params: &MarsParams) -> VelocityField2D {
+    let nx = q.nx;
+    let ny = q.ny;
+    let n = nx * ny;
+    let dx = q.dx;
+    let eta = params.eta;
+    let ze = params.zeta_eff;
+
+    let mut planner = FftPlanner::<f64>::new();
+    let fft_x = planner.plan_fft_forward(nx);
+    let fft_y = planner.plan_fft_forward(ny);
+    let ifft_x = planner.plan_fft_inverse(nx);
+    let ifft_y = planner.plan_fft_inverse(ny);
+
+    // Wave-vector frequencies (radians/unit-length): k_j = 2π j / (N dx)
+    // Using the standard DFT ordering: j = 0..N/2, then -(N/2-1)..-1 wrapped.
+    let kx_vec: Vec<f64> = (0..nx).map(|i| {
+        let i = i as i64;
+        let n = nx as i64;
+        let i_shifted = if i <= n / 2 { i } else { i - n };
+        2.0 * std::f64::consts::PI * i_shifted as f64 / (nx as f64 * dx)
+    }).collect();
+    let ky_vec: Vec<f64> = (0..ny).map(|j| {
+        let j = j as i64;
+        let n = ny as i64;
+        let j_shifted = if j <= n / 2 { j } else { j - n };
+        2.0 * std::f64::consts::PI * j_shifted as f64 / (ny as f64 * dx)
+    }).collect();
+
+    // Helper: forward 2D FFT on a real-valued row-major field → Complex array.
+    // Layout: q[i * ny + j], i in 0..nx, j in 0..ny.
+    let fft2_real = |field: &[f64]| -> Vec<Complex<f64>> {
+        let mut buf: Vec<Complex<f64>> = field.iter().map(|&x| Complex::new(x, 0.0)).collect();
+        // FFT each row (along j / y direction).
+        for row in buf.chunks_mut(ny) {
+            fft_y.process(row);
+        }
+        // Transpose to ny×nx, FFT each row (= original column / x direction), transpose back.
+        let mut transposed: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
+        for i in 0..nx {
+            for j in 0..ny {
+                transposed[j * nx + i] = buf[i * ny + j];
+            }
+        }
+        for col in transposed.chunks_mut(nx) {
+            fft_x.process(col);
+        }
+        for i in 0..nx {
+            for j in 0..ny {
+                buf[i * ny + j] = transposed[j * nx + i];
+            }
+        }
+        buf
+    };
+
+    // Helper: inverse 2D FFT on complex array → real-valued field (normalized by N).
+    let ifft2_to_real = |buf: &mut Vec<Complex<f64>>| -> Vec<f64> {
+        // Transpose, IFFT each column (x), transpose back, then IFFT each row (y).
+        let mut transposed: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
+        for i in 0..nx {
+            for j in 0..ny {
+                transposed[j * nx + i] = buf[i * ny + j];
+            }
+        }
+        for col in transposed.chunks_mut(nx) {
+            ifft_x.process(col);
+        }
+        for i in 0..nx {
+            for j in 0..ny {
+                buf[i * ny + j] = transposed[j * nx + i];
+            }
+        }
+        for row in buf.chunks_mut(ny) {
+            ifft_y.process(row);
+        }
+        let norm = n as f64;
+        buf.iter().map(|c| c.re / norm).collect()
+    };
+
+    // Extract Q components into row-major flat arrays.
+    let q1_field: Vec<f64> = q.q.iter().map(|[q1, _]| *q1).collect();
+    let q2_field: Vec<f64> = q.q.iter().map(|[_, q2]| *q2).collect();
+
+    let q1_hat = fft2_real(&q1_field);
+    let q2_hat = fft2_real(&q2_field);
+
+    // Compute stream function ψ̂ and velocity components v̂_x, v̂_y in Fourier space.
+    let mut vx_hat: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
+    let mut vy_hat: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
+
+    let i_unit = Complex::new(0.0, 1.0);
+
+    for ii in 0..nx {
+        for jj in 0..ny {
+            let k = ii * ny + jj;
+            let kx = kx_vec[ii];
+            let ky = ky_vec[jj];
+            let k2 = kx * kx + ky * ky;
+            if k2 < 1e-14 {
+                // k=0: no uniform translation (set to zero).
+                vx_hat[k] = Complex::new(0.0, 0.0);
+                vy_hat[k] = Complex::new(0.0, 0.0);
+                continue;
+            }
+            let k4 = k2 * k2;
+            // ψ̂ = ζ [(k_y² - k_x²) q̂₂ + 2 k_x k_y q̂₁] / (η k⁴)
+            let rhs = ze * ((ky * ky - kx * kx) * q2_hat[k] + 2.0 * kx * ky * q1_hat[k]);
+            let psi_hat = rhs / (eta * k4);
+            // v̂_x = i k_y ψ̂, v̂_y = -i k_x ψ̂
+            vx_hat[k] = i_unit * ky * psi_hat;
+            vy_hat[k] = -i_unit * kx * psi_hat;
+        }
+    }
+
+    let vx_field = ifft2_to_real(&mut vx_hat);
+    let vy_field = ifft2_to_real(&mut vy_hat);
+
+    // Pack into VelocityField2D.
+    let v_data: Vec<[f64; 2]> = (0..n).map(|k| [vx_field[k], vy_field[k]]).collect();
+    VelocityField2D { v: v_data, nx, ny, dx }
+}
+
+/// Run the single-phase MARS simulation with full hydrodynamic coupling (Component 1).
+///
+/// At each time step the Stokes velocity field is re-computed from the active
+/// stress and fed back into the Beris-Edwards equation, enabling the
+/// flow-alignment instability that drives active turbulence.
+///
+/// The defect density in the turbulent steady state follows `ρ_d ~ ζ_eff / K_r`.
+///
+/// # Arguments
+///
+/// - `q_init`: Initial Q-tensor field.
+/// - `params`: Physical and numerical parameters.
+/// - `n_steps`: Total number of time steps.
+/// - `snap_every`: Steps between snapshot statistics.
+pub fn run_mars_component1_hydro(
+    q_init: &QField2D,
+    params: &MarsParams,
+    n_steps: usize,
+    snap_every: usize,
+) -> (QField2D, Vec<SnapStats>) {
+    let mut q = q_init.clone();
+    let mut stats = Vec::new();
+    let lx = params.nx as f64 * params.dx;
+    let ly = params.ny as f64 * params.dx;
+    let area = lx * ly;
+
+    let use_noise = params.noise_amp > 0.0;
+    let noise_scale = params.noise_amp * params.dt.sqrt();
+    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
+        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
+        ^ n_steps as u64;
+    let mut rng = SmallRng::seed_from_u64(seed);
+
+    // Euler-step loop: compute v from Stokes, then advance Q.
+    // (Stokes is linear and instantaneous, so it's re-solved each step.)
+    for step in 0..=n_steps {
+        if step % snap_every == 0 {
+            let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
+            let (n_plus, n_minus) = defect_count(&defects);
+            let n_defects = defects.len();
+            stats.push(SnapStats {
+                time: step as f64 * params.dt,
+                mean_s: q.mean_order_param(),
+                n_defects,
+                n_plus,
+                n_minus,
+                defect_density: n_defects as f64 / area,
+            });
+        }
+        if step < n_steps {
+            let v = stokes_solve(&q, params);
+            let p = params.clone();
+            let dq = beris_edwards_rhs(&q, Some(&v), &p);
+            // Euler step (fast; Stokes re-solve dominates cost).
+            q = q.add(&dq.scale(params.dt));
+            if use_noise {
+                for [q1, q2] in q.q.iter_mut() {
+                    let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
+                    let u2: f64 = rng.random::<f64>();
+                    let mag = noise_scale * (-2.0 * u1.ln()).sqrt();
+                    let angle = std::f64::consts::TAU * u2;
+                    *q1 += mag * angle.cos();
+                    *q2 += mag * angle.sin();
+                }
+            }
+        }
+    }
+
+    (q, stats)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Holonomy-based defect detection
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -537,6 +757,15 @@ pub fn run_mars_component1(
     let ly = params.ny as f64 * params.dx;
     let area = lx * ly;
 
+    // Langevin noise: Q += noise_amp * sqrt(dt) * W(x,t) per component per vertex.
+    let use_noise = params.noise_amp > 0.0;
+    let noise_scale = params.noise_amp * params.dt.sqrt();
+    // Use a reproducible but unique seed derived from grid dimensions.
+    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
+        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
+        ^ n_steps as u64;
+    let mut rng = SmallRng::seed_from_u64(seed);
+
     for step in 0..=n_steps {
         if step % snap_every == 0 {
             let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
@@ -554,6 +783,19 @@ pub fn run_mars_component1(
         if step < n_steps {
             let p = params.clone();
             q = integrator.step(&q, params.dt, move |q_| beris_edwards_rhs(q_, None, &p));
+            // Langevin noise injection (Euler-Maruyama for the stochastic part).
+            // Box-Muller transform: two uniform samples -> two standard normals.
+            if use_noise {
+                let mut iter = q.q.iter_mut();
+                while let Some([q1, q2]) = iter.next() {
+                    let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
+                    let u2: f64 = rng.random::<f64>();
+                    let mag = noise_scale * (-2.0 * u1.ln()).sqrt();
+                    let angle = std::f64::consts::TAU * u2;
+                    *q1 += mag * angle.cos();
+                    *q2 += mag * angle.sin();
+                }
+            }
         }
     }
 

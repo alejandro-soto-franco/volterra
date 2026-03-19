@@ -16,6 +16,8 @@ cartan-manifolds = { workspace = true }
 cartan-geo       = { workspace = true }
 nalgebra         = { workspace = true }
 rayon            = { workspace = true }
+rand             = { workspace = true }
+rustfft          = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
 serde_json       = { workspace = true }
