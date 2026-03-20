@@ -643,10 +643,73 @@ impl PyDisclinationEvent {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Runner bindings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Run the dry 3D active nematic model for `n_steps` Euler steps.
+///
+/// Snapshots are written to `out_dir` every `snap_every` steps. Returns
+/// `(q_final, stats)` where `stats` contains one `SnapStats3D` per snapshot.
+#[pyfunction]
+#[pyo3(name = "run_mars_3d")]
+fn run_mars_3d_py(
+    q_init: &PyQField3D,
+    params: &PyMarsParams3D,
+    n_steps: usize,
+    snap_every: usize,
+    out_dir: &str,
+    track_defects: bool,
+) -> PyResult<(PyQField3D, Vec<PySnapStats3D>)> {
+    let path = std::path::Path::new(out_dir);
+    let (q_final, stats) = volterra_solver::run_mars_3d(
+        &q_init.inner,
+        &params.inner,
+        n_steps,
+        snap_every,
+        path,
+        track_defects,
+    );
+    let py_q = PyQField3D { inner: q_final };
+    let py_stats: Vec<PySnapStats3D> = stats.into_iter().map(|s| PySnapStats3D { inner: s }).collect();
+    Ok((py_q, py_stats))
+}
+
+/// Run the full BECH 3D model (Beris-Edwards + Stokes + Cahn-Hilliard) for `n_steps` steps.
+///
+/// Snapshots are written to `out_dir` every `snap_every` steps. Returns
+/// `(q_final, phi_final, stats)` where `stats` contains one `BechStats3D` per snapshot.
+#[pyfunction]
+#[pyo3(name = "run_mars_3d_full")]
+fn run_mars_3d_full_py(
+    q_init: &PyQField3D,
+    phi_init: &PyScalarField3D,
+    params: &PyMarsParams3D,
+    n_steps: usize,
+    snap_every: usize,
+    out_dir: &str,
+    track_defects: bool,
+) -> PyResult<(PyQField3D, PyScalarField3D, Vec<PyBechStats3D>)> {
+    let path = std::path::Path::new(out_dir);
+    let (q_final, phi_final, stats) = volterra_solver::run_mars_3d_full(
+        &q_init.inner,
+        &phi_init.inner,
+        &params.inner,
+        n_steps,
+        snap_every,
+        path,
+        track_defects,
+    );
+    let py_q   = PyQField3D     { inner: q_final   };
+    let py_phi = PyScalarField3D { inner: phi_final };
+    let py_stats: Vec<PyBechStats3D> = stats.into_iter().map(|s| PyBechStats3D { inner: s }).collect();
+    Ok((py_q, py_phi, py_stats))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Register 3D binding classes into the volterra Python module.
+/// Register 3D binding classes and runner functions into the volterra Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMarsParams3D>()?;
     m.add_class::<PyQField3D>()?;
@@ -656,5 +719,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBechStats3D>()?;
     m.add_class::<PyDisclinationLine>()?;
     m.add_class::<PyDisclinationEvent>()?;
+    m.add_function(wrap_pyfunction!(run_mars_3d_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_mars_3d_full_py, m)?)?;
     Ok(())
 }
