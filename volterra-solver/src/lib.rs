@@ -80,6 +80,9 @@ pub use stokes_3d::stokes_solve_3d;
 pub mod ch_3d;
 pub use ch_3d::ch_step_etd_3d;
 
+pub mod defects_3d;
+pub use defects_3d::{scan_defects_3d, track_defect_events};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
