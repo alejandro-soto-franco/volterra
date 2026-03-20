@@ -38,6 +38,9 @@
 use nalgebra::SMatrix;
 use serde::{Deserialize, Serialize};
 
+pub mod qfield3d;
+pub use qfield3d::QField3D;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // QField2D
 // ─────────────────────────────────────────────────────────────────────────────
@@ -319,6 +322,183 @@ impl VelocityField2D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ScalarField2D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A 2D scalar field φ(x,y) on a regular Cartesian grid with periodic BCs.
+///
+/// Used to represent the lipid volume fraction φ_l(x,t) in the Cahn-Hilliard
+/// equation of the Beris-Edwards-Cahn-Hilliard (BECH) system.  Each vertex
+/// stores a single `f64`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScalarField2D {
+    /// Scalar values at each vertex, in row-major order (i*ny + j).
+    pub phi: Vec<f64>,
+    /// Number of vertices in x.
+    pub nx: usize,
+    /// Number of vertices in y.
+    pub ny: usize,
+    /// Grid spacing (same in x and y; periodic BCs).
+    pub dx: f64,
+}
+
+impl ScalarField2D {
+    /// Create a zero scalar field.
+    pub fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
+        Self { phi: vec![0.0; nx * ny], nx, ny, dx }
+    }
+
+    /// Create a uniform scalar field with every vertex set to `val`.
+    pub fn uniform(nx: usize, ny: usize, dx: f64, val: f64) -> Self {
+        Self { phi: vec![val; nx * ny], nx, ny, dx }
+    }
+
+    /// Linear index for vertex `(i, j)` with periodic wrapping.
+    #[inline]
+    pub fn idx(&self, i: usize, j: usize) -> usize {
+        (i % self.nx) * self.ny + (j % self.ny)
+    }
+
+    /// Linear index with signed (possibly negative) coordinates, using periodic BCs.
+    #[inline]
+    pub fn idx_i(&self, i: i64, j: i64) -> usize {
+        let ii = i.rem_euclid(self.nx as i64) as usize;
+        let jj = j.rem_euclid(self.ny as i64) as usize;
+        ii * self.ny + jj
+    }
+
+    /// Number of vertices.
+    pub fn len(&self) -> usize {
+        self.phi.len()
+    }
+
+    /// Returns `true` if the field has no vertices.
+    pub fn is_empty(&self) -> bool {
+        self.phi.is_empty()
+    }
+
+    /// 5-point finite-difference Laplacian ∇²φ at each vertex.
+    ///
+    /// ```text
+    /// ∇²φ_{i,j} ≈ (φ_{i+1,j} + φ_{i-1,j} + φ_{i,j+1} + φ_{i,j-1} - 4φ_{i,j}) / dx²
+    /// ```
+    pub fn laplacian(&self) -> Self {
+        let dx2 = self.dx * self.dx;
+        let mut out = Self::zeros(self.nx, self.ny, self.dx);
+        for i in 0..self.nx {
+            for j in 0..self.ny {
+                let k   = self.idx(i, j);
+                let kp  = self.idx_i(i as i64 + 1, j as i64);
+                let km  = self.idx_i(i as i64 - 1, j as i64);
+                let kpj = self.idx_i(i as i64, j as i64 + 1);
+                let kmj = self.idx_i(i as i64, j as i64 - 1);
+                out.phi[k] = (self.phi[kp] + self.phi[km]
+                    + self.phi[kpj] + self.phi[kmj]
+                    - 4.0 * self.phi[k]) / dx2;
+            }
+        }
+        out
+    }
+
+    /// Point-wise addition: return `self + other`.
+    ///
+    /// # Panics
+    /// Panics if grids have different dimensions.
+    pub fn add(&self, other: &Self) -> Self {
+        assert_eq!(self.nx, other.nx);
+        assert_eq!(self.ny, other.ny);
+        let phi = self.phi.iter().zip(&other.phi).map(|(&a, &b)| a + b).collect();
+        Self { phi, nx: self.nx, ny: self.ny, dx: self.dx }
+    }
+
+    /// Point-wise scalar multiply: return `s * self`.
+    pub fn scale(&self, s: f64) -> Self {
+        let phi = self.phi.iter().map(|&a| s * a).collect();
+        Self { phi, nx: self.nx, ny: self.ny, dx: self.dx }
+    }
+
+    /// Mean value ⟨φ⟩ over all vertices.
+    pub fn mean_value(&self) -> f64 {
+        self.phi.iter().sum::<f64>() / self.len() as f64
+    }
+
+    /// Maximum value over all vertices.
+    pub fn max_value(&self) -> f64 {
+        self.phi.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    /// Minimum value over all vertices.
+    pub fn min_value(&self) -> f64 {
+        self.phi.iter().cloned().fold(f64::INFINITY, f64::min)
+    }
+
+    /// Variance Var[φ] = ⟨φ²⟩ - ⟨φ⟩².
+    pub fn variance(&self) -> f64 {
+        let mean = self.mean_value();
+        let mean_sq: f64 = self.phi.iter().map(|&p| p * p).sum::<f64>() / self.len() as f64;
+        (mean_sq - mean * mean).max(0.0)
+    }
+
+    /// Mean of |∇φ|² ≈ mean of [(Δ_x φ)² + (Δ_y φ)²] / (2 dx²).
+    ///
+    /// Approximated using centered differences.  Proportional to the CH
+    /// interfacial energy ∫ κ_l |∇φ|² d²x.
+    pub fn mean_gradient_sq(&self) -> f64 {
+        let mut sum = 0.0_f64;
+        let dx2 = self.dx * self.dx;
+        for i in 0..self.nx {
+            for j in 0..self.ny {
+                let kp = self.idx_i(i as i64 + 1, j as i64);
+                let km = self.idx_i(i as i64 - 1, j as i64);
+                let kpj = self.idx_i(i as i64, j as i64 + 1);
+                let kmj = self.idx_i(i as i64, j as i64 - 1);
+                let gx = (self.phi[kp] - self.phi[km]) / (2.0 * self.dx);
+                let gy = (self.phi[kpj] - self.phi[kmj]) / (2.0 * self.dx);
+                sum += gx * gx + gy * gy;
+            }
+        }
+        sum * dx2 / (self.len() as f64 * dx2) // = sum / len
+    }
+}
+
+impl VelocityField2D {
+    /// Upwind advection of a scalar field: returns u·∇φ at each vertex.
+    ///
+    /// Same upwind convention as [`VelocityField2D::advect`] for Q-tensors.
+    pub fn advect_scalar(&self, phi: &ScalarField2D) -> ScalarField2D {
+        assert_eq!(self.nx, phi.nx);
+        assert_eq!(self.ny, phi.ny);
+        let dx = self.dx;
+        let mut out = ScalarField2D::zeros(self.nx, self.ny, dx);
+        for i in 0..self.nx {
+            for j in 0..self.ny {
+                let k = self.idx(i, j);
+                let [vx, vy] = self.v[k];
+
+                let dpx = if vx >= 0.0 {
+                    let km = phi.idx_i(i as i64 - 1, j as i64);
+                    (phi.phi[k] - phi.phi[km]) / dx
+                } else {
+                    let kp = phi.idx_i(i as i64 + 1, j as i64);
+                    (phi.phi[kp] - phi.phi[k]) / dx
+                };
+
+                let dpy = if vy >= 0.0 {
+                    let km = phi.idx_i(i as i64, j as i64 - 1);
+                    (phi.phi[k] - phi.phi[km]) / dx
+                } else {
+                    let kp = phi.idx_i(i as i64, j as i64 + 1);
+                    (phi.phi[kp] - phi.phi[k]) / dx
+                };
+
+                out.phi[k] = vx * dpx + vy * dpy;
+            }
+        }
+        out
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -434,6 +614,49 @@ mod tests {
         for &[q1, q2] in &q.q {
             assert!(q1.abs() <= 0.01 + 1e-12);
             assert!(q2.abs() <= 0.01 + 1e-12);
+        }
+    }
+
+    // ── ScalarField2D ────────────────────────────────────────────────────────
+
+    #[test]
+    fn scalar_laplacian_of_constant_is_zero() {
+        let phi = ScalarField2D::uniform(8, 8, 1.0, 3.14);
+        let lap = phi.laplacian();
+        for &v in &lap.phi {
+            assert_abs_diff_eq!(v, 0.0, epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn scalar_mean_and_variance() {
+        // Uniform field: mean = val, variance = 0.
+        let phi = ScalarField2D::uniform(8, 8, 1.0, 2.5);
+        assert_abs_diff_eq!(phi.mean_value(), 2.5, epsilon = 1e-14);
+        assert_abs_diff_eq!(phi.variance(), 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn scalar_add_and_scale() {
+        let a = ScalarField2D::uniform(4, 4, 1.0, 1.0);
+        let b = ScalarField2D::uniform(4, 4, 1.0, 2.0);
+        let c = a.add(&b);
+        for &v in &c.phi {
+            assert_abs_diff_eq!(v, 3.0, epsilon = 1e-14);
+        }
+        let d = a.scale(5.0);
+        for &v in &d.phi {
+            assert_abs_diff_eq!(v, 5.0, epsilon = 1e-14);
+        }
+    }
+
+    #[test]
+    fn advect_scalar_by_zero_velocity_is_zero() {
+        let phi = ScalarField2D::uniform(8, 8, 1.0, 1.0);
+        let v = VelocityField2D::zeros(8, 8, 1.0);
+        let adv = v.advect_scalar(&phi);
+        for &val in &adv.phi {
+            assert_abs_diff_eq!(val, 0.0, epsilon = 1e-15);
         }
     }
 }
