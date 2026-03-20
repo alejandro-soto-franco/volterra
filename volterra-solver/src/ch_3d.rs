@@ -124,7 +124,7 @@ pub fn ch_step_etd_3d(
     let fft_y = planner.plan_fft_forward(ny);
     let fft_z = planner.plan_fft_forward(nz);
 
-    // Helper: apply 1D FFT along z (innermost), y, then x — same strides as stokes_3d.
+    // Helper: apply 1D FFT along z (innermost), y, then x (same strides as stokes_3d).
     for data in [&mut phi_hat, &mut g_hat] {
         // Along z (innermost/contiguous axis)
         for i in 0..nx {
@@ -281,7 +281,7 @@ mod tests {
     /// so the equation reduces to pure linear diffusion. In that case the
     /// DC Fourier mode is unchanged by both the ETD step (Euler with N̂=0)
     /// and the non-DC step (multiplied by exp(L dt) with L real and negative,
-    /// but the DC mode is skipped — it uses the Euler branch which gives
+    /// but the DC mode is skipped (it uses the Euler branch, which gives
     /// φ̂_new[DC] = φ̂[DC] + 0 = φ̂[DC]). The spatial mean equals
     /// φ̂[DC] / N, so it is exactly conserved.
     #[test]
