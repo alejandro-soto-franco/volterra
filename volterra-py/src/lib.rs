@@ -16,11 +16,15 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+mod bindings_3d;
+
 use volterra_core::MarsParams;
-use volterra_fields::{QField2D, VelocityField2D};
+use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
 use volterra_solver::{
-    DefectInfo, SnapStats,
+    BechStats, DefectInfo, SnapStats,
+    ch_step_etd,
     k0_convolution,
+    run_mars_bech,
     run_mars_component1,
     run_mars_component1_hydro,
     scan_defects,
@@ -42,7 +46,7 @@ pub struct PyMarsParams {
 impl PyMarsParams {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta, a_landau, c_landau, lambda_, k_l, gamma_l, xi_l, noise_amp=0.0))]
+    #[pyo3(signature = (nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta, a_landau, c_landau, lambda_, k_l, gamma_l, xi_l, noise_amp=0.0, chi_ms=0.5, kappa_ch=1.0, a_ch=1.0, b_ch=1.0, m_l=0.1))]
     fn new(
         nx: usize,
         ny: usize,
@@ -59,10 +63,16 @@ impl PyMarsParams {
         gamma_l: f64,
         xi_l: f64,
         noise_amp: f64,
+        chi_ms: f64,
+        kappa_ch: f64,
+        a_ch: f64,
+        b_ch: f64,
+        m_l: f64,
     ) -> PyResult<Self> {
         let p = MarsParams {
             nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta,
             a_landau, c_landau, lambda: lambda_, k_l, gamma_l, xi_l, noise_amp,
+            chi_ms, kappa_ch, a_ch, b_ch, m_l,
         };
         p.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: p })
@@ -96,9 +106,23 @@ impl PyMarsParams {
     #[setter] fn set_nx(&mut self, v: usize)      { self.inner.nx = v; }
     #[setter] fn set_ny(&mut self, v: usize)      { self.inner.ny = v; }
 
-    fn defect_length(&self) -> f64 { self.inner.defect_length() }
-    fn pi_number(&self) -> f64     { self.inner.pi_number() }
-    fn a_eff(&self) -> f64         { self.inner.a_eff() }
+    #[getter] fn chi_ms(&self) -> f64    { self.inner.chi_ms }
+    #[getter] fn kappa_ch(&self) -> f64  { self.inner.kappa_ch }
+    #[getter] fn a_ch(&self) -> f64      { self.inner.a_ch }
+    #[getter] fn b_ch(&self) -> f64      { self.inner.b_ch }
+    #[getter] fn m_l(&self) -> f64       { self.inner.m_l }
+
+    #[setter] fn set_chi_ms(&mut self, v: f64)   { self.inner.chi_ms = v; }
+    #[setter] fn set_kappa_ch(&mut self, v: f64) { self.inner.kappa_ch = v; }
+    #[setter] fn set_a_ch(&mut self, v: f64)     { self.inner.a_ch = v; }
+    #[setter] fn set_b_ch(&mut self, v: f64)     { self.inner.b_ch = v; }
+    #[setter] fn set_m_l(&mut self, v: f64)      { self.inner.m_l = v; }
+
+    fn defect_length(&self) -> f64       { self.inner.defect_length() }
+    fn pi_number(&self) -> f64           { self.inner.pi_number() }
+    fn a_eff(&self) -> f64               { self.inner.a_eff() }
+    fn ch_coherence_length(&self) -> f64 { self.inner.ch_coherence_length() }
+    fn phi_eq(&self) -> f64              { self.inner.phi_eq() }
 
     fn validate(&self) -> PyResult<()> {
         self.inner.validate().map_err(|e| PyValueError::new_err(e.to_string()))
@@ -379,6 +403,152 @@ fn stokes_solve_py(q: &PyQField2D, params: &PyMarsParams) -> PyVelocityField2D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PyScalarField2D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 2D scalar field φ(x,y) with numpy interop.
+///
+/// Used for the lipid volume fraction in the BECH simulation.
+/// numpy conversions use a 1D array of length nx*ny; reshape in Python to (nx, ny).
+#[pyclass(name = "ScalarField2D")]
+#[derive(Clone)]
+pub struct PyScalarField2D {
+    inner: ScalarField2D,
+}
+
+#[pymethods]
+impl PyScalarField2D {
+    #[staticmethod]
+    fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
+        Self { inner: ScalarField2D::zeros(nx, ny, dx) }
+    }
+
+    #[staticmethod]
+    fn uniform(nx: usize, ny: usize, dx: f64, val: f64) -> Self {
+        Self { inner: ScalarField2D::uniform(nx, ny, dx, val) }
+    }
+
+    /// Import from a 1D numpy array of length nx*ny.
+    #[staticmethod]
+    fn from_numpy(arr: numpy::PyReadonlyArray1<f64>, nx: usize, ny: usize, dx: f64) -> PyResult<Self> {
+        let view = arr.as_array();
+        if view.len() != nx * ny {
+            return Err(PyValueError::new_err(format!(
+                "expected length {}, got {}", nx * ny, view.len()
+            )));
+        }
+        let phi: Vec<f64> = view.iter().copied().collect();
+        Ok(Self { inner: ScalarField2D { phi, nx, ny, dx } })
+    }
+
+    /// Export as 1D numpy array of length nx*ny. Reshape in Python to (nx, ny).
+    fn to_numpy<'py>(&self, py: Python<'py>) -> Bound<'py, numpy::PyArray1<f64>> {
+        let arr = numpy::ndarray::Array1::from_vec(self.inner.phi.clone());
+        arr.into_pyarray(py)
+    }
+
+    #[getter] fn nx(&self) -> usize { self.inner.nx }
+    #[getter] fn ny(&self) -> usize { self.inner.ny }
+    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+
+    fn mean_value(&self) -> f64      { self.inner.mean_value() }
+    fn variance(&self) -> f64        { self.inner.variance() }
+    fn max_value(&self) -> f64       { self.inner.max_value() }
+    fn min_value(&self) -> f64       { self.inner.min_value() }
+    fn mean_gradient_sq(&self) -> f64 { self.inner.mean_gradient_sq() }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ScalarField2D(nx={}, ny={}, dx={:.3}, <φ>={:.4}, Var[φ]={:.4e})",
+            self.inner.nx, self.inner.ny, self.inner.dx,
+            self.inner.mean_value(), self.inner.variance(),
+        )
+    }
+
+    fn __len__(&self) -> usize { self.inner.len() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PyBechStats
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Per-snapshot statistics from a BECH (full two-field) simulation run.
+#[pyclass(name = "BechStats")]
+#[derive(Clone)]
+pub struct PyBechStats {
+    inner: BechStats,
+}
+
+#[pymethods]
+impl PyBechStats {
+    #[getter] fn time(&self)              -> f64   { self.inner.time }
+    #[getter] fn mean_s(&self)            -> f64   { self.inner.mean_s }
+    #[getter] fn n_defects(&self)         -> usize { self.inner.n_defects }
+    #[getter] fn n_plus(&self)            -> usize { self.inner.n_plus }
+    #[getter] fn n_minus(&self)           -> usize { self.inner.n_minus }
+    #[getter] fn defect_density(&self)    -> f64   { self.inner.defect_density }
+    #[getter] fn mean_phi(&self)          -> f64   { self.inner.mean_phi }
+    #[getter] fn phi_variance(&self)      -> f64   { self.inner.phi_variance }
+    #[getter] fn mean_grad_phi_sq(&self)  -> f64   { self.inner.mean_grad_phi_sq }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BechStats(t={:.3}, <S>={:.4}, n_def={}, <φ>={:.4}, Var[φ]={:.4e})",
+            self.inner.time, self.inner.mean_s,
+            self.inner.n_defects, self.inner.mean_phi, self.inner.phi_variance,
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BECH Python bindings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Run the full Beris-Edwards-Cahn-Hilliard (BECH) simulation.
+///
+/// Couples the active rotor Q-field (BE + Stokes) to the lyotropic lipid
+/// volume fraction φ_l (CH-ETD1 + Maier-Saupe).  See `run_mars_bech` in
+/// volterra-solver for the full algorithm description.
+///
+/// Returns `(QField2D, ScalarField2D, list[BechStats])`.
+#[pyfunction]
+#[pyo3(name = "run_mars_bech")]
+fn run_mars_bech_py(
+    q_init: &PyQField2D,
+    phi_init: &PyScalarField2D,
+    params: &PyMarsParams,
+    n_steps: usize,
+    snap_every: usize,
+) -> (PyQField2D, PyScalarField2D, Vec<PyBechStats>) {
+    let (q_fin, phi_fin, stats) = run_mars_bech(
+        &q_init.inner,
+        &phi_init.inner,
+        &params.inner,
+        n_steps,
+        snap_every,
+    );
+    let py_stats = stats.into_iter().map(|s| PyBechStats { inner: s }).collect();
+    (PyQField2D { inner: q_fin }, PyScalarField2D { inner: phi_fin }, py_stats)
+}
+
+/// Advance the CH field by one ETD1 step.
+///
+/// Useful for custom time-loop control from Python (e.g., alternating
+/// parameter sweeps or checkpointing at non-uniform intervals).
+#[pyfunction]
+#[pyo3(name = "ch_step_etd")]
+fn ch_step_etd_py(
+    phi: &PyScalarField2D,
+    q_lip: &PyQField2D,
+    v: &PyVelocityField2D,
+    params: &PyMarsParams,
+) -> PyScalarField2D {
+    PyScalarField2D {
+        inner: ch_step_etd(&phi.inner, &q_lip.inner, &v.inner, &params.inner),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Module
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -401,13 +571,18 @@ fn stokes_solve_py(q: &PyQField2D, params: &PyMarsParams) -> PyVelocityField2D {
 fn volterra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMarsParams>()?;
     m.add_class::<PyQField2D>()?;
+    m.add_class::<PyScalarField2D>()?;
     m.add_class::<PyVelocityField2D>()?;
     m.add_class::<PySnapStats>()?;
+    m.add_class::<PyBechStats>()?;
     m.add_class::<PyDefectInfo>()?;
     m.add_function(wrap_pyfunction!(run_mars_component1_py, m)?)?;
     m.add_function(wrap_pyfunction!(run_mars_component1_hydro_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_mars_bech_py, m)?)?;
     m.add_function(wrap_pyfunction!(stokes_solve_py, m)?)?;
     m.add_function(wrap_pyfunction!(k0_convolution_py, m)?)?;
     m.add_function(wrap_pyfunction!(scan_defects_py, m)?)?;
+    m.add_function(wrap_pyfunction!(ch_step_etd_py, m)?)?;
+    bindings_3d::register(m)?;
     Ok(())
 }
