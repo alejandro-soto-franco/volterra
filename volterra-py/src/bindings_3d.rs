@@ -77,6 +77,10 @@ impl PyMarsParams3D {
             noise_amp, chi_a, b0, omega_b,
             k_l, gamma_l, xi_l, chi_ms,
             kappa_ch, a_ch, b_ch, m_l,
+            c0_sp: 0.0,
+            kappa_w: 0.0,
+            kappa_bar_g: 0.0,
+            epsilon_ch: 1.0,
         };
         p.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: p })
