@@ -83,6 +83,9 @@ pub use ch_3d::ch_step_etd_3d;
 pub mod defects_3d;
 pub use defects_3d::{scan_defects_3d, track_defect_events};
 
+pub mod runner_3d;
+pub use runner_3d::{run_mars_3d, run_mars_3d_full, SnapStats3D, BechStats3D};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
