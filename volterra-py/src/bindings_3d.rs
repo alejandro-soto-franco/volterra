@@ -306,6 +306,9 @@ impl PyVelocityField3D {
         let ny = self.inner.ny;
         let nz = self.inner.nz;
         let mut arr = Array4::<f64>::zeros((nx, ny, nz, 3));
+        // VelocityField3D layout: k = (i*ny + j)*nz + l, so inverse is:
+        // l = k % nz, ij = k/nz, j = ij % ny, i = ij / ny.
+        // (VelocityField3D has no ijk() helper; this matches VelocityField3D::idx.)
         for k in 0..self.inner.u.len() {
             let l = k % nz;
             let ij = k / nz;
