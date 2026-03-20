@@ -66,6 +66,8 @@ pub fn beris_edwards_rhs_3d(
                         let dqdx = (q.q[ip][c] - q.q[im][c]) * inv_2dx;
                         let dqdy = (q.q[jp][c] - q.q[jm][c]) * inv_2dx;
                         let dqdz = (q.q[lp][c] - q.q[lm][c]) * inv_2dx;
+                        // S(W,Q) is purely vertex-local (no spatial stencil); s.q[k][c]
+                        // is indexed by the same k as the advection stencil above.
                         rhs.q[k][c] += -ux * dqdx - uy * dqdy - uz * dqdz + s.q[k][c];
                     }
                 }
@@ -107,6 +109,12 @@ impl EulerIntegrator3D {
 /// k4 = RHS(Q + dt   * k3)
 /// Q_new = Q + (dt/6) * (k1 + 2*k2 + 2*k3 + k4)
 /// ```
+///
+/// **Frozen-flow approximation:** when the RHS closure captures a fixed
+/// `VelocityField3D` (e.g. from a Stokes solve at the start of the time step),
+/// the velocity is held constant across all four RK4 stages. This is an
+/// operator-splitting approximation; the Stokes field should be updated between
+/// outer time steps, not within a single RK4 call.
 ///
 /// Noise injection is NOT performed here; apply separately if needed.
 pub struct RK4Integrator3D;
