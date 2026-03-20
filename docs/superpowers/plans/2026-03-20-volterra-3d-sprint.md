@@ -691,7 +691,8 @@ cd ~/volterra && cargo test -p volterra-solver mol_field_3d 2>&1 | grep "error" 
 //! Molecular field and co-rotation term for 3D active nematics.
 //!
 //! ## Molecular field
-//! H = K_r nabla^2 Q + (zeta_eff/2 - a) Q - 2c Tr(Q^2) Q + H_mag(t)
+//! H = K_r nabla^2 Q - a_eff Q - 2c Tr(Q^2) Q + H_mag(t)
+//! where a_eff = a_landau - zeta_eff/2 = (a - zeta_eff/2), so (zeta_eff/2 - a) = -a_eff.
 //!
 //! H_mag(t) = chi_a * b0^2 * [b_hat(t) otimes b_hat(t) - I/3]
 //! where b_hat(t) = (cos(omega_b t), sin(omega_b t), 0).
@@ -741,13 +742,16 @@ pub fn molecular_field_3d(q: &QField3D, p: &MarsParams3D, t: f64) -> QField3D {
         let q33 = -(q11 + q22);
         // Tr(Q^2) = Q_ij Q_ji = q11^2 + q22^2 + q33^2 + 2*q12^2 + 2*q13^2 + 2*q23^2
         let tr_q2 = q11*q11 + q22*q22 + q33*q33 + 2.0*(q12*q12 + q13*q13 + q23*q23);
-        // H = K_r nabla^2 Q + (-2 a_eff) Q - 2c Tr(Q^2) Q + H_mag
-        // a_eff = a_landau - zeta_eff/2; for the active turbulent phase a_eff < 0,
-        // so -2*a_eff > 0 (ordering term). c_landau is coefficient of (c/2)(Tr(Q^2))^2,
-        // so the derivative gives -2c Tr(Q^2) Q.
+        // H = K_r nabla^2 Q + (zeta_eff/2 - a) Q - 2c Tr(Q^2) Q + H_mag
+        //   = K_r nabla^2 Q - a_eff Q - 2c Tr(Q^2) Q + H_mag
+        // where a_eff = a_landau - zeta_eff/2.
+        // Derivation: f = (a/2)Tr(Q^2) + (c/2)(Tr(Q^2))^2; H = -df/dQ.
+        //   d[(a/2)Tr(Q^2)]/dQ = a*Q, so linear H contribution = -a*Q → with active shift: -(a-zeta_eff/2)*Q = -a_eff*Q.
+        //   d[(c/2)(Tr(Q^2))^2]/dQ = 2c*Tr(Q^2)*Q → contribution = -2c*Tr(Q^2)*Q.
+        // c_landau is the coefficient of (c/2)(Tr(Q^2))^2 in the free energy density (c here).
         for comp in 0..5 {
             out.q[k][comp] = k_r * lap.q[k][comp]
-                + (-2.0 * a_eff) * q.q[k][comp]
+                + (-a_eff) * q.q[k][comp]
                 - 2.0 * c * tr_q2 * q.q[k][comp]
                 + h_mag[comp];
         }
