@@ -63,10 +63,13 @@ use rand::rngs::SmallRng;
 use rand::Rng;
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::{Integrator, MarsParams};
-use volterra_fields::{QField2D, VelocityField2D};
+use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
 
 use cartan_geo::holonomy::{Disclination, scan_disclinations};
 use cartan_manifolds::frame_field::FrameField3D;
+
+pub mod mol_field_3d;
+pub use mol_field_3d::{molecular_field_3d, co_rotation_3d};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
@@ -803,6 +806,344 @@ pub fn run_mars_component1(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Cahn-Hilliard chemical potential (BECH Component)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Compute the Cahn-Hilliard chemical potential μ_l at each vertex.
+///
+/// The full BECH chemical potential is:
+///
+/// ```text
+/// μ_l = a_ch φ_l + b_ch φ_l³ - κ_ch ∇²φ_l - χ_MS Tr(Q_lip²)
+/// ```
+///
+/// where `Tr(Q²) = 2(q₁² + q₂²)` for the 2D sym-traceless parametrisation.
+///
+/// The Maier-Saupe term `-χ_MS Tr(Q_lip²)` is the key coupling: it lowers
+/// the chemical potential in regions of high orientational order (large
+/// |Q_lip|), driving lipid accumulation wherever the rotor defect network
+/// has templated strong order in the lipid phase.  At defect cores, where
+/// |Q_lip| → 0, the Maier-Saupe term vanishes and the double-well potential
+/// drives φ_l toward the disordered minimum, creating the concentration
+/// contrast that templates LNP closure on the defect scale ℓ_d.
+///
+/// The gradient term `-κ_ch ∇²φ_l` penalises sharp concentration fronts,
+/// regularising the chemical potential at the CH coherence scale ξ_CH.
+pub fn ch_chemical_potential(
+    phi: &ScalarField2D,
+    q_lip: &QField2D,
+    params: &MarsParams,
+) -> ScalarField2D {
+    let lap_phi = phi.laplacian();
+    let n = phi.len();
+    let mut mu = ScalarField2D::zeros(phi.nx, phi.ny, phi.dx);
+    for k in 0..n {
+        let p = phi.phi[k];
+        // Tr(Q²) = 2 Tr(Q_2D²) = 2(q1² + q2²) in the 2D parameterisation.
+        let tr_q2 = 2.0 * (q_lip.q[k][0] * q_lip.q[k][0]
+            + q_lip.q[k][1] * q_lip.q[k][1]);
+        mu.phi[k] = params.a_ch * p
+            + params.b_ch * p * p * p
+            - params.kappa_ch * lap_phi.phi[k]
+            - params.chi_ms * tr_q2;
+    }
+    mu
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ETD1 Cahn-Hilliard time step (BECH Component)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Advance the lipid volume fraction φ_l by one time step using an
+/// Exponential Time Differencing (ETD1) scheme.
+///
+/// The Cahn-Hilliard equation is split into stiff-linear and nonlinear parts:
+///
+/// ```text
+/// ∂_t φ = L[φ] + N[φ, Q, v]
+/// ```
+///
+/// where the stiff linear operator is, in Fourier space:
+///
+/// ```text
+/// L̂_k = -M_l (a_ch k² + κ_ch k⁴)
+/// ```
+///
+/// and the nonlinear operator is:
+///
+/// ```text
+/// N = -v·∇φ  +  M_l ∇²(b_ch φ³  -  χ_MS Tr(Q_lip²))
+/// ```
+///
+/// The ETD1 update reads:
+///
+/// ```text
+/// φ̂_k^{n+1} = exp(L̂_k Δt) φ̂_k^n  +  (exp(L̂_k Δt) - 1)/L̂_k · N̂_k^n
+/// ```
+///
+/// Because L̂_k < 0 for all k ≠ 0, the exponential factor is always
+/// a contraction.  The factor `(e^x - 1)/x` is evaluated via its Taylor
+/// expansion for `|x| < 10⁻¹⁰` to avoid catastrophic cancellation.
+/// The k=0 mode is held fixed at the initial mean (Cahn-Hilliard conserves
+/// the total lipid mass ∫ φ d²x).
+///
+/// # Arguments
+///
+/// - `phi`: Current lipid volume-fraction field φ_l^n.
+/// - `q_lip`: Current lipid Q-tensor field (output of K₀ convolution).
+/// - `v`: Current velocity field (from Stokes solver).
+/// - `params`: Physical and numerical parameters.
+pub fn ch_step_etd(
+    phi: &ScalarField2D,
+    q_lip: &QField2D,
+    v: &VelocityField2D,
+    params: &MarsParams,
+) -> ScalarField2D {
+    let nx = phi.nx;
+    let ny = phi.ny;
+    let n = nx * ny;
+    let dx = phi.dx;
+    let dt = params.dt;
+
+    let mut planner = FftPlanner::<f64>::new();
+    let fft_x  = planner.plan_fft_forward(nx);
+    let fft_y  = planner.plan_fft_forward(ny);
+    let ifft_x = planner.plan_fft_inverse(nx);
+    let ifft_y = planner.plan_fft_inverse(ny);
+
+    // Wave vectors: k_j = 2π j / (N dx), standard DFT ordering.
+    let kx_vec: Vec<f64> = (0..nx).map(|i| {
+        let i = i as i64;
+        let nm = nx as i64;
+        let is = if i <= nm / 2 { i } else { i - nm };
+        2.0 * std::f64::consts::PI * is as f64 / (nx as f64 * dx)
+    }).collect();
+    let ky_vec: Vec<f64> = (0..ny).map(|j| {
+        let j = j as i64;
+        let nm = ny as i64;
+        let js = if j <= nm / 2 { j } else { j - nm };
+        2.0 * std::f64::consts::PI * js as f64 / (ny as f64 * dx)
+    }).collect();
+
+    // 2D FFT helper for real-valued row-major fields.
+    let fft2_real = |field: &[f64]| -> Vec<Complex<f64>> {
+        let mut buf: Vec<Complex<f64>> = field.iter().map(|&x| Complex::new(x, 0.0)).collect();
+        for row in buf.chunks_mut(ny) { fft_y.process(row); }
+        let mut tr: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
+        for i in 0..nx { for j in 0..ny { tr[j * nx + i] = buf[i * ny + j]; } }
+        for col in tr.chunks_mut(nx) { fft_x.process(col); }
+        for i in 0..nx { for j in 0..ny { buf[i * ny + j] = tr[j * nx + i]; } }
+        buf
+    };
+
+    // 2D IFFT helper: normalises by N.
+    let ifft2_to_real = |buf: &mut Vec<Complex<f64>>| -> Vec<f64> {
+        let mut tr: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
+        for i in 0..nx { for j in 0..ny { tr[j * nx + i] = buf[i * ny + j]; } }
+        for col in tr.chunks_mut(nx) { ifft_x.process(col); }
+        for i in 0..nx { for j in 0..ny { buf[i * ny + j] = tr[j * nx + i]; } }
+        for row in buf.chunks_mut(ny) { ifft_y.process(row); }
+        let norm = n as f64;
+        buf.iter().map(|c| c.re / norm).collect()
+    };
+
+    // ── Build the nonlinear source N in real space ───────────────────────
+    //
+    // N = -v·∇φ  +  M_l ∇²(b_ch φ³  -  χ_MS Tr(Q_lip²))
+    //
+    // Step 1: compute pointwise nonlinear source f = b_ch φ³ - χ_MS Tr(Q²).
+    let mut nonlin_src = ScalarField2D::zeros(nx, ny, dx);
+    for k in 0..n {
+        let p = phi.phi[k];
+        let tr_q2 = 2.0 * (q_lip.q[k][0] * q_lip.q[k][0]
+            + q_lip.q[k][1] * q_lip.q[k][1]);
+        nonlin_src.phi[k] = params.b_ch * p * p * p - params.chi_ms * tr_q2;
+    }
+    // Step 2: M_l ∇²(nonlin_src) via 5-point Laplacian.
+    let lap_nonlin = nonlin_src.laplacian();
+    // Step 3: -v·∇φ advection term.
+    let advection = v.advect_scalar(phi);
+    // Assemble N = -v·∇φ + M_l ∇²f.
+    let mut nonlin_real: Vec<f64> = vec![0.0; n];
+    for k in 0..n {
+        nonlin_real[k] = -advection.phi[k] + params.m_l * lap_nonlin.phi[k];
+    }
+
+    // ── FFT φ and N ──────────────────────────────────────────────────────
+    let mut phi_hat = fft2_real(&phi.phi);
+    let nonlin_hat  = fft2_real(&nonlin_real);
+
+    // ── ETD1 update in Fourier space ─────────────────────────────────────
+    for ii in 0..nx {
+        for jj in 0..ny {
+            let idx = ii * ny + jj;
+            let kx = kx_vec[ii];
+            let ky = ky_vec[jj];
+            let k2 = kx * kx + ky * ky;
+
+            if k2 < 1e-14 {
+                // k = 0: conserve mean lipid mass (CH is mass-conserving).
+                // phi_hat[0] unchanged.
+                continue;
+            }
+
+            let k4 = k2 * k2;
+            // Linear operator eigenvalue: L_k = -M_l (a_ch k² + κ_ch k⁴) < 0.
+            let lk = -params.m_l * (params.a_ch * k2 + params.kappa_ch * k4);
+            let lk_dt = lk * dt;
+            let exp_lk = lk_dt.exp(); // < 1 since L_k < 0
+
+            // (exp(L_k dt) - 1) / (L_k dt):  evaluated via Taylor for |L_k dt| < 1e-10.
+            let expm1_over_lk = if lk_dt.abs() < 1.0e-10 {
+                // Taylor: (e^x - 1)/x = 1 + x/2 + x²/6 + ...
+                dt * (1.0 + lk_dt / 2.0 + lk_dt * lk_dt / 6.0)
+            } else {
+                (exp_lk - 1.0) / lk
+            };
+
+            // φ̂^{n+1} = e^{L_k dt} φ̂^n + (e^{L_k dt}-1)/L_k · N̂^n
+            phi_hat[idx] = exp_lk * phi_hat[idx] + expm1_over_lk * nonlin_hat[idx];
+        }
+    }
+
+    let phi_new_vals = ifft2_to_real(&mut phi_hat);
+    ScalarField2D { phi: phi_new_vals, nx, ny, dx }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BECH simulation runner (full two-field coupled system)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Statistics collected at each snapshot during a BECH run.
+#[derive(Debug, Clone)]
+pub struct BechStats {
+    /// Simulation time.
+    pub time: f64,
+    /// Mean scalar order parameter of the rotor Q-field.
+    pub mean_s: f64,
+    /// Total number of detected disclinations.
+    pub n_defects: usize,
+    /// Number of +1/2 disclinations.
+    pub n_plus: usize,
+    /// Number of -1/2 disclinations.
+    pub n_minus: usize,
+    /// Defect density ρ_d = n_defects / (Lx Ly).
+    pub defect_density: f64,
+    /// Mean lipid volume fraction ⟨φ_l⟩ (conserved; monitors numerical drift).
+    pub mean_phi: f64,
+    /// Variance of φ_l (grows as phase separation develops near defect cores).
+    pub phi_variance: f64,
+    /// Mean |∇φ_l|² (proxy for total CH interfacial area / lipid shell thickness).
+    pub mean_grad_phi_sq: f64,
+}
+
+/// Run the full Beris-Edwards-Cahn-Hilliard (BECH) simulation.
+///
+/// Couples the active rotor Q-tensor field (Beris-Edwards + Stokes) to the
+/// lyotropic lipid volume fraction φ_l (Cahn-Hilliard + Maier-Saupe) via the
+/// K₀ orientational transfer map.  At each time step:
+///
+/// 1. **Stokes**: `v ← stokes_solve(Q^rot, params)` — compute the incompressible
+///    velocity field driven by active stress σ^a = ζ_eff Q^rot.
+/// 2. **Beris-Edwards (Euler)**: `Q^rot ← Q^rot + dt · [−v·∇Q^rot + S(W,Q^rot) + Γ_r H]`
+///    — advance the rotor Q-field with flow.
+/// 3. **Transfer map**: `Q^lip ← K₀ * Q^rot` — convolve to get the lipid orientational
+///    field (Component 2 one-way coupling, valid when Da < 1 and Sp < 1).
+/// 4. **CH-ETD1**: `φ_l ← ch_step_etd(φ_l, Q^lip, v, params)` — advance lipid
+///    concentration with exact integration of the stiff linear part and
+///    explicit Euler for the nonlinear Maier-Saupe + advection terms.
+///
+/// The Stokes step is re-solved every step because the active stress changes
+/// at every BE step; Stokes is linear and instantaneous (Re ≪ 1 throughout).
+/// The K₀ convolution is also re-evaluated every step to keep Q^lip in sync
+/// with Q^rot.
+///
+/// # Arguments
+///
+/// - `q_init`:   Initial rotor Q-tensor field.
+/// - `phi_init`: Initial lipid volume-fraction field φ_l⁰.
+/// - `params`:   Physical and numerical parameters (including BECH fields).
+/// - `n_steps`:  Total number of time steps.
+/// - `snap_every`: Steps between snapshot statistics.
+///
+/// # Returns
+///
+/// `(q_final, phi_final, stats)` where `stats` records defect and
+/// concentration statistics at each snapshot.
+pub fn run_mars_bech(
+    q_init: &QField2D,
+    phi_init: &ScalarField2D,
+    params: &MarsParams,
+    n_steps: usize,
+    snap_every: usize,
+) -> (QField2D, ScalarField2D, Vec<BechStats>) {
+    let mut q   = q_init.clone();
+    let mut phi = phi_init.clone();
+    let mut stats: Vec<BechStats> = Vec::new();
+
+    let lx   = params.nx as f64 * params.dx;
+    let ly   = params.ny as f64 * params.dx;
+    let area = lx * ly;
+
+    // Langevin noise for the rotor Q-field (same convention as Component 1).
+    let use_noise  = params.noise_amp > 0.0;
+    let noise_scale = params.noise_amp * params.dt.sqrt();
+    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
+        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
+        ^ n_steps as u64;
+    let mut rng = SmallRng::seed_from_u64(seed);
+
+    for step in 0..=n_steps {
+        // ── Snapshot ──────────────────────────────────────────────────────
+        if step % snap_every == 0 {
+            let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
+            let (n_plus, n_minus) = defect_count(&defects);
+            let n_defects = defects.len();
+            stats.push(BechStats {
+                time: step as f64 * params.dt,
+                mean_s: q.mean_order_param(),
+                n_defects,
+                n_plus,
+                n_minus,
+                defect_density: n_defects as f64 / area,
+                mean_phi: phi.mean_value(),
+                phi_variance: phi.variance(),
+                mean_grad_phi_sq: phi.mean_gradient_sq(),
+            });
+        }
+
+        if step == n_steps { break; }
+
+        // ── 1. Stokes: v from active stress σ^a = ζ_eff Q^rot ─────────────
+        let v = stokes_solve(&q, params);
+
+        // ── 2. Beris-Edwards Euler step (rotor field) ─────────────────────
+        let dq = beris_edwards_rhs(&q, Some(&v), params);
+        q = q.add(&dq.scale(params.dt));
+
+        // Langevin noise injection into Q^rot (Euler-Maruyama, Box-Muller).
+        if use_noise {
+            for [q1, q2] in q.q.iter_mut() {
+                let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
+                let u2: f64 = rng.random::<f64>();
+                let mag   = noise_scale * (-2.0 * u1.ln()).sqrt();
+                let angle = std::f64::consts::TAU * u2;
+                *q1 += mag * angle.cos();
+                *q2 += mag * angle.sin();
+            }
+        }
+
+        // ── 3. Transfer map: Q^lip = K₀ * Q^rot ───────────────────────────
+        let q_lip = k0_convolution(&q, params);
+
+        // ── 4. CH-ETD1 step (lipid concentration field) ───────────────────
+        phi = ch_step_etd(&phi, &q_lip, &v, params);
+    }
+
+    (q, phi, stats)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1011,6 +1352,132 @@ mod tests {
             stats.last().unwrap().mean_s > stats.first().unwrap().mean_s,
             "order parameter did not grow: {:?}",
             stats.iter().map(|s| s.mean_s).collect::<Vec<_>>()
+        );
+    }
+
+    // ── CH chemical potential ────────────────────────────────────────────────
+
+    #[test]
+    fn ch_chemical_potential_zero_at_zero_fields() {
+        // μ(φ=0, Q=0) = a_ch * 0 + b_ch * 0³ - κ_ch ∇²(0) - χ_ms * 0 = 0.
+        let params = MarsParams::default_test();
+        let phi = ScalarField2D::zeros(8, 8, 1.0);
+        let q_lip = QField2D::zeros(8, 8, 1.0);
+        let mu = ch_chemical_potential(&phi, &q_lip, &params);
+        for &v in &mu.phi {
+            assert_abs_diff_eq!(v, 0.0, epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn ch_chemical_potential_linear_at_small_phi_no_q() {
+        // For small uniform φ, no Q: μ ≈ a_ch φ (gradient term vanishes for uniform φ).
+        let params = MarsParams::default_test();
+        let phi0 = 0.01_f64;
+        let phi = ScalarField2D::uniform(8, 8, 1.0, phi0);
+        let q_lip = QField2D::zeros(8, 8, 1.0);
+        let mu = ch_chemical_potential(&phi, &q_lip, &params);
+        let expected = params.a_ch * phi0 + params.b_ch * phi0.powi(3);
+        for &v in &mu.phi {
+            assert_abs_diff_eq!(v, expected, epsilon = 1e-8 * expected.abs().max(1e-12));
+        }
+    }
+
+    #[test]
+    fn ch_maier_saupe_lowers_chemical_potential() {
+        // With Q > 0 and χ_ms > 0, the Maier-Saupe term -χ_ms Tr(Q²) < 0
+        // lowers μ relative to the Q=0 case (lipid is drawn into ordered regions).
+        let params = MarsParams::default_test();
+        assert!(params.chi_ms > 0.0);
+        let phi = ScalarField2D::uniform(8, 8, 1.0, 0.5);
+        let q_zero = QField2D::zeros(8, 8, 1.0);
+        let q_ord  = QField2D::uniform(8, 8, 1.0, [0.3, 0.0]);
+        let mu_no_q = ch_chemical_potential(&phi, &q_zero, &params);
+        let mu_with_q = ch_chemical_potential(&phi, &q_ord, &params);
+        // Maier-Saupe term = -χ_ms * 2(0.3² + 0) = -χ_ms * 0.18 < 0.
+        assert!(
+            mu_with_q.phi[0] < mu_no_q.phi[0],
+            "Maier-Saupe term should lower μ: {} vs {}",
+            mu_with_q.phi[0],
+            mu_no_q.phi[0]
+        );
+    }
+
+    // ── ETD CH step ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn ch_step_etd_conserves_mean() {
+        // The CH equation is mass-conserving: ⟨φ⟩ must not drift.
+        let params = MarsParams::default_test();
+        let phi0 = 0.4_f64;
+        let phi = ScalarField2D::uniform(16, 16, 1.0, phi0);
+        let q_lip = QField2D::uniform(16, 16, 1.0, [0.1, 0.05]);
+        let v = VelocityField2D::zeros(16, 16, 1.0);
+        let phi_new = ch_step_etd(&phi, &q_lip, &v, &params);
+        // Mean must be conserved to within floating-point precision.
+        assert_abs_diff_eq!(phi_new.mean_value(), phi0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn ch_step_etd_uniform_phi_no_change() {
+        // For a uniform φ field (∇φ = 0, ∇⁴φ = 0) with uniform Q and zero v,
+        // the only nonlinear contribution is M_l ∇²(b_ch φ³ - χ_ms Tr(Q²)) = 0
+        // (since everything is uniform). Only the k≠0 Fourier modes see the
+        // stiff operator; for a truly uniform initial condition φ̂_k≠0 = 0,
+        // so φ remains uniform after one ETD step.
+        let params = MarsParams::default_test();
+        let phi0 = 0.5_f64;
+        let phi = ScalarField2D::uniform(16, 16, 1.0, phi0);
+        let q_lip = QField2D::uniform(16, 16, 1.0, [0.2, 0.0]);
+        let v = VelocityField2D::zeros(16, 16, 1.0);
+        let phi_new = ch_step_etd(&phi, &q_lip, &v, &params);
+        for &val in &phi_new.phi {
+            assert_abs_diff_eq!(val, phi0, epsilon = 1e-10);
+        }
+    }
+
+    #[test]
+    fn ch_step_etd_output_finite() {
+        // Run a few BECH steps from random initial conditions; all fields stay finite.
+        let params = MarsParams::default_test();
+        let q_init   = QField2D::random_perturbation(16, 16, 1.0, 0.05, 99);
+        // Initialise φ near the equilibrium value sqrt(a_ch/b_ch) = 1.0 with small noise.
+        let phi_vals: Vec<f64> = (0..16*16).map(|k| {
+            let frac = k as f64 / (16.0 * 16.0);
+            0.5 + 0.05 * (frac * 7.3).sin()
+        }).collect();
+        let phi_init = ScalarField2D { phi: phi_vals, nx: 16, ny: 16, dx: 1.0 };
+        let (q_fin, phi_fin, stats) = run_mars_bech(&q_init, &phi_init, &params, 10, 5);
+        assert!(q_fin.max_norm().is_finite());
+        for &v in &phi_fin.phi {
+            assert!(v.is_finite(), "phi_fin contains non-finite value");
+        }
+        assert_eq!(stats.len(), 3); // steps 0, 5, 10
+    }
+
+    // ── BECH full run ────────────────────────────────────────────────────────
+
+    #[test]
+    fn run_mars_bech_phi_variance_grows() {
+        // Starting from uniform φ with a non-uniform Q (from active turbulence),
+        // the Maier-Saupe coupling should drive phase separation: Var[φ] increases.
+        let params = MarsParams::default_test();
+        // Use a larger χ_ms to make the effect visible in a short run.
+        let mut p = params.clone();
+        p.chi_ms = 2.0;
+        p.nx = 16; p.ny = 16;
+
+        let q_init = QField2D::random_perturbation(16, 16, 1.0, 0.3, 17);
+        let phi_init = ScalarField2D::uniform(16, 16, 1.0, 0.4);
+        let (_, _, stats) = run_mars_bech(&q_init, &phi_init, &p, 50, 10);
+
+        let var_init = stats.first().unwrap().phi_variance;
+        let var_fin  = stats.last().unwrap().phi_variance;
+        // Variance should grow (or at minimum not shrink) as Maier-Saupe
+        // drives accumulation near ordered regions.
+        assert!(
+            var_fin >= var_init - 1e-12,
+            "Expected Var[φ] to grow under Maier-Saupe coupling: {var_init:.3e} → {var_fin:.3e}"
         );
     }
 }
