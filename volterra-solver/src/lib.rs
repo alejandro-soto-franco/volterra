@@ -77,6 +77,9 @@ pub use beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D, RK4Integrator3D};
 pub mod stokes_3d;
 pub use stokes_3d::stokes_solve_3d;
 
+pub mod ch_3d;
+pub use ch_3d::ch_step_etd_3d;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
