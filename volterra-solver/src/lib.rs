@@ -74,6 +74,9 @@ pub use mol_field_3d::{molecular_field_3d, co_rotation_3d};
 pub mod beris_3d;
 pub use beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D, RK4Integrator3D};
 
+pub mod stokes_3d;
+pub use stokes_3d::stokes_solve_3d;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
