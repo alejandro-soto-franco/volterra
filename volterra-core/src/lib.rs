@@ -109,6 +109,40 @@ pub struct MarsParams {
     /// Lipid coupling length ξ_l (range of the K₀ response kernel).
     /// Determines LNP radius: R_LNP ~ ℓ_d = sqrt(K_r / zeta_eff).
     pub xi_l: f64,
+
+    // ── Cahn-Hilliard / Maier-Saupe (BECH: full two-field coupling) ───────
+    /// Maier-Saupe coupling constant χ_MS (dimensionless in simulation units).
+    ///
+    /// Drives lipid accumulation in regions of high orientational order:
+    /// f_MS = -χ_MS φ_l Tr(Q_lip²).  A positive χ_MS > 0 is required for
+    /// the orientational-concentration coupling to template LNP nucleation.
+    pub chi_ms: f64,
+    /// Cahn-Hilliard gradient energy coefficient κ_l (simulation units of K_r dx²).
+    ///
+    /// Controls the CH coherence length ξ_CH = sqrt(κ_l / a_ch) at which
+    /// the gradient penalty balances the bulk driving.  At physical scale
+    /// ξ_CH ~ 1--5 nm, far below ℓ_d ~ 50--200 nm, justifying the UCA as
+    /// a leading-order approximation when the BECH is not run.
+    pub kappa_ch: f64,
+    /// CH bulk quadratic coefficient a_l > 0.
+    ///
+    /// In the double-well free energy F^CH = a_l φ²/2 + b_l φ⁴/4, a_l sets
+    /// the curvature at the disordered minimum φ = 0.  Together with b_l it
+    /// gives the equilibrium lipid fraction φ_eq = sqrt(a_l / b_l).
+    pub a_ch: f64,
+    /// CH bulk quartic coefficient b_l > 0.
+    ///
+    /// Stabilises large |φ_l| against unbounded growth.  With a_ch, gives
+    /// φ_eq = sqrt(a_ch / b_ch) and interfacial width ~ ξ_CH = sqrt(κ_ch / a_ch).
+    pub b_ch: f64,
+    /// Cahn-Hilliard mobility M_l > 0.
+    ///
+    /// Sets the timescale τ_CH = ξ_CH² / (M_l a_ch) for concentration
+    /// relaxation.  The stability criterion for the ETD integrator requires
+    /// M_l κ_ch k_max⁴ Δt < 1 (automatically satisfied for the stiff
+    /// exponential integrator; the explicit Euler limit would require
+    /// Δt < 1/(M_l κ_ch k_max⁴)).
+    pub m_l: f64,
 }
 
 impl MarsParams {
@@ -131,6 +165,24 @@ impl MarsParams {
     /// When a_eff < 0 the system is in the active turbulent (defect-laden) phase.
     pub fn a_eff(&self) -> f64 {
         self.a_landau - self.zeta_eff / 2.0
+    }
+
+    /// Cahn-Hilliard coherence length ξ_CH = sqrt(κ_ch / a_ch).
+    ///
+    /// At physical scale ξ_CH ~ 1--5 nm, far below the defect length
+    /// ℓ_d ~ 50--200 nm, which justifies the Uniform Concentration
+    /// Approximation (UCA) as a leading-order limit of the full BECH.
+    pub fn ch_coherence_length(&self) -> f64 {
+        (self.kappa_ch / self.a_ch).sqrt()
+    }
+
+    /// Equilibrium lipid fraction φ_eq = sqrt(a_ch / b_ch).
+    ///
+    /// The double-well free energy F^CH = a_ch φ²/2 + b_ch φ⁴/4 has minima
+    /// at φ = 0 and φ = φ_eq; the system phase-separates toward φ_eq in
+    /// regions of strong Maier-Saupe coupling.
+    pub fn phi_eq(&self) -> f64 {
+        (self.a_ch / self.b_ch).sqrt()
     }
 
     /// Validate that parameters are physically reasonable.
@@ -168,6 +220,21 @@ impl MarsParams {
         if self.noise_amp < 0.0 {
             return Err(VError::InvalidParams("noise_amp must be non-negative".into()));
         }
+        if self.chi_ms < 0.0 {
+            return Err(VError::InvalidParams("chi_ms must be non-negative".into()));
+        }
+        if self.kappa_ch <= 0.0 {
+            return Err(VError::InvalidParams("kappa_ch must be positive".into()));
+        }
+        if self.a_ch <= 0.0 {
+            return Err(VError::InvalidParams("a_ch must be positive".into()));
+        }
+        if self.b_ch <= 0.0 {
+            return Err(VError::InvalidParams("b_ch must be positive".into()));
+        }
+        if self.m_l <= 0.0 {
+            return Err(VError::InvalidParams("m_l must be positive".into()));
+        }
         Ok(())
     }
 
@@ -175,6 +242,12 @@ impl MarsParams {
     ///
     /// Grid: 64x64, dx=1.0, dt=0.01.
     /// Physics: K_r=1, Γ_r=1, ζ_eff=2 (active turbulent), η=1.
+    ///
+    /// CH parameters are set to physically plausible dimensionless values:
+    /// χ_MS=0.5, κ_ch=1.0, a_ch=1.0, b_ch=1.0 (φ_eq = 1.0), M_l=0.1.
+    /// The CH coherence length ξ_CH = sqrt(κ_ch/a_ch) = 1.0 (one grid cell),
+    /// which is << ℓ_d = sqrt(K_r/ζ_eff) = 0.71 in the default active state,
+    /// consistent with the UCA scale-separation argument.
     pub fn default_test() -> Self {
         Self {
             nx: 64,
@@ -192,6 +265,181 @@ impl MarsParams {
             k_l: 0.5,
             gamma_l: 1.0,
             xi_l: 5.0,
+            chi_ms: 0.5,
+            kappa_ch: 1.0,
+            a_ch: 1.0,
+            b_ch: 1.0,
+            m_l: 0.1,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3D Parameters
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// All physical and numerical parameters for the 3D MARS + lipid simulation.
+///
+/// ## Symbol conventions
+///
+/// `lambda` in this struct is the flow-alignment parameter xi from Jeffery orbit
+/// theory (eq. xi_flow in the paper): xi = (r^2-1)/(r^2+1). Named `lambda` in
+/// the struct to match the MarsParams convention; used as `xi` in all physics docs.
+///
+/// `chi_a` encodes mu_0 * Delta_chi / 2 (SI). The magnetic torque molecular field
+/// H_mag = chi_a * b0^2 * [...]. Do NOT multiply by gamma_r inside molecular_field_3d;
+/// the single Gamma_r multiplication occurs in beris_edwards_rhs_3d.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarsParams3D {
+    pub nx: usize,
+    pub ny: usize,
+    pub nz: usize,
+    pub dx: f64,
+    pub dt: f64,
+    pub k_r: f64,
+    pub gamma_r: f64,
+    pub zeta_eff: f64,
+    pub eta: f64,
+    pub a_landau: f64,
+    pub c_landau: f64,
+    pub b_landau: f64,
+    pub lambda: f64,
+    pub noise_amp: f64,
+    pub chi_a: f64,
+    pub b0: f64,
+    pub omega_b: f64,
+    pub k_l: f64,
+    pub gamma_l: f64,
+    pub xi_l: f64,
+    pub chi_ms: f64,
+    pub kappa_ch: f64,
+    pub a_ch: f64,
+    pub b_ch: f64,
+    pub m_l: f64,
+}
+
+impl MarsParams3D {
+    /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
+    pub fn defect_length(&self) -> f64 {
+        (self.k_r / self.zeta_eff).sqrt()
+    }
+
+    /// Dimensionless existence condition Π = K_r / (Γ_l η K_l).
+    pub fn pi_number(&self) -> f64 {
+        self.k_r / (self.gamma_l * self.eta * self.k_l)
+    }
+
+    /// Effective Landau parameter a_eff = a_landau - zeta_eff / 2.
+    pub fn a_eff(&self) -> f64 {
+        self.a_landau - self.zeta_eff / 2.0
+    }
+
+    /// Cahn-Hilliard coherence length ξ_CH = sqrt(κ_ch / a_ch).
+    pub fn ch_coherence_length(&self) -> f64 {
+        (self.kappa_ch / self.a_ch).sqrt()
+    }
+
+    /// Equilibrium lipid fraction φ_eq = sqrt(a_ch / b_ch).
+    pub fn phi_eq(&self) -> f64 {
+        (self.a_ch / self.b_ch).sqrt()
+    }
+
+    /// Validate that parameters are physically reasonable.
+    pub fn validate(&self) -> Result<(), VError> {
+        if self.nx < 2 {
+            return Err(VError::InvalidParams("nx must be >= 2".into()));
+        }
+        if self.ny < 2 {
+            return Err(VError::InvalidParams("ny must be >= 2".into()));
+        }
+        if self.nz < 2 {
+            return Err(VError::InvalidParams("nz must be >= 2".into()));
+        }
+        if self.dx <= 0.0 {
+            return Err(VError::InvalidParams("dx must be positive".into()));
+        }
+        if self.dt <= 0.0 {
+            return Err(VError::InvalidParams("dt must be positive".into()));
+        }
+        if self.k_r <= 0.0 {
+            return Err(VError::InvalidParams("k_r must be positive".into()));
+        }
+        if self.gamma_r <= 0.0 {
+            return Err(VError::InvalidParams("gamma_r must be positive".into()));
+        }
+        if self.zeta_eff < 0.0 {
+            return Err(VError::InvalidParams("zeta_eff must be non-negative".into()));
+        }
+        if self.eta <= 0.0 {
+            return Err(VError::InvalidParams("eta must be positive".into()));
+        }
+        if self.c_landau <= 0.0 {
+            return Err(VError::InvalidParams("c_landau must be positive".into()));
+        }
+        if self.noise_amp < 0.0 {
+            return Err(VError::InvalidParams("noise_amp must be non-negative".into()));
+        }
+        if self.chi_a < 0.0 {
+            return Err(VError::InvalidParams("chi_a must be non-negative".into()));
+        }
+        if self.b0 < 0.0 {
+            return Err(VError::InvalidParams("b0 must be non-negative".into()));
+        }
+        if self.k_l <= 0.0 {
+            return Err(VError::InvalidParams("k_l must be positive".into()));
+        }
+        if self.gamma_l <= 0.0 {
+            return Err(VError::InvalidParams("gamma_l must be positive".into()));
+        }
+        if self.xi_l <= 0.0 {
+            return Err(VError::InvalidParams("xi_l must be positive".into()));
+        }
+        if self.chi_ms < 0.0 {
+            return Err(VError::InvalidParams("chi_ms must be non-negative".into()));
+        }
+        if self.kappa_ch <= 0.0 {
+            return Err(VError::InvalidParams("kappa_ch must be positive".into()));
+        }
+        if self.a_ch <= 0.0 {
+            return Err(VError::InvalidParams("a_ch must be positive".into()));
+        }
+        if self.b_ch <= 0.0 {
+            return Err(VError::InvalidParams("b_ch must be positive".into()));
+        }
+        if self.m_l <= 0.0 {
+            return Err(VError::InvalidParams("m_l must be positive".into()));
+        }
+        Ok(())
+    }
+
+    /// Default parameter set for testing: 16x16x16 grid, active turbulent phase.
+    pub fn default_test() -> Self {
+        Self {
+            nx: 16,
+            ny: 16,
+            nz: 16,
+            dx: 1.0,
+            dt: 0.01,
+            k_r: 1.0,
+            gamma_r: 1.0,
+            zeta_eff: 2.0,
+            eta: 1.0,
+            a_landau: -0.5,
+            c_landau: 4.5,
+            b_landau: 0.0,
+            lambda: 0.95,
+            noise_amp: 0.0,
+            chi_a: 0.0,
+            b0: 1.0,
+            omega_b: 1.0,
+            k_l: 0.5,
+            gamma_l: 1.0,
+            xi_l: 5.0,
+            chi_ms: 0.5,
+            kappa_ch: 1.0,
+            a_ch: 1.0,
+            b_ch: 1.0,
+            m_l: 0.1,
         }
     }
 }
@@ -217,6 +465,33 @@ pub trait Integrator<S> {
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests_3d {
+    use super::*;
+
+    #[test]
+    fn test_mars_params_3d_validate_ok() {
+        let p = MarsParams3D::default_test();
+        assert!(p.validate().is_ok());
+    }
+
+    #[test]
+    fn test_mars_params_3d_defect_length() {
+        let p = MarsParams3D::default_test();
+        let ld = p.defect_length();
+        assert!(ld > 0.0, "defect_length must be positive");
+        // ld = sqrt(k_r / zeta_eff) = sqrt(1/2) ~ 0.707
+        assert!((ld - (0.5f64).sqrt()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mars_params_3d_invalid_nz() {
+        let mut p = MarsParams3D::default_test();
+        p.nz = 0;
+        assert!(p.validate().is_err());
+    }
+}
 
 #[cfg(test)]
 mod tests {
