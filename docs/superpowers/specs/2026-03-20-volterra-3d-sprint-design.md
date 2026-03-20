@@ -32,8 +32,8 @@ Add `MarsParams3D` alongside `MarsParams` (2D). New fields:
 - `nz: usize` (grid depth)
 - `b_landau: f64` — cubic LdG coefficient b/3 Tr(Q^3); default 0.0 (uniaxial runs),
   nonzero for biaxial extension
-- `chi_b: f64` — biaxial susceptibility; default 0.0
 - `chi_a: f64` — magnetic susceptibility anisotropy (dimensionless)
+  (chi_b biaxial susceptibility deferred to Q8 sprint)
 - `b0: f64` — applied field magnitude
 - `omega_b: f64` — field rotation frequency
 
@@ -82,18 +82,26 @@ New 3D functions alongside existing 2D functions. No existing symbols modified.
 - Returns total H = H_elastic + H_active + H_mag
 
 `co_rotation_3d(w, q, lambda) -> QField3D`
-- S(W,Q) = lambda(DQ + QD) - (OmegaQ - QOmega) - lambda Tr(DQ) I
+- S(W,Q) = lambda(DQ + QD - (2/3) Tr(DQ) I) + (OmegaQ - QOmega)
+- The (2/3) prefactor (= 2/d for d=3) ensures S(W,Q) remains traceless for any
+  traceless Q and any D. Note: Tr(DQ) is not generally zero from incompressibility
+  alone; the explicit subtraction is required in all dimensions.
+- The vorticity commutator sign is +[Omega, Q] = +(OmegaQ - QOmega), per
+  Beris-Edwards 1994 eq. 3.46.
 - Full 3x3 matrix arithmetic via nalgebra SMatrix
 
 `beris_edwards_rhs_3d(q, vel, params, t) -> QField3D`
 - dQ/dt = -u.nabla Q + S(W,Q) + Gamma_r * H
 - vel=None skips advection and co-rotation (dry active model)
 
-`stokes_solve_3d(q, params) -> (VelocityField3D, ScalarField3D)`
+`stokes_solve_3d(q, params) -> (VelocityField3D, PressureField3D)`
 - Active stress: sigma = -zeta Q
 - Divergence of stress as body force
 - Spectral solve via 3D FFT: project onto divergence-free modes
 - Returns (u, p)
+- `PressureField3D` is a newtype wrapper over `Vec<f64>` (same storage as
+  ConcentrationField3D but semantically distinct; introduced in volterra-fields
+  alongside the other 3D types)
 
 `ch_step_etd_3d(phi, q, params, dt) -> ConcentrationField3D`
 - mu = a_ch phi + b_ch phi^3 - kappa_ch nabla^2 phi - chi_ms Tr(Q^2)
@@ -130,10 +138,22 @@ New 3D functions alongside existing 2D functions. No existing symbols modified.
 Three layered functions:
 
 **Layer 1 — `scan_disclination_lines_3d(q: &QField3D) -> Vec<DisclinationSegment>`**
-- For each primal edge in the regular grid, compute holonomy of Q around the dual
-  loop (the 4 faces surrounding that edge)
-- Holonomy angle ~= pi flags the edge as a disclination segment
-- Returns raw edge list with associated DisclinationCharge
+- Iterates over all three primal edge orientations (x, y, z) across the nx*ny*nz grid.
+- For each edge, the dual loop is the 4-face cycle in the plane perpendicular to
+  that edge's axis. Concretely:
+  - x-directed edge at (i,j,k): dual loop visits face centers of the 4 cubes sharing
+    that edge, ordered counter-clockwise when viewed from +x:
+    (i,j,k), (i,j,k-1), (i,j-1,k-1), (i,j-1,k) with periodic wrapping.
+  - y-directed edge at (i,j,k): dual loop in the xz-plane:
+    (i,j,k), (i-1,j,k), (i-1,j,k-1), (i,j,k-1).
+  - z-directed edge at (i,j,k): dual loop in the xy-plane:
+    (i,j,k), (i,j-1,k), (i-1,j-1,k), (i-1,j,k).
+- Q is embedded as a 3x3 matrix at each face center by averaging all 4 vertices
+  of that face (standard DEC face-center interpolation), then normalized to lie in
+  SO(3)/Z2 for parallel transport. Using 2-vertex (edge-midpoint) averages is wrong
+  here; the dual loop visits face centers, not edge midpoints.
+- Holonomy angle ~= pi flags the edge as a disclination segment.
+- Returns raw edge list with associated DisclinationCharge.
 
 **Layer 2 — `connect_disclination_lines(segments) -> Vec<DisclinationLine>`**
 - Graph traversal connecting segments into ordered vertex sequences
@@ -169,6 +189,7 @@ DisclinationLine {
 
 DisclinationEvent {
     kind: EventKind,  // Creation | Annihilation | Reconnection
+    frame: usize,
     position: [f64; 3],
     line_ids: Vec<usize>,
 }
