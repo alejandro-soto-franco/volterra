@@ -16,6 +16,7 @@ nalgebra         = { workspace = true }
 rayon            = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
+rand             = { workspace = true }
 
 [dev-dependencies]
 approx           = { workspace = true }
