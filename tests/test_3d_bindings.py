@@ -118,6 +118,7 @@ def test_run_mars_3d_full():
     assert isinstance(phi_fin, volterra.ScalarField3D)
     assert len(stats) == 1
     assert isinstance(stats[0], volterra.BechStats3D)
+    assert phi_fin.nx == 8
     print("test_run_mars_3d_full PASSED")
 
 

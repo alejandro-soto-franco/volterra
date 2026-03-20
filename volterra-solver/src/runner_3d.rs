@@ -104,7 +104,7 @@ pub struct BechStats3D {
 ///
 /// # Returns
 ///
-/// `(q_final, stats)` — final Q-field and one [`SnapStats3D`] per snapshot.
+/// `(q_final, stats)`: final Q-field and one [`SnapStats3D`] per snapshot.
 pub fn run_mars_3d(
     q_init: &QField3D,
     p: &MarsParams3D,
@@ -285,7 +285,7 @@ pub fn run_mars_3d_full(
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", q_path.display());
             }
 
-            // Write phi snapshot as (nx,ny,nz,1) for uniform API — wrap each f64 in [f64;1].
+            // Write phi snapshot as (nx,ny,nz,1) for uniform API; wrap each f64 in [f64;1].
             let phi_wrapped: Vec<[f64; 1]> = phi.phi.iter().map(|&v| [v]).collect();
             let phi_path = out_dir.join(format!("phi_{step:06}.npy"));
             if let Err(e) = write_npy(&phi_path, &phi_wrapped, p.nx, p.ny, p.nz, 1) {
