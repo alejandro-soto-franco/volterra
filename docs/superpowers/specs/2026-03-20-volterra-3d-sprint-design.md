@@ -77,17 +77,27 @@ New 3D functions alongside existing 2D functions. No existing symbols modified.
 - Elastic: H_elastic = K_r nabla^2 Q
 - Active LdG: H_active = (zeta_eff/2 - a) Q - 2c Tr(Q^2) Q
   (optional cubic term b/3 Tr(Q^3) when b_landau != 0)
+  Note: c_landau is the coefficient of (c/2)(Tr(Q^2))^2 in the free energy density.
+  The paper uses C/4 normalization (eq. F_rot), so c_landau = C/2 (paper's C).
+  The factor -2c in the molecular field is correct: d/dQ[-(c/2)(Tr(Q^2))^2] = -2c Tr(Q^2) Q.
 - Magnetic torque: H_mag(t) = chi_a B0^2 [b_hat(t) otimes b_hat(t) - I/3]
   where b_hat(t) = (cos(omega_b t), sin(omega_b t), 0)
+  chi_a encodes mu_0 * Delta_chi / 2 (SI). H_mag is placed inside H (total molecular field)
+  which is then multiplied by Gamma_r once in beris_edwards_rhs_3d. Do NOT multiply
+  H_mag by Gamma_r inside molecular_field_3d; Gamma_r is applied exactly once, in the RHS.
 - Returns total H = H_elastic + H_active + H_mag
 
-`co_rotation_3d(w, q, lambda) -> QField3D`
-- S(W,Q) = lambda(DQ + QD - (2/3) Tr(DQ) I) + (OmegaQ - QOmega)
-- The (2/3) prefactor (= 2/d for d=3) ensures S(W,Q) remains traceless for any
-  traceless Q and any D. Note: Tr(DQ) is not generally zero from incompressibility
-  alone; the explicit subtraction is required in all dimensions.
-- The vorticity commutator sign is +[Omega, Q] = +(OmegaQ - QOmega), per
-  Beris-Edwards 1994 eq. 3.46.
+`co_rotation_3d(w, q, xi) -> QField3D`
+- Full nonlinear Beris-Edwards form (paper eq. S_tensor, Beris-Edwards 1994 eq. 3.46):
+  S_ij = xi(D_ik Q_kj + Q_ik D_kj) - 2 xi Q_ij (Q_kl D_kl) + Omega_ik Q_kj - Q_ik Omega_kj
+  In compact notation: S(W,Q) = xi(DQ + QD) - 2 xi Q Tr(Q·D) + (OmegaQ - QOmega)
+- The nonlinear term -2 xi Q Tr(Q·D) is NOT equivalent to a linear projector.
+  It is required to keep Q within the physical eigenvalue bounds [-1/3, 2/3]
+  (Ball 2010). Dropping it or replacing with -(2/3)Tr(DQ)I causes Q to leave the
+  physical space under strong flows.
+- Symbol: xi (flow-alignment parameter, from Jeffery orbit theory), not xi.
+  For MARS rods with aspect ratio r >= 5, xi = (r^2-1)/(r^2+1) > 0.923.
+- Vorticity commutator sign: +[Omega, Q] = +(OmegaQ - QOmega), correct per paper line 83.
 - Full 3x3 matrix arithmetic via nalgebra SMatrix
 
 `beris_edwards_rhs_3d(q, vel, params, t) -> QField3D`
@@ -103,10 +113,14 @@ New 3D functions alongside existing 2D functions. No existing symbols modified.
   ConcentrationField3D but semantically distinct; introduced in volterra-fields
   alongside the other 3D types)
 
-`ch_step_etd_3d(phi, q, params, dt) -> ConcentrationField3D`
-- mu = a_ch phi + b_ch phi^3 - kappa_ch nabla^2 phi - chi_ms Tr(Q^2)
+`ch_step_etd_3d(phi, q_lip, params, dt) -> ConcentrationField3D`
+- mu = a_ch phi + b_ch phi^3 - kappa_ch nabla^2 phi - chi_ms Tr(Q_lip^2)
+- q_lip is the lipid Q-tensor (QField3D), NOT the rotor Q-tensor Q_rot.
+  The Maier-Saupe coupling is delta f_MS / delta phi = -chi_ms Tr(Q_lip^2), derived
+  from f_MS = -chi_ms * phi * Tr(Q_lip^2). If Q_lip is unavailable (one-field runs),
+  this must be explicitly documented as an approximation.
 - ETD (exponential time differencing) for the stiff kappa_ch nabla^4 phi term
-- Maier-Saupe coupling drives lipid to regions of high Q
+- Maier-Saupe coupling drives lipid accumulation into regions of high lipid orientational order
 
 `EulerIntegrator3D`, `RK4Integrator3D` — implement `Integrator<QField3D>`
 
