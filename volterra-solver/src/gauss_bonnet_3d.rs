@@ -151,7 +151,7 @@ pub fn gauss_bonnet_chi(phi: &ScalarField3D, _epsilon: f64) -> f64 {
                 let k_g = -bh_det / (grad2 * grad2);
 
                 // Co-area weight: K_G |grad(phi)| dx^3
-                // The co-area formula gives: (1/4pi) * integral K_G |grad phi| dV = chi.
+                // The co-area formula gives: (1/2pi) * integral K_G |grad phi| dV = chi.
                 // (No epsilon factor: integral |grad phi| dr = 1 for tanh 0->1 profile.)
                 chi_sum += k_g * grad_mag * dx * dx * dx;
             }
