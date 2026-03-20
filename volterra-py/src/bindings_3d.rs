@@ -10,13 +10,14 @@
 //   volterra.SnapStats3D    -- per-snapshot statistics for the dry active nematic run
 //   volterra.BechStats3D    -- per-snapshot statistics for the full BECH run
 
-use numpy::ndarray::{Array1, Array4};
-use numpy::{IntoPyArray, PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::ndarray::{Array1, Array2, Array4};
+use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray4, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use volterra_core::MarsParams3D;
 use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
 use volterra_solver::{BechStats3D, SnapStats3D};
+use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCharge, Sign};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PyMarsParams3D
@@ -484,6 +485,164 @@ impl PyBechStats3D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PyDisclinationLine
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A reconstructed disclination line: ordered vertices with Frenet-Serret geometry.
+///
+/// Wraps `cartan_geo::DisclinationLine`. Instances are produced by the runner
+/// (Task 17) and are read-only from Python.
+#[pyclass(name = "DisclinationLine")]
+#[derive(Clone)]
+pub struct PyDisclinationLine {
+    pub(crate) inner: DisclinationLine,
+}
+
+#[pymethods]
+impl PyDisclinationLine {
+    /// Ordered vertex positions, shape (n, 3).
+    #[getter]
+    fn vertices<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let n = self.inner.vertices.len();
+        let mut arr = Array2::<f64>::zeros((n, 3));
+        for (i, v) in self.inner.vertices.iter().enumerate() {
+            arr[[i, 0]] = v[0];
+            arr[[i, 1]] = v[1];
+            arr[[i, 2]] = v[2];
+        }
+        arr.into_pyarray(py)
+    }
+
+    /// Unit tangent vectors at each vertex, shape (n, 3).
+    #[getter]
+    fn tangents<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let n = self.inner.tangents.len();
+        let mut arr = Array2::<f64>::zeros((n, 3));
+        for (i, t) in self.inner.tangents.iter().enumerate() {
+            arr[[i, 0]] = t[0];
+            arr[[i, 1]] = t[1];
+            arr[[i, 2]] = t[2];
+        }
+        arr.into_pyarray(py)
+    }
+
+    /// Frenet curvature |dT/ds| at each vertex, shape (n,).
+    #[getter]
+    fn curvatures<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from_vec(self.inner.curvatures.clone()).into_pyarray(py)
+    }
+
+    /// Frenet-Serret torsion at each vertex, shape (n,).
+    #[getter]
+    fn torsions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from_vec(self.inner.torsions.clone()).into_pyarray(py)
+    }
+
+    /// Topological charge as a string: "half_plus", "half_minus", or "anti".
+    #[getter]
+    fn charge(&self) -> String {
+        match &self.inner.charge {
+            DisclinationCharge::Half(Sign::Positive) => "half_plus".to_string(),
+            DisclinationCharge::Half(Sign::Negative) => "half_minus".to_string(),
+            DisclinationCharge::Anti => "anti".to_string(),
+        }
+    }
+
+    /// True if the line forms a closed loop.
+    #[getter]
+    fn is_loop(&self) -> bool {
+        self.inner.is_loop
+    }
+
+    /// Total arc length: sum of Euclidean distances between consecutive vertices.
+    fn length(&self) -> f64 {
+        let verts = &self.inner.vertices;
+        if verts.len() < 2 {
+            return 0.0;
+        }
+        verts.windows(2).map(|w| {
+            let dx = w[1][0] - w[0][0];
+            let dy = w[1][1] - w[0][1];
+            let dz = w[1][2] - w[0][2];
+            (dx * dx + dy * dy + dz * dz).sqrt()
+        }).sum()
+    }
+
+    /// Mean Frenet curvature over all vertices.
+    fn mean_curvature(&self) -> f64 {
+        let c = &self.inner.curvatures;
+        if c.is_empty() {
+            return 0.0;
+        }
+        c.iter().sum::<f64>() / c.len() as f64
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.vertices.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DisclinationLine(n_vertices={}, charge={}, is_loop={}, length={:.4})",
+            self.inner.vertices.len(),
+            self.charge(),
+            self.inner.is_loop,
+            self.length(),
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PyDisclinationEvent
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A detected topological event between two consecutive simulation frames.
+///
+/// Wraps `cartan_geo::DisclinationEvent`. Instances are produced by the runner
+/// and are read-only from Python.
+#[pyclass(name = "DisclinationEvent")]
+#[derive(Clone)]
+pub struct PyDisclinationEvent {
+    inner: DisclinationEvent,
+}
+
+#[pymethods]
+impl PyDisclinationEvent {
+    /// Frame index at which the event is recorded.
+    #[getter]
+    fn frame(&self) -> usize {
+        self.inner.frame
+    }
+
+    /// Event type as a string: "creation", "annihilation", or "reconnection".
+    #[getter]
+    fn kind(&self) -> String {
+        match self.inner.kind {
+            EventKind::Creation     => "creation".to_string(),
+            EventKind::Annihilation => "annihilation".to_string(),
+            EventKind::Reconnection => "reconnection".to_string(),
+        }
+    }
+
+    /// Approximate position of the event, shape (3,).
+    #[getter]
+    fn position<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from_vec(self.inner.position.to_vec()).into_pyarray(py)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DisclinationEvent(frame={}, kind={}, position=[{:.3}, {:.3}, {:.3}])",
+            self.inner.frame,
+            self.kind(),
+            self.inner.position[0],
+            self.inner.position[1],
+            self.inner.position[2],
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -495,5 +654,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyScalarField3D>()?;
     m.add_class::<PySnapStats3D>()?;
     m.add_class::<PyBechStats3D>()?;
+    m.add_class::<PyDisclinationLine>()?;
+    m.add_class::<PyDisclinationEvent>()?;
     Ok(())
 }
