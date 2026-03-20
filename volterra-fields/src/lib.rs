@@ -41,6 +41,9 @@ use serde::{Deserialize, Serialize};
 pub mod qfield3d;
 pub use qfield3d::QField3D;
 
+pub mod fields3d;
+pub use fields3d::{VelocityField3D, ScalarField3D, ConcentrationField3D, PressureField3D};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // QField2D
 // ─────────────────────────────────────────────────────────────────────────────
