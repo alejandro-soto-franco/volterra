@@ -6,9 +6,9 @@
 //!
 //! | Layer | Function |
 //! |-------|----------|
-//! | 1 — segment scan | [`scan_disclination_lines_3d`] — holonomy per grid edge |
-//! | 2 — line assembly | [`connect_disclination_lines`] — BFS connected components |
-//! | 3 — event tracking | [`track_disclination_events`] — creation/annihilation/reconnection |
+//! | 1: segment scan | [`scan_disclination_lines_3d`]: holonomy per grid edge |
+//! | 2: line assembly | [`connect_disclination_lines`]: BFS connected components |
+//! | 3: event tracking | [`track_disclination_events`]: creation/annihilation/reconnection |
 
 use volterra_fields::QField3D;
 use cartan_geo::disclination::{
@@ -34,7 +34,7 @@ use cartan_geo::disclination::{
 ///
 /// # Returns
 ///
-/// `Vec<DisclinationLine>` — one entry per connected disclination line.
+/// `Vec<DisclinationLine>`, one entry per connected disclination line.
 pub fn scan_defects_3d(q: &QField3D) -> Vec<DisclinationLine> {
     let segs = scan_disclination_lines_3d(q);
     connect_disclination_lines(&segs, q.dx)
@@ -57,7 +57,7 @@ pub fn scan_defects_3d(q: &QField3D) -> Vec<DisclinationLine> {
 ///
 /// # Returns
 ///
-/// `Vec<DisclinationEvent>` — one entry per detected topological event.
+/// `Vec<DisclinationEvent>`, one entry per detected topological event.
 pub fn track_defect_events(
     lines_a: &[DisclinationLine],
     lines_b: &[DisclinationLine],
