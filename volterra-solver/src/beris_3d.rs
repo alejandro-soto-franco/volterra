@@ -1,0 +1,208 @@
+//! Beris-Edwards RHS and time integrators for 3D active nematics.
+//!
+//! ## Governing equation
+//! ```text
+//! dQ/dt = -u · nabla Q + S(W, Q) + Gamma_r * H
+//! ```
+//!
+//! where:
+//! - `-u · nabla Q` is the material advection (central differences, periodic BCs)
+//! - `S(W, Q)` is the co-rotation / strain-coupling tensor (from mol_field_3d)
+//! - `H` is the molecular field (from mol_field_3d)
+//! - `Gamma_r` is the rotational viscosity (from MarsParams3D)
+//!
+//! Noise injection (`Q += noise_amp * sqrt(dt) * W`) is applied by the
+//! integrators, not in the RHS, matching the 2D convention.
+
+use volterra_core::MarsParams3D;
+use volterra_fields::{QField3D, VelocityField3D};
+use crate::mol_field_3d::{molecular_field_3d, co_rotation_3d};
+
+/// Full Beris-Edwards RHS: `dQ/dt = -u · nabla Q + S(W, Q) + Gamma_r * H`.
+///
+/// Pass `vel = None` for the dry active model (no Stokes coupling).
+/// Advection uses central differences with periodic boundary conditions.
+/// The co-rotation term `S(W, Q)` is only added when `vel` is `Some`.
+///
+/// `t` is the current time, used for the rotating magnetic field in `H`.
+pub fn beris_edwards_rhs_3d(
+    q: &QField3D,
+    vel: Option<&VelocityField3D>,
+    p: &MarsParams3D,
+    t: f64,
+) -> QField3D {
+    let h = molecular_field_3d(q, p, t);
+    let mut rhs = QField3D::zeros(q.nx, q.ny, q.nz, q.dx);
+
+    // Gamma_r * H contribution
+    for k in 0..q.len() {
+        for c in 0..5 {
+            rhs.q[k][c] = p.gamma_r * h.q[k][c];
+        }
+    }
+
+    if let Some(v) = vel {
+        // Co-rotation / strain tensor S(W, Q) at every vertex
+        let s = co_rotation_3d(v, q, p.lambda);
+
+        // Advection: -u · nabla Q  (central differences, periodic BCs)
+        let nx = q.nx;
+        let ny = q.ny;
+        let nz = q.nz;
+        let inv_2dx = 1.0 / (2.0 * q.dx);
+
+        for i in 0..nx {
+            for j in 0..ny {
+                for l in 0..nz {
+                    let k = q.idx(i, j, l);
+                    let ip = q.idx((i + 1) % nx, j, l);
+                    let im = q.idx((i + nx - 1) % nx, j, l);
+                    let jp = q.idx(i, (j + 1) % ny, l);
+                    let jm = q.idx(i, (j + ny - 1) % ny, l);
+                    let lp = q.idx(i, j, (l + 1) % nz);
+                    let lm = q.idx(i, j, (l + nz - 1) % nz);
+                    let [ux, uy, uz] = v.u[k];
+                    for c in 0..5 {
+                        let dqdx = (q.q[ip][c] - q.q[im][c]) * inv_2dx;
+                        let dqdy = (q.q[jp][c] - q.q[jm][c]) * inv_2dx;
+                        let dqdz = (q.q[lp][c] - q.q[lm][c]) * inv_2dx;
+                        rhs.q[k][c] += -ux * dqdx - uy * dqdy - uz * dqdz + s.q[k][c];
+                    }
+                }
+            }
+        }
+    }
+    rhs
+}
+
+/// First-order Euler time step for QField3D.
+///
+/// `Q_new = Q + dt * RHS`
+///
+/// Noise injection is NOT performed here; apply separately if needed.
+pub struct EulerIntegrator3D;
+
+impl EulerIntegrator3D {
+    /// Advance `q` by one Euler step.
+    ///
+    /// Returns the updated field `Q + dt * rhs`.
+    pub fn step(&self, q: &QField3D, dt: f64, rhs: &QField3D) -> QField3D {
+        let mut out = q.clone();
+        for k in 0..q.len() {
+            for c in 0..5 {
+                out.q[k][c] += dt * rhs.q[k][c];
+            }
+        }
+        out
+    }
+}
+
+/// Fourth-order Runge-Kutta time step for QField3D.
+///
+/// Standard 4-stage RK4:
+/// ```text
+/// k1 = RHS(Q)
+/// k2 = RHS(Q + dt/2 * k1)
+/// k3 = RHS(Q + dt/2 * k2)
+/// k4 = RHS(Q + dt   * k3)
+/// Q_new = Q + (dt/6) * (k1 + 2*k2 + 2*k3 + k4)
+/// ```
+///
+/// Noise injection is NOT performed here; apply separately if needed.
+pub struct RK4Integrator3D;
+
+impl RK4Integrator3D {
+    /// Advance `q` by one RK4 step using the provided RHS closure.
+    ///
+    /// The closure `rhs_fn` takes a `&QField3D` and returns a `QField3D`
+    /// containing `dQ/dt` at every vertex.
+    pub fn step<F>(&self, q: &QField3D, dt: f64, rhs_fn: F) -> QField3D
+    where
+        F: Fn(&QField3D) -> QField3D,
+    {
+        let k1 = rhs_fn(q);
+        let q2 = add_scaled(q, &k1, dt / 2.0);
+        let k2 = rhs_fn(&q2);
+        let q3 = add_scaled(q, &k2, dt / 2.0);
+        let k3 = rhs_fn(&q3);
+        let q4 = add_scaled(q, &k3, dt);
+        let k4 = rhs_fn(&q4);
+        let mut out = q.clone();
+        for k in 0..q.len() {
+            for c in 0..5 {
+                out.q[k][c] += (dt / 6.0)
+                    * (k1.q[k][c] + 2.0 * k2.q[k][c] + 2.0 * k3.q[k][c] + k4.q[k][c]);
+            }
+        }
+        out
+    }
+}
+
+/// Add a scaled increment to a Q-field: returns `q + scale * dq`.
+fn add_scaled(q: &QField3D, dq: &QField3D, scale: f64) -> QField3D {
+    let mut out = q.clone();
+    for k in 0..q.len() {
+        for c in 0..5 {
+            out.q[k][c] += scale * dq.q[k][c];
+        }
+    }
+    out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use volterra_core::MarsParams3D;
+    use volterra_fields::QField3D;
+
+    /// Verify that the RHS output has the same number of vertices as the input.
+    #[test]
+    fn test_beris_rhs_dry_shape() {
+        let p = MarsParams3D::default_test();
+        let q = QField3D::random_perturbation(4, 4, 4, 1.0, 0.01, 42);
+        let dq = beris_edwards_rhs_3d(&q, None, &p, 0.0);
+        assert_eq!(dq.len(), q.len());
+    }
+
+    /// At the dry (no-flow, zero-activity) ordered fixed point the RHS should
+    /// vanish to numerical precision.
+    ///
+    /// Equilibrium condition for uniaxial Q along z:
+    ///   Q = S * (zz - I/3)  =>  [q11, q12, q13, q22, q23] = [-S/3, 0, 0, -S/3, 0]
+    ///
+    /// The equilibrium order parameter satisfies H = 0:
+    ///   -a_eff * Q - 2c * Tr(Q^2) * Q = 0
+    ///   => a_eff + 2c * Tr(Q^2) = 0
+    ///
+    /// For uniaxial Q: Tr(Q^2) = (2/3) S^2
+    ///   => S^2 = -3 a_eff / (4c)
+    ///
+    /// With a_eff = -0.5, c = 4.5:  S^2 = 1.5/18 = 1/12, S ~ 0.2887
+    #[test]
+    fn test_beris_rhs_zero_for_ordered_fixed_point() {
+        let mut p = MarsParams3D::default_test();
+        p.zeta_eff = 0.0;
+        p.chi_a = 0.0;
+        let a_eff = p.a_eff(); // = a_landau = -0.5 when zeta_eff = 0
+        let s_eq = (-3.0 * a_eff / (4.0 * p.c_landau)).sqrt();
+        // Uniform uniaxial Q along z: Q = S*(zz - I/3)
+        // 5-component: [q11, q12, q13, q22, q23] = [-S/3, 0, 0, -S/3, 0]
+        let q = QField3D::uniform(4, 4, 4, 1.0, [-s_eq / 3.0, 0.0, 0.0, -s_eq / 3.0, 0.0]);
+        let dq = beris_edwards_rhs_3d(&q, None, &p, 0.0);
+        for k in 0..dq.len() {
+            for c in 0..5 {
+                assert!(
+                    dq.q[k][c].abs() < 1e-6,
+                    "dQ/dt should be near zero at equilibrium, got {} at vertex {} component {}",
+                    dq.q[k][c],
+                    k,
+                    c
+                );
+            }
+        }
+    }
+}

@@ -71,6 +71,9 @@ use cartan_manifolds::frame_field::FrameField3D;
 pub mod mol_field_3d;
 pub use mol_field_3d::{molecular_field_3d, co_rotation_3d};
 
+pub mod beris_3d;
+pub use beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D, RK4Integrator3D};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
