@@ -172,8 +172,8 @@ pub fn run_mars_3d(
             let s = compute_snap_stats(&q, &lines, n_events, t_snap);
             stats.push(s);
 
-            // Write Q snapshot.
-            let npy_path = out_dir.join(format!("q_{snap_idx:06}.npy"));
+            // Write Q snapshot named by step number (consistent with mars-lnp conventions).
+            let npy_path = out_dir.join(format!("q_{step:06}.npy"));
             if let Err(e) = write_npy(&npy_path, &q.q, p.nx, p.ny, p.nz, 5) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", npy_path.display());
             }
@@ -279,21 +279,21 @@ pub fn run_mars_3d_full(
             let s = compute_bech_stats(&q, &phi, &lines, n_events, t_snap);
             stats.push(s);
 
-            // Write Q snapshot.
-            let q_path = out_dir.join(format!("q_{snap_idx:06}.npy"));
+            // Write snapshots named by step number (consistent with mars-lnp conventions).
+            let q_path = out_dir.join(format!("q_{step:06}.npy"));
             if let Err(e) = write_npy(&q_path, &q.q, p.nx, p.ny, p.nz, 5) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", q_path.display());
             }
 
             // Write phi snapshot as (nx,ny,nz,1) for uniform API — wrap each f64 in [f64;1].
             let phi_wrapped: Vec<[f64; 1]> = phi.phi.iter().map(|&v| [v]).collect();
-            let phi_path = out_dir.join(format!("phi_{snap_idx:06}.npy"));
+            let phi_path = out_dir.join(format!("phi_{step:06}.npy"));
             if let Err(e) = write_npy(&phi_path, &phi_wrapped, p.nx, p.ny, p.nz, 1) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", phi_path.display());
             }
 
             // Write velocity snapshot as (nx,ny,nz,3).
-            let vel_path = out_dir.join(format!("vel_{snap_idx:06}.npy"));
+            let vel_path = out_dir.join(format!("vel_{step:06}.npy"));
             if let Err(e) = write_npy(&vel_path, &vel.u, p.nx, p.ny, p.nz, 3) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", vel_path.display());
             }
