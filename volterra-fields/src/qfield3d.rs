@@ -161,6 +161,26 @@ impl QField3D {
             .collect()
     }
 
+    /// Director field: eigenvector of the largest eigenvalue at each vertex.
+    /// Returns a Vec of unit 3-vectors, one per vertex.
+    pub fn director(&self) -> Vec<[f64; 3]> {
+        (0..self.len()).map(|k| {
+            let m = self.embed_matrix3(k);
+            let eig = m.symmetric_eigen();
+            // Find index of largest eigenvalue
+            let mut max_idx = 0;
+            let mut max_val = f64::NEG_INFINITY;
+            for i in 0..3 {
+                if eig.eigenvalues[i] > max_val {
+                    max_val = eig.eigenvalues[i];
+                    max_idx = i;
+                }
+            }
+            let col = eig.eigenvectors.column(max_idx);
+            [col[0], col[1], col[2]]
+        }).collect()
+    }
+
     /// Mean scalar order parameter over the whole field.
     pub fn mean_s(&self) -> f64 {
         let s = self.scalar_order_s();
