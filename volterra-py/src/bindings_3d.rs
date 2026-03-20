@@ -3,15 +3,20 @@
 // PyO3 bindings for 3D simulation types.
 //
 // Exposed to Python (import volterra):
-//   volterra.MarsParams3D  -- physical / numerical parameters for the 3D simulation
-//   volterra.QField3D      -- 3D Q-tensor field with numpy interop
+//   volterra.MarsParams3D   -- physical / numerical parameters for the 3D simulation
+//   volterra.QField3D       -- 3D Q-tensor field with numpy interop
+//   volterra.VelocityField3D -- 3D velocity field with numpy interop
+//   volterra.ScalarField3D  -- 3D scalar (concentration / pressure) field with numpy interop
+//   volterra.SnapStats3D    -- per-snapshot statistics for the dry active nematic run
+//   volterra.BechStats3D    -- per-snapshot statistics for the full BECH run
 
 use numpy::ndarray::{Array1, Array4};
-use numpy::{IntoPyArray, PyArray1, PyArray4, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use volterra_core::MarsParams3D;
-use volterra_fields::QField3D;
+use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
+use volterra_solver::{BechStats3D, SnapStats3D};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PyMarsParams3D
@@ -264,6 +269,221 @@ impl PyQField3D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PyVelocityField3D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 3D velocity field with numpy interop.
+///
+/// Internal layout: flat Vec<[f64;3]> with linear index k = (i*ny + j)*nz + l.
+/// The `.u` property returns a (nx, ny, nz, 3) array.
+#[pyclass(name = "VelocityField3D")]
+#[derive(Clone)]
+pub struct PyVelocityField3D {
+    pub(crate) inner: VelocityField3D,
+}
+
+#[pymethods]
+impl PyVelocityField3D {
+    /// All-zero 3D velocity field.
+    #[staticmethod]
+    fn zeros(nx: usize, ny: usize, nz: usize, dx: f64) -> Self {
+        Self { inner: VelocityField3D::zeros(nx, ny, nz, dx) }
+    }
+
+    /// Uniform 3D velocity field. Provide the three velocity components [ux, uy, uz].
+    #[staticmethod]
+    fn uniform(nx: usize, ny: usize, nz: usize, dx: f64, u: [f64; 3]) -> Self {
+        Self { inner: VelocityField3D::uniform(nx, ny, nz, dx, u) }
+    }
+
+    /// Velocity components as a numpy array of shape (nx, ny, nz, 3).
+    ///
+    /// Access individual components in Python: arr[..., 0] = ux, arr[..., 1] = uy, arr[..., 2] = uz.
+    #[getter]
+    fn u<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray4<f64>> {
+        let nx = self.inner.nx;
+        let ny = self.inner.ny;
+        let nz = self.inner.nz;
+        let mut arr = Array4::<f64>::zeros((nx, ny, nz, 3));
+        for k in 0..self.inner.u.len() {
+            let l = k % nz;
+            let ij = k / nz;
+            let j = ij % ny;
+            let i = ij / ny;
+            for c in 0..3 {
+                arr[[i, j, l, c]] = self.inner.u[k][c];
+            }
+        }
+        arr.into_pyarray(py)
+    }
+
+    #[getter] fn nx(&self) -> usize { self.inner.nx }
+    #[getter] fn ny(&self) -> usize { self.inner.ny }
+    #[getter] fn nz(&self) -> usize { self.inner.nz }
+    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "VelocityField3D(nx={}, ny={}, nz={}, dx={:.3})",
+            self.inner.nx, self.inner.ny, self.inner.nz, self.inner.dx,
+        )
+    }
+
+    fn __len__(&self) -> usize { self.inner.u.len() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PyScalarField3D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 3D scalar field with numpy interop.
+///
+/// Internal layout: flat Vec<f64> with linear index k = (i*ny + j)*nz + l.
+/// The `.phi` property returns a flat 1D array of length nx*ny*nz.
+/// Reshape in Python to (nx, ny, nz) as needed.
+#[pyclass(name = "ScalarField3D")]
+#[derive(Clone)]
+pub struct PyScalarField3D {
+    pub(crate) inner: ScalarField3D,
+}
+
+#[pymethods]
+impl PyScalarField3D {
+    /// All-zero 3D scalar field.
+    #[staticmethod]
+    fn zeros(nx: usize, ny: usize, nz: usize, dx: f64) -> Self {
+        Self { inner: ScalarField3D::zeros(nx, ny, nz, dx) }
+    }
+
+    /// Uniform 3D scalar field with every vertex set to `val`.
+    #[staticmethod]
+    fn uniform(nx: usize, ny: usize, nz: usize, dx: f64, val: f64) -> Self {
+        Self { inner: ScalarField3D::uniform(nx, ny, nz, dx, val) }
+    }
+
+    /// Import from a flat 1D numpy array of length nx*ny*nz.
+    /// Data is copied into the Rust-owned Vec.
+    #[staticmethod]
+    fn from_numpy(arr: PyReadonlyArray1<f64>, nx: usize, ny: usize, nz: usize,
+                  dx: f64) -> PyResult<Self> {
+        let view = arr.as_array();
+        let expected_n = nx * ny * nz;
+        if view.len() != expected_n {
+            return Err(PyValueError::new_err(format!(
+                "expected array of length {}, got {}",
+                expected_n, view.len(),
+            )));
+        }
+        let phi: Vec<f64> = view.iter().copied().collect();
+        Ok(Self { inner: ScalarField3D { phi, nx, ny, nz, dx } })
+    }
+
+    /// Scalar values as a flat 1D numpy array of length nx*ny*nz.
+    /// Reshape in Python to (nx, ny, nz) as needed.
+    #[getter]
+    fn phi<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from_vec(self.inner.phi.clone()).into_pyarray(py)
+    }
+
+    #[getter] fn nx(&self) -> usize { self.inner.nx }
+    #[getter] fn ny(&self) -> usize { self.inner.ny }
+    #[getter] fn nz(&self) -> usize { self.inner.nz }
+    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+
+    /// Mean value over all vertices.
+    fn mean(&self) -> f64 { self.inner.mean() }
+
+    /// Maximum value over all vertices.
+    fn max(&self) -> f64 { self.inner.max() }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ScalarField3D(nx={}, ny={}, nz={}, dx={:.3}, mean={:.4})",
+            self.inner.nx, self.inner.ny, self.inner.nz,
+            self.inner.dx, self.inner.mean(),
+        )
+    }
+
+    fn __len__(&self) -> usize { self.inner.phi.len() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PySnapStats3D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Per-snapshot statistics for the dry active nematic run (run_mars_3d).
+#[pyclass(name = "SnapStats3D")]
+#[derive(Clone)]
+pub struct PySnapStats3D {
+    inner: SnapStats3D,
+}
+
+#[pymethods]
+impl PySnapStats3D {
+    /// Simulation time at this snapshot.
+    #[getter] fn time(&self) -> f64 { self.inner.time }
+    /// Spatial mean of the scalar order parameter S.
+    #[getter] fn mean_s(&self) -> f64 { self.inner.mean_s }
+    /// Spatial mean of the biaxiality parameter P.
+    #[getter] fn biaxiality_p(&self) -> f64 { self.inner.biaxiality_p }
+    /// Number of connected disclination lines detected.
+    #[getter] fn n_disclination_lines(&self) -> usize { self.inner.n_disclination_lines }
+    /// Total disclination line length in vertex units.
+    #[getter] fn total_line_length(&self) -> f64 { self.inner.total_line_length }
+    /// Mean Frenet curvature along all disclination lines.
+    #[getter] fn mean_line_curvature(&self) -> f64 { self.inner.mean_line_curvature }
+    /// Number of topological events since the previous snapshot.
+    #[getter] fn n_events(&self) -> usize { self.inner.n_events }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SnapStats3D(time={:.4}, mean_s={:.4}, n_disclination_lines={}, total_line_length={:.4})",
+            self.inner.time, self.inner.mean_s,
+            self.inner.n_disclination_lines, self.inner.total_line_length,
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PyBechStats3D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Per-snapshot statistics for the full BECH run (run_mars_3d_full).
+#[pyclass(name = "BechStats3D")]
+#[derive(Clone)]
+pub struct PyBechStats3D {
+    inner: BechStats3D,
+}
+
+#[pymethods]
+impl PyBechStats3D {
+    /// Simulation time at this snapshot.
+    #[getter] fn time(&self) -> f64 { self.inner.time }
+    /// Spatial mean of the scalar order parameter S.
+    #[getter] fn mean_s(&self) -> f64 { self.inner.mean_s }
+    /// Spatial mean of the biaxiality parameter P.
+    #[getter] fn biaxiality_p(&self) -> f64 { self.inner.biaxiality_p }
+    /// Spatial mean of the lipid concentration phi.
+    #[getter] fn mean_phi(&self) -> f64 { self.inner.mean_phi }
+    /// Number of connected disclination lines detected.
+    #[getter] fn n_disclination_lines(&self) -> usize { self.inner.n_disclination_lines }
+    /// Total disclination line length in vertex units.
+    #[getter] fn total_line_length(&self) -> f64 { self.inner.total_line_length }
+    /// Mean Frenet curvature along all disclination lines.
+    #[getter] fn mean_line_curvature(&self) -> f64 { self.inner.mean_line_curvature }
+    /// Number of topological events since the previous snapshot.
+    #[getter] fn n_events(&self) -> usize { self.inner.n_events }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "BechStats3D(time={:.4}, mean_s={:.4}, mean_phi={:.4}, n_disclination_lines={}, total_line_length={:.4})",
+            self.inner.time, self.inner.mean_s, self.inner.mean_phi,
+            self.inner.n_disclination_lines, self.inner.total_line_length,
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -271,5 +491,9 @@ impl PyQField3D {
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMarsParams3D>()?;
     m.add_class::<PyQField3D>()?;
+    m.add_class::<PyVelocityField3D>()?;
+    m.add_class::<PyScalarField3D>()?;
+    m.add_class::<PySnapStats3D>()?;
+    m.add_class::<PyBechStats3D>()?;
     Ok(())
 }
