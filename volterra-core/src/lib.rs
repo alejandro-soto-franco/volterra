@@ -321,25 +321,31 @@ pub struct MarsParams3D {
     /// Modifies the interface bending penalty: κ_eff = κ_CH - κ_W · c₀/ε_CH.
     /// Typical value: -1/ξ_CH ≈ -3.3e8 m⁻¹ for ξ_CH = 3 nm.
     /// Set to 0.0 to recover the plain CH free energy.
+    #[serde(default)]
     pub c0_sp: f64,
 
     /// Curvature penalty coefficient κ_W [J/m³] ≥ 0.
     /// Scales the Willmore-like square term in the enriched CH free energy.
     /// Set to 0.0 to disable the curvature coupling.
+    #[serde(default)]
     pub kappa_w: f64,
 
     /// Gaussian curvature modulus κ̄_G [J/m]. May be negative.
     /// Treated EXPLICITLY in the nonlinear ETD part (never added to L).
     /// Timestep bound when |κ̄_G| > 0: dt < C ε³ / (M_l |κ̄_G| k_max⁶).
     /// Set to 0.0 to disable Gaussian curvature coupling.
+    #[serde(default)]
     pub kappa_bar_g: f64,
 
     /// Interface half-width ε_CH [m] > 0.
     /// Sets the gradient interface scale for the enriched free energy.
     /// Rule of thumb: ε_CH = dx (one grid spacing) for unit tests;
     /// physical value ≈ ξ_CH = 3 nm for a 1 nm grid.
+    #[serde(default = "default_epsilon_ch")]
     pub epsilon_ch: f64,
 }
+
+fn default_epsilon_ch() -> f64 { 1.0 }
 
 impl MarsParams3D {
     /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
