@@ -169,6 +169,81 @@ pub fn gauss_bonnet_chi(phi: &ScalarField3D, _epsilon: f64) -> f64 {
 }
 
 
+/// Compute K_G(v) and |∇φ(v)| at every grid vertex.
+///
+/// Returns two flat Vec<f64> in the same linear order as `phi.phi`:
+/// - `kg_field[v]` = Gaussian curvature of the level set at vertex v (0 far from interface)
+/// - `grad_field[v]` = |∇φ(v)| (magnitude of concentration gradient)
+///
+/// Used by `ch_step_etd_enriched_3d` to assemble the κ̄_G contribution to the
+/// chemical potential without re-computing derivatives.
+pub fn compute_kg_field(phi: &ScalarField3D) -> (Vec<f64>, Vec<f64>) {
+    let nx = phi.nx;
+    let ny = phi.ny;
+    let nz = phi.nz;
+    let dx = phi.dx;
+    let n = nx * ny * nz;
+
+    let mut kg_field   = vec![0.0_f64; n];
+    let mut grad_field = vec![0.0_f64; n];
+
+    for i in 0..nx {
+        for j in 0..ny {
+            for k in 0..nz {
+                let ip = (i + 1) % nx; let im = (i + nx - 1) % nx;
+                let jp = (j + 1) % ny; let jm = (j + ny - 1) % ny;
+                let kp = (k + 1) % nz; let km = (k + nz - 1) % nz;
+
+                let v_xp = phi.phi[phi.idx(ip, j,  k )];
+                let v_xm = phi.phi[phi.idx(im, j,  k )];
+                let v_yp = phi.phi[phi.idx(i,  jp, k )];
+                let v_ym = phi.phi[phi.idx(i,  jm, k )];
+                let v_zp = phi.phi[phi.idx(i,  j,  kp)];
+                let v_zm = phi.phi[phi.idx(i,  j,  km)];
+
+                let phi_x = (v_xp - v_xm) / (2.0*dx);
+                let phi_y = (v_yp - v_ym) / (2.0*dx);
+                let phi_z = (v_zp - v_zm) / (2.0*dx);
+                let grad2 = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z;
+                let grad_mag = grad2.sqrt();
+
+                grad_field[phi.idx(i,j,k)] = grad_mag;
+
+                if grad_mag < GRAD_THRESHOLD {
+                    continue;
+                }
+
+                let phi_c  = phi.phi[phi.idx(i,j,k)];
+                let phi_xx = (v_xp - 2.0*phi_c + v_xm) / (dx*dx);
+                let phi_yy = (v_yp - 2.0*phi_c + v_ym) / (dx*dx);
+                let phi_zz = (v_zp - 2.0*phi_c + v_zm) / (dx*dx);
+                let phi_xy = (phi.phi[phi.idx(ip,jp,k)] - phi.phi[phi.idx(ip,jm,k)]
+                            - phi.phi[phi.idx(im,jp,k)] + phi.phi[phi.idx(im,jm,k)]) / (4.0*dx*dx);
+                let phi_xz = (phi.phi[phi.idx(ip,j,kp)] - phi.phi[phi.idx(ip,j,km)]
+                            - phi.phi[phi.idx(im,j,kp)] + phi.phi[phi.idx(im,j,km)]) / (4.0*dx*dx);
+                let phi_yz = (phi.phi[phi.idx(i,jp,kp)] - phi.phi[phi.idx(i,jp,km)]
+                            - phi.phi[phi.idx(i,jm,kp)] + phi.phi[phi.idx(i,jm,km)]) / (4.0*dx*dx);
+
+                let m01 = phi_x*(phi_yy*phi_zz - phi_yz*phi_yz)
+                        - phi_xy*(phi_y*phi_zz - phi_yz*phi_z)
+                        + phi_xz*(phi_y*phi_yz - phi_yy*phi_z);
+                let m02 = phi_x*(phi_xy*phi_zz - phi_yz*phi_xz)
+                        - phi_xx*(phi_y*phi_zz - phi_yz*phi_z)
+                        + phi_xz*(phi_y*phi_xz - phi_xy*phi_z);
+                let m03 = phi_x*(phi_xy*phi_yz - phi_yy*phi_xz)
+                        - phi_xx*(phi_y*phi_yz - phi_yy*phi_z)
+                        + phi_xy*(phi_y*phi_xz - phi_xy*phi_z);
+                let bh_det = -phi_x*m01 + phi_y*m02 - phi_z*m03;
+
+                kg_field[phi.idx(i,j,k)] = -bh_det / (grad2 * grad2);
+            }
+        }
+    }
+
+    (kg_field, grad_field)
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
