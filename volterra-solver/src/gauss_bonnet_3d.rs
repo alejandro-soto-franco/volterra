@@ -83,9 +83,16 @@ pub fn gauss_bonnet_chi(phi: &ScalarField3D, _epsilon: f64) -> f64 {
                 let kp = (k + 1) % nz;
                 let km = (k + nz - 1) % nz;
 
-                let phi_x = (phi.phi[phi.idx(ip, j,  k )] - phi.phi[phi.idx(im, j,  k )]) / (2.0*dx);
-                let phi_y = (phi.phi[phi.idx(i,  jp, k )] - phi.phi[phi.idx(i,  jm, k )]) / (2.0*dx);
-                let phi_z = (phi.phi[phi.idx(i,  j,  kp)] - phi.phi[phi.idx(i,  j,  km)]) / (2.0*dx);
+                let v_xp = phi.phi[phi.idx(ip, j,  k )];
+                let v_xm = phi.phi[phi.idx(im, j,  k )];
+                let v_yp = phi.phi[phi.idx(i,  jp, k )];
+                let v_ym = phi.phi[phi.idx(i,  jm, k )];
+                let v_zp = phi.phi[phi.idx(i,  j,  kp)];
+                let v_zm = phi.phi[phi.idx(i,  j,  km)];
+
+                let phi_x = (v_xp - v_xm) / (2.0*dx);
+                let phi_y = (v_yp - v_ym) / (2.0*dx);
+                let phi_z = (v_zp - v_zm) / (2.0*dx);
 
                 let grad2 = phi_x*phi_x + phi_y*phi_y + phi_z*phi_z;
                 let grad_mag = grad2.sqrt();
@@ -98,9 +105,9 @@ pub fn gauss_bonnet_chi(phi: &ScalarField3D, _epsilon: f64) -> f64 {
                 // Second derivatives (central FD)
                 let phi_c  = phi.phi[phi.idx(i, j, k)];
 
-                let phi_xx = (phi.phi[phi.idx(ip, j,  k )] - 2.0*phi_c + phi.phi[phi.idx(im, j,  k )]) / (dx*dx);
-                let phi_yy = (phi.phi[phi.idx(i,  jp, k )] - 2.0*phi_c + phi.phi[phi.idx(i,  jm, k )]) / (dx*dx);
-                let phi_zz = (phi.phi[phi.idx(i,  j,  kp)] - 2.0*phi_c + phi.phi[phi.idx(i,  j,  km)]) / (dx*dx);
+                let phi_xx = (v_xp - 2.0*phi_c + v_xm) / (dx*dx);
+                let phi_yy = (v_yp - 2.0*phi_c + v_ym) / (dx*dx);
+                let phi_zz = (v_zp - 2.0*phi_c + v_zm) / (dx*dx);
 
                 // Mixed partials via 4-point stencil
                 let phi_xy = (phi.phi[phi.idx(ip, jp, k)] - phi.phi[phi.idx(ip, jm, k)]
@@ -202,8 +209,8 @@ mod tests {
 
         let chi = gauss_bonnet_chi(&phi, epsilon);
         assert!(
-            (chi - 2.0).abs() < 0.5,
-            "sphere shell chi expected approx 2.0, got {:.4}",
+            (chi - 2.0).abs() < 0.15,
+            "sphere shell chi expected ≈ 2.0, got {:.4}",
             chi
         );
     }
