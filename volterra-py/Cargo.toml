@@ -16,6 +16,6 @@ crate-type = ["cdylib"]
 volterra-core   = { path = "../volterra-core" }
 volterra-fields = { path = "../volterra-fields" }
 volterra-solver = { path = "../volterra-solver" }
-cartan-geo      = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
+cartan-geo      = { workspace = true }
 pyo3            = { workspace = true, features = ["extension-module"] }
 numpy           = { workspace = true }
