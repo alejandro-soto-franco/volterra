@@ -246,6 +246,23 @@ impl QField3D {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// cartan-geo integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl cartan_geo::QTensorField3D for QField3D {
+    fn nx(&self) -> usize { self.nx }
+    fn ny(&self) -> usize { self.ny }
+    fn nz(&self) -> usize { self.nz }
+    fn dx(&self) -> f64 { self.dx }
+    fn idx(&self, i: usize, j: usize, l: usize) -> usize {
+        ((i % self.nx) * self.ny + (j % self.ny)) * self.nz + (l % self.nz)
+    }
+    fn embed_matrix3(&self, k: usize) -> nalgebra::SMatrix<f64, 3, 3> {
+        self.embed_matrix3(k)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
