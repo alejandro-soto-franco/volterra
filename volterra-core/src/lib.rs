@@ -316,7 +316,36 @@ pub struct MarsParams3D {
     pub a_ch: f64,
     pub b_ch: f64,
     pub m_l: f64,
+
+    /// Spontaneous curvature c₀ [m⁻¹]. Negative for QII-forming lipids.
+    /// Modifies the interface bending penalty: κ_eff = κ_CH - κ_W · c₀/ε_CH.
+    /// Typical value: -1/ξ_CH ≈ -3.3e8 m⁻¹ for ξ_CH = 3 nm.
+    /// Set to 0.0 to recover the plain CH free energy.
+    #[serde(default)]
+    pub c0_sp: f64,
+
+    /// Curvature penalty coefficient κ_W [J/m³] ≥ 0.
+    /// Scales the Willmore-like square term in the enriched CH free energy.
+    /// Set to 0.0 to disable the curvature coupling.
+    #[serde(default)]
+    pub kappa_w: f64,
+
+    /// Gaussian curvature modulus κ̄_G [J/m]. May be negative.
+    /// Treated EXPLICITLY in the nonlinear ETD part (never added to L).
+    /// Timestep bound when |κ̄_G| > 0: dt < C ε³ / (M_l |κ̄_G| k_max⁶).
+    /// Set to 0.0 to disable Gaussian curvature coupling.
+    #[serde(default)]
+    pub kappa_bar_g: f64,
+
+    /// Interface half-width ε_CH [m] > 0.
+    /// Sets the gradient interface scale for the enriched free energy.
+    /// Rule of thumb: ε_CH = dx (one grid spacing) for unit tests;
+    /// physical value ≈ ξ_CH = 3 nm for a 1 nm grid.
+    #[serde(default = "default_epsilon_ch")]
+    pub epsilon_ch: f64,
 }
+
+fn default_epsilon_ch() -> f64 { 1.0 }
 
 impl MarsParams3D {
     /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
@@ -342,6 +371,21 @@ impl MarsParams3D {
     /// Equilibrium lipid fraction φ_eq = sqrt(a_ch / b_ch).
     pub fn phi_eq(&self) -> f64 {
         (self.a_ch / self.b_ch).sqrt()
+    }
+
+    /// Effective bending stiffness κ_eff = κ_CH - κ_W · c₀_sp / ε_CH.
+    ///
+    /// For c₀_sp < 0 (QII-forming lipids), κ_eff > κ_CH (stiffer interface).
+    /// This value replaces κ_CH as the stiff linear coefficient in the
+    /// enriched ETD step.
+    ///
+    /// Returns κ_CH unchanged when kappa_w = 0 or epsilon_ch is not yet set.
+    pub fn kappa_eff(&self) -> f64 {
+        if self.epsilon_ch > 0.0 {
+            self.kappa_ch - self.kappa_w * self.c0_sp / self.epsilon_ch
+        } else {
+            self.kappa_ch
+        }
     }
 
     /// Validate that parameters are physically reasonable.
@@ -409,6 +453,26 @@ impl MarsParams3D {
         if self.m_l <= 0.0 {
             return Err(VError::InvalidParams("m_l must be positive".into()));
         }
+        if self.kappa_w < 0.0 {
+            return Err(VError::InvalidParams("kappa_w must be non-negative".into()));
+        }
+        if self.epsilon_ch <= 0.0 {
+            return Err(VError::InvalidParams("epsilon_ch must be positive".into()));
+        }
+        // κ̄_G stability bound: dt < 0.1 ε³ / (M_l |κ̄_G| k_max⁶)
+        // where k_max = π/dx. Violated timesteps will cause blow-up.
+        if self.kappa_bar_g != 0.0 && self.m_l > 0.0 && self.epsilon_ch > 0.0 {
+            let k_max = std::f64::consts::PI / self.dx;
+            let dt_max = 0.1 * self.epsilon_ch.powi(3)
+                / (self.m_l * self.kappa_bar_g.abs() * k_max.powi(6));
+            if self.dt > dt_max {
+                return Err(VError::InvalidParams(format!(
+                    "dt={:.3e} exceeds κ̄_G ETD stability bound dt_max={:.3e}; \
+                     reduce dt or reduce |κ̄_G|",
+                    self.dt, dt_max
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -440,6 +504,10 @@ impl MarsParams3D {
             a_ch: 1.0,
             b_ch: 1.0,
             m_l: 0.1,
+            c0_sp: 0.0,
+            kappa_w: 0.0,
+            kappa_bar_g: 0.0,
+            epsilon_ch: 1.0,   // = dx for unit tests
         }
     }
 }
@@ -528,5 +596,58 @@ mod tests {
         p.dx = 1.0;
         p.k_r = 0.0;
         assert!(p.validate().is_err());
+    }
+}
+
+#[cfg(test)]
+mod tests_approach_b {
+    use super::*;
+
+    #[test]
+    fn test_new_params_present() {
+        let p = MarsParams3D::default_test();
+        assert!(p.kappa_w >= 0.0);
+        assert!(p.epsilon_ch > 0.0);
+    }
+
+    #[test]
+    fn test_validate_rejects_negative_kappa_w() {
+        let mut p = MarsParams3D::default_test();
+        p.kappa_w = -1.0;
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_epsilon_ch() {
+        let mut p = MarsParams3D::default_test();
+        p.epsilon_ch = 0.0;
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn test_kappa_eff() {
+        let mut p = MarsParams3D::default_test();
+        p.kappa_ch = 1.0;
+        p.kappa_w = 2.0;
+        p.c0_sp = -0.5;
+        p.epsilon_ch = 1.0;
+        // κ_eff = κ_CH - κ_W * c0_sp / ε_CH = 1.0 - 2.0*(-0.5)/1.0 = 2.0
+        assert!((p.kappa_eff() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_validate_rejects_dt_violating_kappa_bar_bound() {
+        let mut p = MarsParams3D::default_test();
+        p.kappa_bar_g = 1e4; // large |κ̄_G| → tiny dt_max
+        p.dt = 1.0;          // grossly too large
+        p.epsilon_ch = 1.0;
+        assert!(p.validate().is_err(), "large kappa_bar_g + large dt must fail validate");
+    }
+
+    #[test]
+    fn test_validate_accepts_safe_dt_for_kappa_bar() {
+        let mut p = MarsParams3D::default_test();
+        p.kappa_bar_g = 0.0; // disabled
+        assert!(p.validate().is_ok(), "kappa_bar_g=0 must always pass");
     }
 }

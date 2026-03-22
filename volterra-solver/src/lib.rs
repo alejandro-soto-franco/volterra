@@ -86,6 +86,9 @@ pub use defects_3d::{scan_defects_3d, track_defect_events};
 pub mod runner_3d;
 pub use runner_3d::{run_mars_3d, run_mars_3d_full, SnapStats3D, BechStats3D};
 
+pub mod gauss_bonnet_3d;
+pub use gauss_bonnet_3d::gauss_bonnet_chi;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
