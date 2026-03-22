@@ -5,6 +5,9 @@ Covariant active nematics simulation on Riemannian manifolds, in Rust.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
 [![crates.io](https://img.shields.io/crates/v/volterra.svg)](https://crates.io/crates/volterra)
 [![docs.rs](https://docs.rs/volterra/badge.svg)](https://docs.rs/volterra)
+[![PyPI](https://img.shields.io/pypi/v/volterra-nematic.svg)](https://pypi.org/project/volterra-nematic/)
+
+> **Python users:** the PyPI distribution is `volterra-nematic` (`pip install volterra-nematic`), but the Python module is imported as `import volterra`. The name `volterra` was already taken on PyPI.
 
 **volterra** solves the Beris-Edwards nematohydrodynamics equations for active liquid crystals on curved spaces. It is built on [cartan](https://github.com/alejandro-soto-franco/cartan), a Riemannian geometry library, and uses discrete exterior calculus (DEC) to discretize covariant differential operators on arbitrary manifolds.
 
