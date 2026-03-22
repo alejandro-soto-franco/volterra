@@ -52,14 +52,17 @@ volterra depends on [cartan](https://github.com/alejandro-soto-franco/cartan) fo
 
 ## Status
 
-Early development. The crate structure and mathematical foundations are established. Implementation is in progress.
+The 3D Cartesian-grid simulation stack is implemented and tested. The DEC layer (curved-manifold discretization) is the next major milestone.
 
 | Crate | Status |
 |-------|--------|
-| volterra-core | planned |
-| volterra-dec | planned |
-| volterra-fields | planned |
-| volterra-solver | planned |
+| volterra-core | implemented — `MarsParams3D`, `VError`, `Integrator` |
+| volterra-fields | implemented — `QField3D`, `VelocityField3D`, `ScalarField3D` |
+| volterra-solver | implemented — Beris-Edwards, Stokes (FFT), Cahn-Hilliard (ETD), disclination detection |
+| volterra-py | implemented — PyO3 bindings for all 3D types and runners |
+| volterra-dec | planned — DEC mesh, Hodge operators, Lichnerowicz Laplacian |
+
+The current solver uses a periodic Cartesian grid with 7-point finite differences. The DEC layer will generalize this to arbitrary well-centered Riemannian meshes.
 
 ## License
 
