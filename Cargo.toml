@@ -32,7 +32,7 @@ cartan-geo       = "0.1.3"
 # cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
 # cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
 # cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
-nalgebra         = { version = "0.33", features = ["std"] }
+nalgebra         = { version = "0.34", features = ["std"] }
 rayon            = "1"
 thiserror        = "2"
 serde            = { version = "1", features = ["derive"] }
