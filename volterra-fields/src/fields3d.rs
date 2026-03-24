@@ -214,7 +214,7 @@ impl ScalarField3D {
         out
     }
 
-    /// Gradient at each vertex: returns Vec<[f64;3]> of (d/dx, d/dy, d/dz).
+    /// Gradient at each vertex: returns `Vec<[f64; 3]>` of (d/dx, d/dy, d/dz).
     pub fn gradient(&self) -> Vec<[f64; 3]> {
         let nx = self.nx;
         let ny = self.ny;

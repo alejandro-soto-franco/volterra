@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 // ~/volterra/volterra-solver/src/stokes_3d.rs
 
 //! Spectral Stokes solver for active nematics on a 3D periodic grid.

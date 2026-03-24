@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 // ~/volterra/volterra-solver/src/lib.rs
 
 //! # volterra-solver
@@ -198,7 +199,7 @@ pub fn corotation_strain(q: &QField2D, v: &VelocityField2D, params: &MarsParams)
             let d_yy_incomp = -d_xx; // enforce incompressibility
 
             let dqdq_11 = 2.0 * (d_xx * q1 + d_xy * q2);
-            let dqdq_12 = (d_xx + d_yy_incomp) * q2 + (d_xy - d_xy) * q1; // = 0 (incompressible)
+            let dqdq_12 = (d_xx + d_yy_incomp) * q2; // = 0 (incompressible: d_xy - d_xy = 0)
             // Actually: (D·Q+Q·D)_12 = (dxx+dyy)*q2 = 0 for incompressible flow.
             // Let me redo without the incompressible assumption for generality:
             // (0,1) component: (D·Q)_01 + (Q·D)_01
@@ -808,7 +809,7 @@ pub fn run_mars_component1(
             // Box-Muller transform: two uniform samples -> two standard normals.
             if use_noise {
                 let mut iter = q.q.iter_mut();
-                while let Some([q1, q2]) = iter.next() {
+                for [q1, q2] in iter.by_ref() {
                     let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
                     let u2: f64 = rng.random::<f64>();
                     let mag = noise_scale * (-2.0 * u1.ln()).sqrt();
