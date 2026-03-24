@@ -337,7 +337,7 @@ pub struct MarsParams3D {
     #[serde(default)]
     pub kappa_bar_g: f64,
 
-    /// Interface half-width ε_CH [m] > 0.
+    /// Interface half-width ε_CH \[m\] > 0.
     /// Sets the gradient interface scale for the enriched free energy.
     /// Rule of thumb: ε_CH = dx (one grid spacing) for unit tests;
     /// physical value ≈ ξ_CH = 3 nm for a 1 nm grid.
