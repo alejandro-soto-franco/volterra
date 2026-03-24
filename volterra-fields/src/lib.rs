@@ -435,7 +435,7 @@ impl ScalarField2D {
         self.phi.iter().cloned().fold(f64::INFINITY, f64::min)
     }
 
-    /// Variance Var[φ] = ⟨φ²⟩ - ⟨φ⟩².
+    /// Variance Var\[φ\] = ⟨φ²⟩ - ⟨φ⟩².
     pub fn variance(&self) -> f64 {
         let mean = self.mean_value();
         let mean_sq: f64 = self.phi.iter().map(|&p| p * p).sum::<f64>() / self.len() as f64;

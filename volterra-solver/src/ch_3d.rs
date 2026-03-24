@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 // ~/volterra/volterra-solver/src/ch_3d.rs
 
 //! ETD (exponential time differencing) integrator for the Cahn-Hilliard equation
@@ -24,7 +25,7 @@
 //! Splitting into stiff linear (L) and nonlinear (N) parts:
 //!
 //! - L = -M_l κ_CH k⁴  (stiff; large for high wavenumbers)
-//! - N[φ] = M_l (a_CH φ + b_CH φ³ - χ_MS Tr(Q_lip²))  (computed in real space)
+//! - N\[φ\] = M_l (a_CH φ + b_CH φ³ - χ_MS Tr(Q_lip²))  (computed in real space)
 //!
 //! Note: N is computed in real space (not under ∇²), so its Fourier transform
 //! is multiplied by -k² in the full equation. However, the ETD1 scheme used
@@ -76,7 +77,7 @@ use volterra_fields::{QField3D, ScalarField3D};
 /// * `phi`   - Concentration field φ on the nx×ny×nz periodic grid.
 /// * `q_lip` - Lipid Q-tensor field on the same grid.
 /// * `p`     - MARS parameters supplying `m_l`, `kappa_ch`, `a_ch`, `b_ch`,
-///             `chi_ms`, and grid geometry.
+///   `chi_ms`, and grid geometry.
 /// * `dt`    - Time step.
 ///
 /// # Returns
@@ -278,7 +279,7 @@ fn wavenumber(idx: usize, n: usize, dx: f64) -> f64 {
 /// 1. **Stiff linear symbol**: L = −M_l κ_eff k⁴  where  κ_eff = κ_CH − κ_W c₀/ε.
 ///
 /// 2. **κ̄_G term in N** (explicit; never added to L):
-///    g[v] += M_l · κ̄_G · K_G(v) · |∇φ(v)| / ε
+///    g\[v\] += M_l · κ̄_G · K_G(v) · |∇φ(v)| / ε
 ///
 /// Falls back to plain ETD when `p.kappa_w = 0 && p.kappa_bar_g = 0`.
 pub fn ch_step_etd_enriched_3d(

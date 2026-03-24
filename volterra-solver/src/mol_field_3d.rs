@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 //! Molecular field and co-rotation term for 3D active nematics.
 //!
 //! ## Molecular field

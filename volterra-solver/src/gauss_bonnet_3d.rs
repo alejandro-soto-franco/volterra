@@ -171,7 +171,7 @@ pub fn gauss_bonnet_chi(phi: &ScalarField3D, _epsilon: f64) -> f64 {
 
 /// Compute K_G(v) and |∇φ(v)| at every grid vertex.
 ///
-/// Returns two flat Vec<f64> in the same linear order as `phi.phi`:
+/// Returns two flat `Vec<f64>` in the same linear order as `phi.phi`:
 /// - `kg_field[v]` = Gaussian curvature of the level set at vertex v (0 far from interface)
 /// - `grad_field[v]` = |∇φ(v)| (magnitude of concentration gradient)
 ///
