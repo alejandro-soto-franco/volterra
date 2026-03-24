@@ -54,7 +54,7 @@ impl QField3D {
             .map(|_| {
                 let mut v = [0.0f64; 5];
                 for c in &mut v {
-                    *c = rng.gen_range(-amplitude..amplitude);
+                    *c = rng.random_range(-amplitude..amplitude);
                 }
                 v
             })

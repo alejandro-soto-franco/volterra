@@ -15,17 +15,20 @@ edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/alejandro-soto-franco/volterra"
+homepage = "https://github.com/alejandro-soto-franco/volterra"
+documentation = "https://docs.rs/volterra"
+readme = "README.md"
 keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", "physics"]
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = { git = "https://github.com/alejandro-soto-franco/cartan", rev = "b4c6946" }
-cartan-manifolds = { git = "https://github.com/alejandro-soto-franco/cartan", rev = "b4c6946" }
-cartan-geo       = { git = "https://github.com/alejandro-soto-franco/cartan", rev = "b4c6946" }
+cartan-core      = "0.1.3"
+cartan-manifolds = "0.1.3"
+cartan-geo       = "0.1.3"
 
 # ── Local dev override ────────────────────────────────────────────────────────
 # Uncomment to use in-tree cartan changes without pushing first.
-# [patch."https://github.com/alejandro-soto-franco/cartan"]
+# [patch.crates-io]
 # cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
 # cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
 # cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
