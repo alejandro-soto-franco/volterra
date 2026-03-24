@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop)]
 // ~/volterra/volterra-solver/src/runner_3d.rs
 
 //! High-level 3D simulation runners for the MARS and BECH (Beris-Edwards +
@@ -25,7 +26,7 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use volterra_core::MarsParams3D;
-use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
+use volterra_fields::{QField3D, ScalarField3D};
 
 use crate::beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D};
 use crate::ch_3d::ch_step_etd_3d;
@@ -100,7 +101,7 @@ pub struct BechStats3D {
 /// * `snap_every`   - Write a snapshot every this many steps.
 /// * `out_dir`      - Directory for `.npy` and `stats.json` output.
 /// * `track_defects`- When `true`, run the full disclination detection
-///                    pipeline and topology-event tracker at each snapshot.
+///   pipeline and topology-event tracker at each snapshot.
 ///
 /// # Returns
 ///
@@ -122,8 +123,6 @@ pub fn run_mars_3d(
 
     // Deterministic RNG seeded by a fixed constant; each step re-seeds from
     // the step index to keep runs reproducible regardless of snap_every.
-    let mut rng = SmallRng::seed_from_u64(0xdead_beef_cafe_1234);
-
     for step in 0..n_steps {
         let t = step as f64 * p.dt;
 
@@ -139,8 +138,8 @@ pub fn run_mars_3d(
         if p.noise_amp > 0.0 {
             let amp = p.noise_amp * p.dt.sqrt();
             let n_verts = q.len();
-            // Re-seed per step for reproducibility; cheap with SmallRng.
-            rng = SmallRng::seed_from_u64(step as u64 ^ 0xdead_beef_cafe_1234);
+            // Seed per step for reproducibility; cheap with SmallRng.
+            let mut rng = SmallRng::seed_from_u64(step as u64 ^ 0xdead_beef_cafe_1234);
             for k in 0..n_verts {
                 // Box-Muller to generate 5 independent N(0,1) samples.
                 let samples = box_muller_5(&mut rng);
@@ -227,8 +226,6 @@ pub fn run_mars_3d_full(
     let mut stats: Vec<BechStats3D> = Vec::new();
 
     let mut prev_lines: Option<Vec<DisclinationLine>> = None;
-    let mut rng = SmallRng::seed_from_u64(0xdead_beef_cafe_5678);
-
     for step in 0..n_steps {
         let t = step as f64 * p.dt;
 
@@ -245,7 +242,7 @@ pub fn run_mars_3d_full(
         if p.noise_amp > 0.0 {
             let amp = p.noise_amp * p.dt.sqrt();
             let n_verts = q.len();
-            rng = SmallRng::seed_from_u64(step as u64 ^ 0xdead_beef_cafe_5678);
+            let mut rng = SmallRng::seed_from_u64(step as u64 ^ 0xdead_beef_cafe_5678);
             for k in 0..n_verts {
                 let samples = box_muller_5(&mut rng);
                 for c in 0..5 {
@@ -433,7 +430,7 @@ fn write_npy<const N: usize>(
     // Round up to next multiple of 64 after the 10-byte prefix.
     let header_len = {
         let needed = dict_plus_newline;
-        let rounded = ((needed + 64 - 1) / 64) * 64;
+        let _rounded = needed.div_ceil(64) * 64;
         // Ensure also (10 + rounded) % 64 == 0.
         // Since rounded is already a multiple of 64, (10 + rounded) % 64 = 10 % 64 = 10 != 0.
         // The spec says the TOTAL of (magic + header_len_field + header_data) must be divisible
