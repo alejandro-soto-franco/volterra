@@ -22,9 +22,9 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.1.3"
-cartan-manifolds = "0.1.3"
-cartan-geo       = "0.1.3"
+cartan-core      = "0.1.5"
+cartan-manifolds = "0.1.5"
+cartan-geo       = "0.1.5"
 
 # ── Local dev override ────────────────────────────────────────────────────────
 # Uncomment to use in-tree cartan changes without pushing first.
