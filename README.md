@@ -44,9 +44,10 @@ volterra is designed around three principles:
 ```
 volterra          facade crate (start here)
 volterra-core     trait definitions and error types
-volterra-dec      DEC mesh, Hodge operators, covariant differential operators
 volterra-fields   Q-tensor, velocity, pressure, and stress field types
 volterra-solver   equations of motion, time integration, defect tracking
+volterra-dec      DEC mesh, Hodge operators, covariant differential operators (in progress)
+volterra-py       PyO3 bindings  (pip install volterra-nematic)
 ```
 
 ## Substrate
@@ -63,7 +64,7 @@ The 3D Cartesian-grid simulation stack is implemented and tested. The DEC layer 
 | volterra-fields | implemented — `QField3D`, `VelocityField3D`, `ScalarField3D` |
 | volterra-solver | implemented — Beris-Edwards, Stokes (FFT), Cahn-Hilliard (ETD), disclination detection |
 | volterra-py | implemented — PyO3 bindings for all 3D types and runners |
-| volterra-dec | planned — DEC mesh, Hodge operators, Lichnerowicz Laplacian |
+| volterra-dec | in progress — crate scaffold + full DEC operator design; mesh impl pending |
 
 The current solver uses a periodic Cartesian grid with 7-point finite differences. The DEC layer will generalize this to arbitrary well-centered Riemannian meshes.
 
