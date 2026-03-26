@@ -23,11 +23,13 @@
 
 ---
 
-## Phase A: cartan-dec Upgrades
+## Phase A: cartan-dec Upgrades (K-Generic DEC Core)
 
-### A1. Adjacency Maps
+**Principle**: The DEC infrastructure (adjacency, exterior derivative, Hodge star, Laplacian, advection, divergence) must be generic over the simplex dimension K. Phases B-F specialize to K=3 (triangle meshes) for the membrane physics, but the core must not assume K=3.
 
-Add precomputed adjacency to `Mesh<M, K, B>`:
+### A1. K-Generic Adjacency Maps
+
+Add precomputed adjacency to `Mesh<M, K, B>` at full generality:
 
 ```rust
 pub struct Mesh<M: Manifold, const K: usize = 3, const B: usize = 2> {
@@ -37,84 +39,197 @@ pub struct Mesh<M: Manifold, const K: usize = 3, const B: usize = 2> {
     pub boundaries: Vec<[usize; B]>,
     pub simplex_boundary_ids: Vec<[usize; K]>,
     pub boundary_signs: Vec<[f64; K]>,
-    // new adjacency
-    pub vertex_boundaries: Vec<Vec<usize>>,          // vertex -> incident edges
-    pub vertex_simplices: Vec<Vec<usize>>,            // vertex -> incident faces
-    pub boundary_simplices: Vec<[Option<usize>; 2]>,  // edge -> up to 2 adjacent faces
+    // new K-generic adjacency
+    pub vertex_boundaries: Vec<Vec<usize>>,     // vertex -> incident (K-1)-simplices
+    pub vertex_simplices: Vec<Vec<usize>>,       // vertex -> incident K-simplices
+    pub boundary_simplices: Vec<Vec<usize>>,     // (K-1)-simplex -> adjacent K-simplices (variable count)
 }
 ```
 
-Built in `from_simplices` alongside existing edge deduction. `boundary_simplices[e]` stores `[Some(f1), Some(f2)]` for interior edges, `[Some(f1), None]` for mesh-boundary edges.
+`boundary_simplices` is `Vec<Vec<usize>>` instead of `Vec<[Option<usize>; 2]>`. For triangles (K=3), an interior edge has exactly 2 co-faces; for tets (K=4), an interior face can have 2 co-tets; but for general K-complexes (or non-manifold meshes) the count is unbounded. `Vec<Vec<usize>>` handles all cases.
 
-A `rebuild_adjacency(&mut self)` method recomputes all three maps from the current `simplices`/`boundaries` arrays, for use after remeshing.
+Built in `from_simplices` alongside existing edge deduction. A `rebuild_adjacency(&mut self)` method recomputes all three maps from the current `simplices`/`boundaries` arrays, for use after remeshing.
 
-### A2. Sparse Operators via sprs
+**Convenience accessors for K=3** (non-breaking):
+
+```rust
+impl<M: Manifold> Mesh<M, 3, 2> {
+    /// For triangle meshes, an interior edge has at most 2 co-faces.
+    /// Returns (face_a, Option<face_b>). Panics on non-manifold edges.
+    pub fn edge_faces(&self, e: usize) -> (usize, Option<usize>);
+}
+```
+
+### A2. K-Generic Sparse Operators via sprs
 
 New dependency: `sprs = "0.11"` in cartan-dec's Cargo.toml.
 
+**Exterior derivative** becomes a chain of sparse matrices, one per degree:
+
 ```rust
 pub struct ExteriorDerivative {
-    pub d0: CsMat<f64>,   // n_boundaries x n_vertices (CSC)
-    pub d1: CsMat<f64>,   // n_simplices x n_boundaries (CSC)
+    /// d[k] is the incidence matrix from k-simplices to (k+1)-simplices.
+    /// For a K-simplex mesh: d[0] maps vertices->boundaries, d[1] maps boundaries->simplices.
+    /// In general, d[k] has dimensions n_{k+1} x n_k.
+    pub d: Vec<CsMat<f64>>,
 }
 ```
 
-Construction via `sprs::TriMat` (triplet format) then `.to_csc()`. Same incidence logic as the existing dense version. The existing dense constructors remain as `from_mesh_generic_dense` (deprecated).
+For a triangle mesh (K=3), `d` has 2 entries: `d[0]` (n_edges x n_vertices) and `d[1]` (n_faces x n_edges). For a tet mesh (K=4), `d` would have 3 entries: d[0] (edges x verts), d[1] (faces x edges), d[2] (tets x faces). Construction via `sprs::TriMat` then `.to_csc()`.
 
-`HodgeStar` remains `DVector<f64>` (diagonal, already optimal).
+The exactness property `d[k+1] * d[k] = 0` holds for all k and is checkable via `check_exactness()`.
 
-`Operators<M>` Laplacian assembly becomes sparse:
-
-```
-L = diag(star0_inv) * d0^T * diag(star1) * d0
-```
-
-Using `sprs` sparse-sparse multiply and diagonal scaling. Public API returns `&CsMat<f64>` for the Laplacian. The `apply_*` methods use sparse matrix-vector multiply (`&CsMat * &DVector`), returning `DVector<f64>`.
-
-### A3. Generic Hodge Star
+Backward-compat accessors:
 
 ```rust
-impl<M: Manifold> HodgeStar {
-    pub fn from_mesh_generic(mesh: &Mesh<M, 3, 2>, manifold: &M) -> Result<Self, DecError>
+impl ExteriorDerivative {
+    pub fn d0(&self) -> &CsMat<f64> { &self.d[0] }
+    pub fn d1(&self) -> &CsMat<f64> { &self.d[1] }
+    pub fn degree(&self) -> usize { self.d.len() }
 }
 ```
 
-Uses the existing generic methods on `Mesh<M, 3, 2>`:
+The existing dense constructors remain as `from_mesh_generic_dense` (deprecated).
 
-- `star0[v]`: circumcentric dual cell area. For each incident face t, compute the circumcenter `c_t = mesh.circumcenter(manifold, t)` and the two edge midpoints of the edges of t incident to v. The dual cell contribution is the area of the triangle (v, midpoint_1, c_t) + triangle (v, c_t, midpoint_2), computed via cross products in the tangent space at v.
-- `star1[e]`: dual edge length / primal edge length. Dual edge connects circumcenters of the two adjacent faces (from `boundary_simplices[e]`). Length via `manifold.dist(&c_t1, &c_t2)`. Primal length via `mesh.edge_length(manifold, e)`. Boundary edges: circumcenter to edge midpoint.
-- `star2[t]`: `1.0 / mesh.triangle_area(manifold, t)`.
+### A3. K-Generic Hodge Star
 
-Well-centeredness check via `mesh.check_well_centered(manifold)` at construction. Returns `Err(DecError::NotWellCentered)` if any circumcenter lies outside its triangle (negative barycentric coordinate).
-
-The flat-specific `HodgeStar::from_mesh(mesh: &FlatMesh, _: &Euclidean<2>)` remains as a fast path (delegates to analytic formulas).
-
-### A4. Generic Operators Assembly
+The Hodge star is a diagonal operator per degree, mapping k-forms to (n-k)-forms where n is the mesh dimension (K-1 for a K-simplex complex).
 
 ```rust
-impl<M: Manifold> Operators<M> {
-    pub fn from_mesh_generic(mesh: &Mesh<M, 3, 2>, manifold: &M) -> Result<Self, DecError>
+pub struct HodgeStar {
+    /// star[k] is the diagonal Hodge star for k-forms.
+    /// For a triangle mesh (n=2): star[0] (vertices), star[1] (edges), star[2] (faces).
+    /// For a tet mesh (n=3): star[0..4].
+    pub star: Vec<DVector<f64>>,
+}
+
+impl HodgeStar {
+    pub fn star_k(&self, k: usize) -> &DVector<f64> { &self.star[k] }
+    pub fn star_k_inv(&self, k: usize) -> DVector<f64>;  // element-wise reciprocal
+
+    // backward compat
+    pub fn star0(&self) -> &DVector<f64> { &self.star[0] }
+    pub fn star1(&self) -> &DVector<f64> { &self.star[1] }
+    pub fn star2(&self) -> &DVector<f64> { &self.star[2] }
 }
 ```
 
-Assembles `ExteriorDerivative::from_mesh_generic`, `HodgeStar::from_mesh_generic`, and the sparse Laplacian. The `apply_bochner_laplacian` and `apply_lichnerowicz_laplacian` methods already work generically (they only use the assembled Laplacian).
-
-### A5. Generic Advection and Divergence
-
-Replace `FlatMesh` hardcoding in `advection.rs` and `divergence.rs` with `Mesh<M, 3, 2>` + `&M`:
+**Generic construction** via circumcentric duality:
 
 ```rust
-pub fn apply_scalar_advection<M: Manifold>(
-    mesh: &Mesh<M, 3, 2>, manifold: &M,
-    f: &DVector<f64>, u: &DVector<f64>,
+impl<M: Manifold, const K: usize, const B: usize> HodgeStar {
+    pub fn from_mesh_generic(mesh: &Mesh<M, K, B>, manifold: &M) -> Result<Self, DecError>
+}
+```
+
+The circumcentric Hodge star for a k-simplex sigma in an n-dimensional complex is:
+
+```
+star_k[sigma] = vol(dual(sigma)) / vol(sigma)
+```
+
+where `vol(dual(sigma))` is the (n-k)-dimensional volume of the dual cell and `vol(sigma)` is the k-dimensional volume of the primal simplex.
+
+**Computing dual cell volumes generically**: For a k-simplex sigma, its dual cell is the union of (n-k)-dimensional polytope pieces, one per incident n-simplex. Each piece connects the circumcenters of the chain: sigma subset tau_{k+1} subset ... subset tau_n. The volume of each piece is computed in the tangent space at sigma's circumcenter via `manifold.log` of the circumcenter chain, using the standard simplex volume formula (1/m! * det of edge vectors).
+
+For the concrete cases:
+- **n=2 (triangle mesh)**: star0[v] = circumcentric dual cell area (polygon around v), star1[e] = dual edge length / primal edge length, star2[f] = 1 / face area. Same formulas as before, but derived from the general principle.
+- **n=3 (tet mesh)**: star0[v] = dual cell volume (polyhedron around v), star1[e] = dual face area / primal edge length, star2[f] = dual edge length / primal face area, star3[t] = 1 / tet volume.
+
+**Mesh geometric primitives** needed on `Mesh<M, K, B>`:
+
+```rust
+impl<M: Manifold, const K: usize, const B: usize> Mesh<M, K, B> {
+    /// Volume of a K-simplex (K=3: triangle area, K=4: tet volume).
+    /// Computed via Gram determinant in the tangent space at the first vertex.
+    pub fn simplex_volume(&self, manifold: &M, s: usize) -> f64;
+
+    /// Volume of a B-simplex (boundary face).
+    pub fn boundary_volume(&self, manifold: &M, b: usize) -> f64;
+
+    /// Circumcenter of a K-simplex. Solves the equidistance system in
+    /// the tangent space at vertex 0, then exp back to the manifold.
+    pub fn simplex_circumcenter(&self, manifold: &M, s: usize) -> M::Point;
+
+    /// Circumcenter of a B-simplex (boundary face).
+    pub fn boundary_circumcenter(&self, manifold: &M, b: usize) -> M::Point;
+
+    /// Midpoint of a B-simplex (geodesic barycenter).
+    pub fn boundary_midpoint(&self, manifold: &M, b: usize) -> M::Point;
+}
+```
+
+The existing `triangle_area`, `circumcenter`, `edge_length`, `boundary_midpoint` on `Mesh<M, 3, 2>` become thin wrappers around these generic methods. The flat-specific fast paths (`triangle_area_flat`, `circumcenter_flat`, etc.) remain on `Mesh<Euclidean<2>, 3, 2>`.
+
+Well-centeredness check generalizes: for each K-simplex, verify that its circumcenter has non-negative barycentric coordinates (lies inside the simplex). Returns `Err(DecError::NotWellCentered)` if violated.
+
+### A4. K-Generic Operators Assembly
+
+```rust
+pub struct Operators<M: Manifold, const K: usize = 3, const B: usize = 2> {
+    pub laplace_beltrami: CsMat<f64>,    // n_vertices x n_vertices (sparse)
+    pub mass: Vec<DVector<f64>>,          // mass[k] = star[k] diagonal, k = 0..K-1
+    pub ext: ExteriorDerivative,          // d[0..K-2]
+    pub hodge: HodgeStar,                 // star[0..K-1]
+    _phantom: PhantomData<M>,
+}
+```
+
+The scalar Laplace-Beltrami is always `star_0_inv * d0^T * diag(star_1) * d0` regardless of K, since it acts on 0-forms (vertex data). This is the same formula for triangles, tets, or any K-simplex mesh.
+
+```rust
+impl<M: Manifold, const K: usize, const B: usize> Operators<M, K, B> {
+    pub fn from_mesh_generic(mesh: &Mesh<M, K, B>, manifold: &M) -> Result<Self, DecError>;
+    pub fn apply_laplace_beltrami(&self, f: &DVector<f64>) -> DVector<f64>;
+}
+```
+
+The Bochner and Lichnerowicz Laplacians remain specialized to K=3 (they operate on 2D vector/tensor fields and assume a 2-manifold tangent bundle):
+
+```rust
+impl<M: Manifold> Operators<M, 3, 2> {
+    pub fn apply_bochner_laplacian(&self, u: &DVector<f64>, ricci: Option<...>) -> DVector<f64>;
+    pub fn apply_lichnerowicz_laplacian(&self, q: &DVector<f64>, curv: Option<...>) -> DVector<f64>;
+}
+```
+
+This is correct: the Bochner/Lichnerowicz operators depend on the tangent bundle dimension (which is the mesh dimension n = K-1), so their implementations are necessarily dimension-specific. The scalar Laplacian is universal.
+
+Backward compat: `Operators<M>` (default K=3, B=2) works as before. The `from_mesh` method on `Operators<Euclidean<2>>` delegates to the flat fast path.
+
+### A5. K-Generic Advection and Divergence
+
+Advection and divergence generalize to any K, but the velocity representation changes with dimension:
+
+```rust
+/// Scalar advection: transport a 0-form by a velocity field.
+/// Velocity is stored as one tangent vector per vertex.
+pub fn apply_scalar_advection<M: Manifold, const K: usize, const B: usize>(
+    mesh: &Mesh<M, K, B>, manifold: &M,
+    f: &DVector<f64>,       // 0-form (scalar per vertex)
+    u: &[M::Tangent],       // velocity per vertex
 ) -> DVector<f64>
 ```
 
-Uses `vertex_boundaries` adjacency for O(V * avg_degree) instead of O(V * E). Edge tangent vectors via `manifold.log`. Upwind flux selection uses `manifold.inner` for the velocity-edge projection.
+The upwind scheme is dimension-agnostic: for each vertex v, iterate over incident (K-1)-simplices (edges for K=3, faces for K=4) via `vertex_boundaries`, project velocity onto the simplex direction via `manifold.inner`, and apply upwind flux. The adjacency maps make this O(V * avg_degree) regardless of K.
+
+Divergence similarly generalizes:
+
+```rust
+pub fn apply_divergence<M: Manifold, const K: usize, const B: usize>(
+    mesh: &Mesh<M, K, B>, manifold: &M,
+    ext: &ExteriorDerivative, hodge: &HodgeStar,
+    u: &[M::Tangent],
+) -> DVector<f64>
+```
+
+The DEC divergence formula `star_0_inv * d0^T * star_1 * u_1form` is independent of K (it only uses the 0-form and 1-form operators). The velocity-to-1-form conversion (trapezoidal integration along edges) is also K-agnostic.
+
+**Tensor divergence** remains K=3 specific (it assumes a 2D symmetric tensor layout `[T_xx, T_xy, T_yy]`). A K=4 version would need a 3D tensor layout, which is a future extension.
 
 ---
 
-## Phase B: cartan-remesh (New Crate)
+## Phase B: cartan-remesh (New Crate, K=3 Specialization)
 
 ### Crate Setup
 
@@ -245,7 +360,7 @@ Returns true if any edge violates the curvature resolution criterion. The caller
 
 ---
 
-## Phase C: volterra-dec (DEC Domain, Helfrich, Beris-Edwards)
+## Phase C: volterra-dec (DEC Domain, Helfrich, Beris-Edwards; K=3 Specialization)
 
 ### DecDomain
 
@@ -659,13 +774,18 @@ pub fn compute_dt(
 
 ## Testing Strategy
 
-### Phase A Tests (cartan-dec)
+### Phase A Tests (cartan-dec, K-generic)
 - Existing 17 tests continue to pass (backward compat)
-- Sparse d0/d1 match dense versions to machine epsilon
-- Generic Hodge star on `Sphere<3>` mesh matches known values (e.g., icosahedron dual areas)
-- Sparse Laplacian kills constants, is positive semidefinite
-- Adjacency maps: vertex degree sum = 2 * n_edges (handshaking lemma)
-- Generic advection: constant field advection vanishes
+- Sparse d[k] chain matches dense versions to machine epsilon
+- Exactness: d[k+1] * d[k] = 0 for all k, tested on both K=3 and K=4 meshes
+- Generic Hodge star on K=3 `Sphere<3>` mesh: icosahedron dual areas match known values
+- Generic Hodge star on K=4 tet mesh: unit cube tets, star0 sums to cube volume
+- Sparse Laplacian kills constants and is positive semidefinite (K=3 and K=4)
+- Adjacency maps: vertex degree sum = (K-1) * n_boundaries (generalized handshaking)
+- `boundary_simplices` counts: interior (K-1)-simplices have exactly 2 co-simplices for manifold meshes
+- `simplex_volume` on K=4: unit regular tet volume = sqrt(2)/12
+- `simplex_circumcenter` on K=4: regular tet circumcenter = centroid
+- Generic advection: constant field advection vanishes (K=3 and K=4)
 
 ### Phase B Tests (cartan-remesh)
 - Edge split preserves total area (to O(h^2) on curved meshes)
