@@ -3,3 +3,4 @@ Cargo.lock
 .worktrees/
 .venv/
 docs/
+docs/superpowers/

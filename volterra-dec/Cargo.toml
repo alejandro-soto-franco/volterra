@@ -10,7 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-volterra-core    = { path = "../volterra-core",   version = "0.1.0" }
+volterra-core    = { path = "../volterra-core",   version = "0.2.0" }
 cartan-core      = { workspace = true }
 cartan-manifolds = { workspace = true }
 cartan-dec       = { workspace = true }
