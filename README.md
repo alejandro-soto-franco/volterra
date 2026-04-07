@@ -2,10 +2,10 @@
 
 Covariant active nematics simulation on Riemannian manifolds, in Rust.
 
+[![CI](https://github.com/alejandro-soto-franco/volterra/actions/workflows/ci.yml/badge.svg)](https://github.com/alejandro-soto-franco/volterra/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
-[![crates.io](https://img.shields.io/crates/v/volterra.svg)](https://crates.io/crates/volterra)
-[![docs.rs](https://docs.rs/volterra/badge.svg)](https://docs.rs/volterra)
 [![PyPI](https://img.shields.io/pypi/v/volterra-nematic.svg)](https://pypi.org/project/volterra-nematic/)
+[![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)](Cargo.toml)
 
 > **Python users:** the PyPI distribution is `volterra-nematic` (`pip install volterra-nematic`), but the Python module is imported as `import volterra`. The name `volterra` was already taken on PyPI.
 
