@@ -22,9 +22,11 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.1.5"
-cartan-manifolds = "0.1.5"
-cartan-geo       = "0.1.5"
+cartan-core      = "0.1.7"
+cartan-manifolds = "0.1.7"
+cartan-geo       = "0.1.7"
+cartan-dec       = "0.1.7"
+cartan-remesh    = { path = "/home/alejandrosotofranco/cartan/cartan-remesh" }
 
 # ── Local dev override ────────────────────────────────────────────────────────
 # Uncomment to use in-tree cartan changes without pushing first.
@@ -32,6 +34,7 @@ cartan-geo       = "0.1.5"
 # cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
 # cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
 # cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
+# cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }
 nalgebra         = { version = "0.33", features = ["std"] }
 rayon            = "1"
 thiserror        = "2"
@@ -42,3 +45,9 @@ rand             = { version = "0.9", features = ["small_rng"] }
 rustfft          = "6"
 pyo3             = { version = "0.25", features = ["extension-module", "abi3-py310"] }
 numpy            = "0.25"
+
+[patch.crates-io]
+cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
+cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
+cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
+cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }

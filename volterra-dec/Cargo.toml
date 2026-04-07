@@ -13,7 +13,12 @@ categories.workspace = true
 volterra-core    = { path = "../volterra-core",   version = "0.1.0" }
 cartan-core      = { workspace = true }
 cartan-manifolds = { workspace = true }
+cartan-dec       = { workspace = true }
+cartan-remesh    = { workspace = true }
 nalgebra         = { workspace = true }
 rayon            = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }
