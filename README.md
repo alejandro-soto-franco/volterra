@@ -60,13 +60,13 @@ The 3D Cartesian-grid simulation stack is implemented and tested. The DEC layer 
 
 | Crate | Status |
 |-------|--------|
-| volterra-core | implemented — `MarsParams3D`, `VError`, `Integrator` |
-| volterra-fields | implemented — `QField3D`, `VelocityField3D`, `ScalarField3D` |
-| volterra-solver | implemented — Beris-Edwards, Stokes (FFT), Cahn-Hilliard (ETD), disclination detection |
-| volterra-py | implemented — PyO3 bindings for all 3D types and runners |
-| volterra-dec | in progress — crate scaffold + full DEC operator design; mesh impl pending |
+| volterra-core | implemented: `MarsParams3D`, `VError`, `Integrator` |
+| volterra-fields | implemented: `QField3D`, `VelocityField3D`, `ScalarField3D` |
+| volterra-solver | implemented: Beris-Edwards, Stokes (FFT), Cahn-Hilliard (ETD), disclination detection |
+| volterra-py | implemented: PyO3 bindings for all 3D types and runners |
+| volterra-dec | implemented: `DecDomain<M>`, Helfrich energy, BAOAB variational integrator |
 
-The current solver uses a periodic Cartesian grid with 7-point finite differences. The DEC layer will generalize this to arbitrary well-centered Riemannian meshes.
+The Cartesian-grid solver uses a periodic grid with 7-point finite differences. The DEC layer (`volterra-dec`) generalizes this to arbitrary well-centered Riemannian meshes via [cartan](https://github.com/alejandro-soto-franco/cartan) discrete exterior calculus.
 
 ## License
 
