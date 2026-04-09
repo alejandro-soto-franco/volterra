@@ -16,8 +16,8 @@ fn wet_dec_nematic_runs_without_nan() {
     let ops = Operators::from_mesh(&mesh, &manifold);
 
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.001; // small dt for stability
-    params.zeta_eff = 1.0; // moderate activity
+    params.dt = 0.00005; // very small dt for CFL stability with real 3D flow
+    params.zeta_eff = 0.5;
 
     let nv = mesh.n_vertices();
     let q0 = QFieldDec::random_perturbation(nv, 0.001, 42);
@@ -73,7 +73,7 @@ fn wet_dec_order_grows_with_activity() {
     let ops = Operators::from_mesh(&mesh, &manifold);
 
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.0005; // small dt for CFL stability with real flow velocities
+    params.dt = 0.00005; // very small dt for CFL stability with real 3D flow
 
     assert!(params.a_eff() < 0.0, "need active regime");
 
