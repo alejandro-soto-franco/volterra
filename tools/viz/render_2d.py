@@ -117,20 +117,22 @@ def render_frame(q1, q2, dx, frame_idx, output_path, title=None,
     im = ax.imshow(s, origin="lower", extent=extent, cmap="RdBu_r",
                    vmin=s_range[0], vmax=s_range[1], interpolation="bilinear")
 
-    # Director field (headless line segments)
+    # Director field: headless line segments with length proportional to S.
     stride = director_stride
     y_grid, x_grid = np.mgrid[0:nx:stride, 0:ny:stride]
     x_pos = (x_grid + 0.5) * dx
     y_pos = (y_grid + 0.5) * dx
     th = theta[::stride, ::stride]
-    length = 0.4 * stride * dx
+    s_sub = s[::stride, ::stride]
+    s_max = max(s_range[1], 0.01)
+    length = 0.4 * stride * dx * np.clip(s_sub / s_max, 0.1, 1.0)
     dx_dir = length * np.cos(th)
     dy_dir = length * np.sin(th)
 
     ax.quiver(x_pos, y_pos, dx_dir, dy_dir,
               headaxislength=0, headlength=0, headwidth=0,
               pivot="middle", scale_units="xy", scale=1,
-              color="k", alpha=0.6, linewidth=0.5)
+              color="white", alpha=0.8, linewidth=0.6)
 
     # Defect markers
     defects = detect_defects_2d(q1, q2)
