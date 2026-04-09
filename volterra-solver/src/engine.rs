@@ -166,11 +166,16 @@ impl NematicEngine {
         let q_adv = self.semi_lag.advect(q, &vel, dt);
 
         // 3. Diffusion + bulk LdG.
+        // In the complex representation, |z|^2 = q1^2 + q2^2 and
+        // Tr(Q^2) = 2*(q1^2 + q2^2) = 2*|z|^2.
+        // molecular_field_conn computes: bulk = -a_eff - 2*c*Tr(Q^2) = -a_eff - 4*c*|z|^2.
+        // The nondimensionalised equation wants: La - Lc*|z|^2.
+        // So we need: -a_eff = La and 4*c = Lc, i.e., c = Lc/4.
         let h = molecular_field_conn(
             &q_adv,
-            1.0,                // K_frank = 1 in nondimensionalised units
-            -self.params.la,    // a_eff = -La (nondimensionalised)
-            self.params.lc,
+            1.0,                    // K_frank = 1 (nondimensionalised elastic)
+            -self.params.la,        // a_eff = -La
+            self.params.lc / 4.0,   // c_landau = Lc/4 (complex rep factor correction)
             &self.conn_lap,
         );
 
