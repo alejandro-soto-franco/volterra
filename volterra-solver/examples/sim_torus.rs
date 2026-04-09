@@ -7,8 +7,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use volterra_core::ActiveNematicParams;
-use volterra_dec::curvature_correction::variable_curvature_2d;
-use volterra_dec::mesh_gen::{torus_mesh, torus_gaussian_curvature};
+use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
+use volterra_dec::mesh_gen::torus_mesh;
+#[allow(unused_imports)]
 use volterra_dec::snapshot::write_snapshot;
 use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
 use volterra_dec::QFieldDec;
@@ -47,37 +48,40 @@ fn main() {
     std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
         .expect("failed to write mesh.json");
 
-    // Curvature correction: variable K across the torus.
-    let curvatures = torus_gaussian_curvature(major_r, minor_r, n_major, n_minor);
-    let k_max = curvatures.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let k_min = curvatures.iter().cloned().fold(f64::INFINITY, f64::min);
-    println!("  K range: [{k_min:.4}, {k_max:.4}]");
-    let curv_cb = variable_curvature_2d(curvatures.clone());
+    // Extract vertex coordinates.
+    let coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
+        [v[0], v[1], v[2]]
+    }).collect();
 
+    // Build connection Laplacian (curvature enters automatically via holonomy).
+    println!("Building connection Laplacian...");
+    let star0: Vec<f64> = (0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect();
+    let star1: Vec<f64> = (0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect();
+    let conn_lap = ConnectionLaplacian::new(&domain.mesh, &coords, &star0, &star1);
+
+    // Same parameters as the sphere (reduced activity, increased viscosity).
     let mut params = ActiveNematicParams::default_test();
     params.dt = 0.0001;
-    params.zeta_eff = 0.3;
-    params.k_r = 0.04;
+    params.zeta_eff = 0.5;
+    params.k_r = 0.01;
     params.gamma_r = 1.0;
-    params.eta = 5.0;
-    params.a_landau = -0.2;
+    params.eta = 0.1;
+    params.a_landau = -0.4;
     params.c_landau = 2.0;
     params.lambda = 0.7;
 
-    // Pre-factorise Stokes solver.
     println!("Factorising Stokes solver...");
     let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh)
         .expect("Stokes solver factorisation failed");
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.05, 42);
+    let mut q = QFieldDec::random_perturbation(nv, 0.2, 42);
 
     let meta = serde_json::json!({
         "geometry": "torus",
         "mode": "wet",
+        "laplacian": "connection (parallel transport)",
         "major_radius": major_r,
         "minor_radius": minor_r,
-        "n_major": n_major,
-        "n_minor": n_minor,
         "n_vertices": nv,
         "n_faces": nf,
         "n_steps": n_steps,
@@ -85,19 +89,10 @@ fn main() {
         "dt": params.dt,
         "zeta_eff": params.zeta_eff,
         "k_r": params.k_r,
-        "K_range": [k_min, k_max],
+        "eta": params.eta,
     });
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
         .expect("failed to write meta.json");
-
-    // Extract vertex coordinates for advection.
-    let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
-        [v[0], v[1], v[2]]
-    }).collect();
-
-    // Higher activity for torus (chi = 0, need flow instability to create defects).
-    params.zeta_eff = 1.0;
-    params.eta = 2.0;
 
     println!("Running WET active nematic on torus: {n_steps} steps...");
     let t0 = Instant::now();
@@ -116,21 +111,18 @@ fn main() {
         if step < n_steps {
             let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
 
-            let coords = &stokes_coords;
             let rhs = |qq: &QFieldDec| -> QFieldDec {
-                let h = volterra_dec::molecular_field_dec(
-                    qq, &params, &domain.ops, Some(&curv_cb),
+                let h = molecular_field_conn(
+                    qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
                 );
                 let mut dq = h.scale(params.gamma_r);
-
                 let adv = advect_q(
                     qq, &vel,
                     &domain.mesh.boundaries,
                     &domain.mesh.vertex_boundaries,
-                    coords,
+                    &coords,
                 );
-                let nv = qq.n_vertices;
-                for i in 0..nv {
+                for i in 0..qq.n_vertices {
                     dq.q1[i] -= adv.q1[i];
                     dq.q2[i] -= adv.q2[i];
                 }
