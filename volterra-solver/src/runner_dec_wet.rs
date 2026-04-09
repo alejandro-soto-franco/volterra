@@ -166,7 +166,9 @@ fn rk4_step_wet<M: Manifold>(
 ///
 /// # Returns
 ///
-/// `(q_final, stats)`.
+/// `Ok((q_final, stats))` on success, or an error if the Poisson
+/// factorisation for the Stokes solver fails.
+#[allow(clippy::too_many_arguments)]
 pub fn run_wet_active_nematic_dec<M: Manifold>(
     q_init: &QFieldDec,
     params: &ActiveNematicParams,
@@ -175,10 +177,8 @@ pub fn run_wet_active_nematic_dec<M: Manifold>(
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
     n_steps: usize,
     snap_every: usize,
-) -> (QFieldDec, Vec<SnapStatsDec>) {
-    // Pre-factorise the Poisson solver for the Stokes equation.
-    let stokes = StokesSolverDec::new(ops)
-        .expect("Stokes solver factorisation failed");
+) -> Result<(QFieldDec, Vec<SnapStatsDec>), String> {
+    let stokes = StokesSolverDec::new(ops)?;
 
     let mut q = q_init.clone();
     let mut stats = Vec::new();
@@ -200,5 +200,5 @@ pub fn run_wet_active_nematic_dec<M: Manifold>(
         }
     }
 
-    (q, stats)
+    Ok((q, stats))
 }

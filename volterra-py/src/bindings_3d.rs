@@ -187,6 +187,7 @@ impl PyQField3D {
     /// Uniform 3D Q-tensor field. Provide the five independent components
     /// q11, q12, q13, q22, q23 explicitly; q33 = -(q11+q22) is recovered on demand.
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     fn uniform(nx: usize, ny: usize, nz: usize, dx: f64,
                q11: f64, q12: f64, q13: f64, q22: f64, q23: f64) -> Self {
         Self { inner: QField3D::uniform(nx, ny, nz, dx, [q11, q12, q13, q22, q23]) }
