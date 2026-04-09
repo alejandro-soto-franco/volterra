@@ -21,7 +21,7 @@ use cartan_dec::{Mesh, Operators};
 use nalgebra::DVector;
 
 use crate::poisson::PoissonSolver;
-use crate::stokes_dec::{VelocityFieldDec, compute_vorticity_source};
+use crate::stokes_dec::VelocityFieldDec;
 use crate::QFieldDec;
 // NematicParams will be used when the engine wires this solver to the full pipeline.
 
@@ -203,17 +203,67 @@ impl CurvedStokesSolver {
 ///
 /// source = Pe * curl(div(V(z)))
 ///
-/// In the nondimensionalised system, the active stress is Pe * V(z)
-/// where V(z) = z tensor z (Veronese map).
-pub fn nematic_vorticity_source<M: Manifold>(
+/// Accepts simplices and coords directly (no Mesh reference needed).
+pub fn nematic_vorticity_source(
     q: &QFieldDec,
     pe: f64,
-    mesh: &Mesh<M, 3, 2>,
+    simplices: &[[usize; 3]],
     coords: &[[f64; 3]],
-    dual_areas: &[f64],
+    _dual_areas: &[f64],
 ) -> DVector<f64> {
-    // Reuse the existing vorticity source computation with zeta = pe, eta = 1.
-    compute_vorticity_source(q, pe, 1.0, mesh, coords, dual_areas)
+    use crate::stokes_dec::{sub3, cross3, norm3, scale3, add3};
+    let nv = q.n_vertices;
+    let mut omega = vec![0.0_f64; nv];
+    let mut areas = vec![0.0_f64; nv];
+
+    for &[i0, i1, i2] in simplices {
+        let p0 = coords[i0]; let p1 = coords[i1]; let p2 = coords[i2];
+        let e01 = sub3(p1, p0);
+        let e02 = sub3(p2, p0);
+        let e12 = sub3(p2, p1);
+        let e20 = sub3(p0, p2);
+
+        let fn_vec = cross3(e01, e02);
+        let area2 = norm3(fn_vec);
+        if area2 < 1e-30 { continue; }
+        let fn_hat = scale3(fn_vec, 1.0 / area2);
+        let inv_2a = 1.0 / area2;
+
+        let rot_e12 = cross3(fn_hat, e12);
+        let rot_e20 = cross3(fn_hat, e20);
+        let rot_e01 = cross3(fn_hat, e01);
+
+        let gq1 = scale3(add3(add3(
+            scale3(rot_e12, q.q1[i0]),
+            scale3(rot_e20, q.q1[i1])),
+            scale3(rot_e01, q.q1[i2])), inv_2a);
+        let gq2 = scale3(add3(add3(
+            scale3(rot_e12, q.q2[i0]),
+            scale3(rot_e20, q.q2[i1])),
+            scale3(rot_e01, q.q2[i2])), inv_2a);
+
+        let fx = -pe * (gq1[0] + gq2[1]);
+        let fy = -pe * (gq2[0] - gq1[1]);
+
+        let circ_01 = fx * e01[0] + fy * e01[1];
+        let circ_12 = fx * e12[0] + fy * e12[1];
+        let circ_20 = fx * e20[0] + fy * e20[1];
+
+        let face_area = 0.5 * area2;
+        let third = face_area / 3.0;
+        areas[i0] += third; areas[i1] += third; areas[i2] += third;
+        omega[i0] += 0.5 * (circ_01 - circ_20);
+        omega[i1] += 0.5 * (circ_12 - circ_01);
+        omega[i2] += 0.5 * (circ_20 - circ_12);
+    }
+
+    for i in 0..nv {
+        if areas[i] > 1e-30 {
+            omega[i] /= areas[i];
+        }
+    }
+
+    DVector::from_vec(omega)
 }
 
 #[cfg(test)]
