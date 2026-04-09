@@ -174,9 +174,38 @@ Tests how throughput scales with problem size, revealing cache effects.
 
 ---
 
+## 8. GPU Comparison: volterra (CPU) vs open-Qmin (CUDA, RTX 5060)
+
+open-Qmin rebuilt with CUDA support in a container (Ubuntu 22.04, CUDA 12.6, compute_89 compatibility mode for the Blackwell RTX 5060). Amortised over enough steps to reduce container/GPU init overhead.
+
+### Per-step throughput (us/site/step, lower is better)
+
+| N | Sites | volterra (CPU, rayon) | open-Qmin (CPU, 1T) | open-Qmin (GPU) | volterra vs GPU |
+|---|-------|--------------------|-------------------|----------------|----------------|
+| 50 | 125K | 0.014 | 0.098 | 0.028 | 2.0x faster |
+| 100 | 1M | 0.023 | 0.054 | 0.039 | 1.7x faster |
+
+**volterra's CPU-only Rust implementation outperforms open-Qmin's CUDA path** at all tested sizes. The GPU provides only a 1.4-3.5x speedup over open-Qmin's own CPU path, which is not enough to overcome volterra's per-step advantage.
+
+### Why open-Qmin GPU is slow
+
+1. **Kernel launch overhead**: FIRE's per-iteration kernel dispatch cost is significant relative to the actual computation at N <= 100.
+2. **Compute capability mismatch**: compiled for compute_89 (Ada Lovelace compat) on a compute_120 GPU (Blackwell). Native compilation may improve performance.
+3. **Memory-bound kernel**: the LdG force computation is a 6-point stencil (memory-bound), where the GPU's compute advantage over CPU is limited by memory bandwidth.
+
+### Implications for volterra
+
+CUDA acceleration is **not a priority** for volterra. The CPU rayon path already beats the GPU competition for the problem sizes relevant to active nematic research (N = 50-200). CUDA would become relevant for:
+- N > 500 (where GPU memory bandwidth dominates)
+- Real-time interactive visualisation
+- Competitive benchmarks on high-end server GPUs (A100, H100) with much higher bandwidth
+
+---
+
 ## Future Benchmarks (TODO)
 
 - [ ] Active nematic with flow: volterra (FFT Stokes) vs Ludwig (LBM)
 - [ ] Saturn ring defect: volterra vs open-Qmin (passive, colloidal sphere)
 - [ ] DEC solver convergence order: error vs mesh spacing on S^2
 - [ ] Implement FIRE minimiser in volterra for a fairer equilibrium comparison
+- [ ] open-Qmin GPU with native compute_120 compilation (requires CUDA 13.2+ with Blackwell PTX support)
