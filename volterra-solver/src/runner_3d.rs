@@ -123,11 +123,9 @@ pub fn run_dry_active_nematic_3d(
     for step in 0..n_steps {
         let t = step as f64 * p.dt;
 
-        // 1. Compute Beris-Edwards RHS (dry, parallel fused Laplacian + bulk).
-        let rhs = crate::beris_3d::beris_edwards_rhs_3d_par_dry(&q, p, t);
-
-        // 2. Parallel Euler time step.
-        q = crate::beris_3d::euler_step_par(&q, p.dt, &rhs);
+        // 1+2. Fused molecular field + Euler step (single pass, zero
+        //       intermediate allocation, cache-blocked, unrolled stencil).
+        crate::mol_field_3d::euler_step_fused_par(&mut q, p, t);
 
         // 3. Add Langevin noise to each of the 5 Q-components at every vertex.
         //    The 5 independent Gaussian increments are already in the
