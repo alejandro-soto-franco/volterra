@@ -358,4 +358,31 @@ mod tests {
             "parallel Euler should match sequential: max_diff = {max_diff}"
         );
     }
+
+    /// Verify that the fused Euler step matches the two-step approach.
+    #[test]
+    fn test_fused_euler_matches_twostep() {
+        use crate::mol_field_3d::euler_step_fused_par;
+
+        let mut p = ActiveNematicParams3D::default_test();
+        p.dt = 0.001;
+        let q_init = QField3D::random_perturbation(8, 8, 8, 1.0, 0.1, 42);
+
+        // Two-step approach: compute RHS, then Euler step.
+        let rhs = beris_edwards_rhs_3d_par_dry(&q_init, &p, 0.5);
+        let q_twostep = euler_step_par(&q_init, p.dt, &rhs);
+
+        // Fused approach: single call.
+        let mut q_fused = q_init.clone();
+        euler_step_fused_par(&mut q_fused, &p, 0.5);
+
+        let max_diff: f64 = q_twostep.q.iter().zip(&q_fused.q)
+            .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            max_diff < 1e-10,
+            "fused should match two-step: max_diff = {max_diff}"
+        );
+    }
 }
