@@ -16,7 +16,7 @@
 //! volterra-core     -- trait definitions and error types
 //! volterra-fields   -- Q-tensor, velocity, pressure, and stress field types
 //! volterra-solver   -- equations of motion, time integration, defect tracking
-//! volterra-dec      -- DEC mesh, Hodge operators, covariant derivatives (stub)
+//! volterra-dec      -- DEC mesh, Hodge operators, covariant differential operators
 //! ```
 //!
 //! ## Quick start

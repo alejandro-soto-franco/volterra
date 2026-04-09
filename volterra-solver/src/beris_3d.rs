@@ -220,29 +220,6 @@ pub fn euler_step_par(q: &QField3D, dt: f64, rhs: &QField3D) -> QField3D {
     }
 }
 
-/// Parallel add_scaled: returns q + scale * dq.
-fn add_scaled_par(q: &QField3D, dq: &QField3D, scale: f64) -> QField3D {
-    let n = q.len();
-    let out_data: Vec<[f64; 5]> = (0..n)
-        .into_par_iter()
-        .map(|k| {
-            let mut r = [0.0_f64; 5];
-            for c in 0..5 {
-                r[c] = q.q[k][c] + scale * dq.q[k][c];
-            }
-            r
-        })
-        .collect();
-
-    QField3D {
-        q: out_data,
-        nx: q.nx,
-        ny: q.ny,
-        nz: q.nz,
-        dx: q.dx,
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
