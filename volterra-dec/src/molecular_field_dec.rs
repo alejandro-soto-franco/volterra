@@ -46,12 +46,12 @@ pub fn molecular_field_dec<M: Manifold>(
     //   = K * lap(Q) + (zeta_eff/2 - a_landau) * Q - 2c * Tr(Q^2) * Q
     let tr_q2 = q.trace_q_squared();
 
+    let bulk_linear = -a_eff;
     let mut h = QFieldDec::zeros(nv);
-    for i in 0..nv {
-        let bulk_linear = -a_eff; // = zeta_eff/2 - a_landau (positive in active phase)
-        let bulk_cubic = -2.0 * c * tr_q2[i];
-        h.q1[i] = k_frank * lap_field.q1[i] + (bulk_linear + bulk_cubic) * q.q1[i];
-        h.q2[i] = k_frank * lap_field.q2[i] + (bulk_linear + bulk_cubic) * q.q2[i];
+    for (i, &tr) in tr_q2.iter().enumerate() {
+        let bulk = bulk_linear - 2.0 * c * tr;
+        h.q1[i] = k_frank * lap_field.q1[i] + bulk * q.q1[i];
+        h.q2[i] = k_frank * lap_field.q2[i] + bulk * q.q2[i];
     }
 
     h
