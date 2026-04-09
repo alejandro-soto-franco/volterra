@@ -52,7 +52,7 @@ const GRAD_THRESHOLD: f64 = 1e-6;
 /// All derivatives are second-order central differences; periodic BCs.
 ///
 /// The epsilon parameter is retained for API compatibility with callers that have it
-/// available from MarsParams3D.epsilon_ch, but the integral does not depend on it:
+/// available from ActiveNematicParams3D.epsilon_ch, but the integral does not depend on it:
 /// for a tanh(0->1) profile the normal integral of |grad phi| equals 1 exactly.
 ///
 /// # Arguments

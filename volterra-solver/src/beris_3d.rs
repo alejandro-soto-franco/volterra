@@ -9,12 +9,12 @@
 //! - `-u · nabla Q` is the material advection (central differences, periodic BCs)
 //! - `S(W, Q)` is the co-rotation / strain-coupling tensor (from mol_field_3d)
 //! - `H` is the molecular field (from mol_field_3d)
-//! - `Gamma_r` is the rotational viscosity (from MarsParams3D)
+//! - `Gamma_r` is the rotational viscosity (from ActiveNematicParams3D)
 //!
 //! Noise injection (`Q += noise_amp * sqrt(dt) * W`) is applied by the
 //! integrators, not in the RHS, matching the 2D convention.
 
-use volterra_core::MarsParams3D;
+use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, VelocityField3D};
 use crate::mol_field_3d::{molecular_field_3d, co_rotation_3d};
 
@@ -28,7 +28,7 @@ use crate::mol_field_3d::{molecular_field_3d, co_rotation_3d};
 pub fn beris_edwards_rhs_3d(
     q: &QField3D,
     vel: Option<&VelocityField3D>,
-    p: &MarsParams3D,
+    p: &ActiveNematicParams3D,
     t: f64,
 ) -> QField3D {
     let h = molecular_field_3d(q, p, t);
@@ -164,13 +164,13 @@ fn add_scaled(q: &QField3D, dq: &QField3D, scale: f64) -> QField3D {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volterra_core::MarsParams3D;
+    use volterra_core::ActiveNematicParams3D;
     use volterra_fields::QField3D;
 
     /// Verify that the RHS output has the same number of vertices as the input.
     #[test]
     fn test_beris_rhs_dry_shape() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         let q = QField3D::random_perturbation(4, 4, 4, 1.0, 0.01, 42);
         let dq = beris_edwards_rhs_3d(&q, None, &p, 0.0);
         assert_eq!(dq.len(), q.len());
@@ -192,7 +192,7 @@ mod tests {
     /// With a_eff = -0.5, c = 4.5:  S^2 = 1.5/18 = 1/12, S ~ 0.2887
     #[test]
     fn test_beris_rhs_zero_for_ordered_fixed_point() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.zeta_eff = 0.0;
         p.chi_a = 0.0;
         let a_eff = p.a_eff(); // = a_landau = -0.5 when zeta_eff = 0
