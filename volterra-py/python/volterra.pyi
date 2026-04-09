@@ -9,10 +9,10 @@ import numpy as np
 import numpy.typing as npt
 
 # ---------------------------------------------------------------------------
-# MarsParams
+# ActiveNematicParams
 # ---------------------------------------------------------------------------
 
-class MarsParams:
+class ActiveNematicParams:
     nx: int
     ny: int
     dx: float
@@ -49,7 +49,7 @@ class MarsParams:
     ) -> None: ...
 
     @staticmethod
-    def default_test() -> MarsParams: ...
+    def default_test() -> ActiveNematicParams: ...
 
     def defect_length(self) -> float:
         """ℓ_d = sqrt(K_r / ζ_eff)"""
@@ -150,20 +150,20 @@ class DefectInfo:
 # Free functions
 # ---------------------------------------------------------------------------
 
-def run_mars_component1(
+def run_dry_active_nematic(
     q_init: QField2D,
-    params: MarsParams,
+    params: ActiveNematicParams,
     n_steps: int,
     snap_every: int,
 ) -> tuple[QField2D, list[SnapStats]]:
     """
-    Run Component 1: single-phase MARS dry active nematic.
+    Run the dry active nematic simulation.
 
     Parameters
     ----------
     q_init : QField2D
         Initial Q-tensor field.
-    params : MarsParams
+    params : ActiveNematicParams
         All physical and numerical parameters.
     n_steps : int
         Total number of time steps.
@@ -177,7 +177,7 @@ def run_mars_component1(
     """
     ...
 
-def k0_convolution(q_rot: QField2D, params: MarsParams) -> QField2D:
+def k0_convolution(q_rot: QField2D, params: ActiveNematicParams) -> QField2D:
     """
     Apply the K₀ transfer map ℳ_SM(Q_rot).
 
@@ -185,7 +185,7 @@ def k0_convolution(q_rot: QField2D, params: MarsParams) -> QField2D:
     ----------
     q_rot : QField2D
         Rotor field (Component 1 output).
-    params : MarsParams
+    params : ActiveNematicParams
         Uses params.xi_l for the kernel width.
 
     Returns
@@ -195,9 +195,9 @@ def k0_convolution(q_rot: QField2D, params: MarsParams) -> QField2D:
     """
     ...
 
-def run_mars_component1_hydro(
+def run_active_nematic_hydro(
     q_init: QField2D,
-    params: MarsParams,
+    params: ActiveNematicParams,
     n_steps: int,
     snap_every: int,
 ) -> tuple[QField2D, list[SnapStats]]:
@@ -211,7 +211,7 @@ def run_mars_component1_hydro(
     """
     ...
 
-def stokes_solve(q: QField2D, params: MarsParams) -> VelocityField2D:
+def stokes_solve(q: QField2D, params: ActiveNematicParams) -> VelocityField2D:
     """
     Solve the 2D incompressible Stokes equation for the active velocity.
 
