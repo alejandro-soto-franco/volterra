@@ -21,8 +21,8 @@ use volterra_dec::DecDomain;
 
 fn main() {
     let refinement = 4; // 2562 vertices, 5120 faces
-    let n_steps = 50000;
-    let snap_every = 250;
+    let n_steps = 30000;
+    let snap_every = 150;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let out_dir = format!("{home}/.volterra-bench/viz/sphere");
@@ -51,15 +51,15 @@ fn main() {
     // Wet active nematic parameters.
     // Activity drives flow, flow creates distortions, distortions nucleate defects.
     let mut params = ActiveNematicParams::default_test();
-    // Parameters following Giomi (2015) PRX / Shankar-Marchetti conventions,
-    // scaled for a unit sphere with l_a ~ R/2 (4 motile defects expected).
-    params.dt = 0.001;      // conservative for curvature correction stability
-    params.zeta_eff = 0.04; // extensile activity (l_a = sqrt(K/zeta) = 0.5)
-    params.k_r = 0.01;      // Frank elastic constant (l_c = sqrt(K/|a|) = 0.16)
+    // Parameters tuned from sweep: zeta=0.5, eta=0.1, K=0.01 gives ~7% S fluctuation.
+    // Low viscosity amplifies the active flow instability.
+    params.dt = 0.0001;     // small dt for CFL with low eta
+    params.zeta_eff = 0.5;  // extensile activity
+    params.k_r = 0.01;      // Frank elastic constant
     params.gamma_r = 1.0;   // rotational viscosity
-    params.eta = 0.5;       // fluid viscosity
+    params.eta = 0.1;       // low viscosity (amplifies flow instability)
     params.a_landau = -0.4; // deep in the nematic phase
-    params.c_landau = 2.0;  // cubic stabilisation (S_eq ~ 0.55)
+    params.c_landau = 2.0;  // cubic stabilisation
     params.lambda = 0.7;    // flow-alignment parameter
 
     // Extract vertex coordinates (needed by Stokes, advection, and connection Laplacian).
