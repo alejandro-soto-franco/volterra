@@ -114,23 +114,20 @@ pub fn run_dry_active_nematic_3d(
     out_dir: &Path,
     track_defects: bool,
 ) -> (QField3D, Vec<SnapStats3D>) {
-    let euler = EulerIntegrator3D;
     let mut q = q_init.clone();
     let mut stats: Vec<SnapStats3D> = Vec::new();
 
     // Previous lines for event tracking (populated lazily).
     let mut prev_lines: Option<Vec<DisclinationLine>> = None;
 
-    // Deterministic RNG seeded by a fixed constant; each step re-seeds from
-    // the step index to keep runs reproducible regardless of snap_every.
     for step in 0..n_steps {
         let t = step as f64 * p.dt;
 
-        // 1. Compute Beris-Edwards RHS (dry: no velocity).
-        let rhs = beris_edwards_rhs_3d(&q, None, p, t);
+        // 1. Compute Beris-Edwards RHS (dry, parallel fused Laplacian + bulk).
+        let rhs = crate::beris_3d::beris_edwards_rhs_3d_par_dry(&q, p, t);
 
-        // 2. Euler time step.
-        q = euler.step(&q, p.dt, &rhs);
+        // 2. Parallel Euler time step.
+        q = crate::beris_3d::euler_step_par(&q, p.dt, &rhs);
 
         // 3. Add Langevin noise to each of the 5 Q-components at every vertex.
         //    The 5 independent Gaussian increments are already in the
