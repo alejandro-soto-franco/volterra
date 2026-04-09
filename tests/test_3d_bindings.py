@@ -5,8 +5,8 @@ import numpy as np
 import volterra
 
 
-def test_mars_params_3d():
-    p = volterra.MarsParams3D(
+def test_active_nematic_params_3d():
+    p = volterra.ActiveNematicParams3D(
         nx=8, ny=8, nz=8, dx=1.0, dt=0.01,
         k_r=1.0, gamma_r=1.0, zeta_eff=2.0, eta=1.0,
         a_landau=-0.5, c_landau=4.5, b_landau=0.0, lambda_=0.95,
@@ -19,9 +19,9 @@ def test_mars_params_3d():
     assert p.defect_length() > 0
     # a_eff = a_landau - zeta_eff/2 = -0.5 - 1.0 = -1.5
     assert abs(p.a_eff() - (-1.5)) < 1e-10
-    p_def = volterra.MarsParams3D.default_test()
+    p_def = volterra.ActiveNematicParams3D.default_test()
     assert p_def.nx == 16
-    print("test_mars_params_3d PASSED")
+    print("test_active_nematic_params_3d PASSED")
 
 
 def test_qfield3d():
@@ -79,9 +79,9 @@ def test_disclination_classes_importable():
     print("test_disclination_classes_importable PASSED")
 
 
-def test_run_mars_3d_dry():
-    """Smoke test: run_mars_3d completes and returns correct types."""
-    p = volterra.MarsParams3D(
+def test_run_dry_active_nematic_3d_dry():
+    """Smoke test: run_dry_active_nematic_3d completes and returns correct types."""
+    p = volterra.ActiveNematicParams3D(
         nx=8, ny=8, nz=8, dx=1.0, dt=0.01,
         k_r=1.0, gamma_r=1.0, zeta_eff=2.0, eta=1.0,
         a_landau=-0.5, c_landau=4.5, b_landau=0.0, lambda_=0.95,
@@ -91,18 +91,18 @@ def test_run_mars_3d_dry():
     )
     q0 = volterra.QField3D.random_perturbation(8, 8, 8, 1.0, 0.01, 42)
     with tempfile.TemporaryDirectory() as out_dir:
-        q_fin, stats = volterra.run_mars_3d(q0, p, 5, 5, out_dir, False)
+        q_fin, stats = volterra.run_dry_active_nematic_3d(q0, p, 5, 5, out_dir, False)
     assert isinstance(q_fin, volterra.QField3D)
     assert q_fin.nx == 8
     assert len(stats) == 1  # 5 steps, snap_every=5 -> 1 snapshot
     assert isinstance(stats[0], volterra.SnapStats3D)
     assert stats[0].time > 0
-    print("test_run_mars_3d_dry PASSED")
+    print("test_run_dry_active_nematic_3d_dry PASSED")
 
 
-def test_run_mars_3d_full():
-    """Smoke test: run_mars_3d_full completes and returns correct types."""
-    p = volterra.MarsParams3D(
+def test_run_bech_3d():
+    """Smoke test: run_bech_3d completes and returns correct types."""
+    p = volterra.ActiveNematicParams3D(
         nx=8, ny=8, nz=8, dx=1.0, dt=0.01,
         k_r=1.0, gamma_r=1.0, zeta_eff=2.0, eta=1.0,
         a_landau=-0.5, c_landau=4.5, b_landau=0.0, lambda_=0.95,
@@ -113,21 +113,21 @@ def test_run_mars_3d_full():
     q0 = volterra.QField3D.random_perturbation(8, 8, 8, 1.0, 0.01, 42)
     phi0 = volterra.ScalarField3D.uniform(8, 8, 8, 1.0, 0.3)
     with tempfile.TemporaryDirectory() as out_dir:
-        q_fin, phi_fin, stats = volterra.run_mars_3d_full(q0, phi0, p, 5, 5, out_dir, False)
+        q_fin, phi_fin, stats = volterra.run_bech_3d(q0, phi0, p, 5, 5, out_dir, False)
     assert isinstance(q_fin, volterra.QField3D)
     assert isinstance(phi_fin, volterra.ScalarField3D)
     assert len(stats) == 1
     assert isinstance(stats[0], volterra.BechStats3D)
     assert phi_fin.nx == 8
-    print("test_run_mars_3d_full PASSED")
+    print("test_run_bech_3d PASSED")
 
 
 if __name__ == "__main__":
-    test_mars_params_3d()
+    test_active_nematic_params_3d()
     test_qfield3d()
     test_velocity_field_3d()
     test_scalar_field_3d()
     test_disclination_classes_importable()
-    test_run_mars_3d_dry()
-    test_run_mars_3d_full()
+    test_run_dry_active_nematic_3d_dry()
+    test_run_bech_3d()
     print("\nAll Task 17 integration tests PASSED")
