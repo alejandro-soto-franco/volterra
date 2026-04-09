@@ -57,17 +57,34 @@ volterra depends on [cartan](https://github.com/alejandro-soto-franco/cartan) fo
 
 ## Status
 
-The 3D Cartesian-grid simulation stack is implemented and tested. The DEC layer (curved-manifold discretization) is the next major milestone.
+The Cartesian-grid solver and the DEC manifold solver are both implemented. Active turbulence with defect dynamics has been demonstrated on flat periodic domains (128x128, full Stokes coupling) and on S^2 (icosphere, 10242 vertices).
 
 | Crate | Status |
 |-------|--------|
-| volterra-core | implemented: `MarsParams3D`, `VError`, `Integrator` |
-| volterra-fields | implemented: `QField3D`, `VelocityField3D`, `ScalarField3D` |
-| volterra-solver | implemented: Beris-Edwards, Stokes (FFT), Cahn-Hilliard (ETD), disclination detection |
-| volterra-py | implemented: PyO3 bindings for all 3D types and runners |
-| volterra-dec | implemented: `DecDomain<M>`, Helfrich energy, BAOAB variational integrator |
+| volterra-core | `ActiveNematicParams`, `NematicParams` (dimensionless Pe/Er/La/Lc), `VError`, `Integrator` |
+| volterra-fields | `QField2D`, `QField3D`, `VelocityField2D/3D`, `ScalarField2D/3D` |
+| volterra-solver | Beris-Edwards (Cartesian + DEC), Stokes (FFT + DEC stream-function), Cahn-Hilliard (ETD), disclination detection, `NematicEngine` |
+| volterra-dec | `DecDomain<M>`, `QFieldDec`, `ConnectionLaplacian` (spin-2 parallel transport), `CurvedStokesSolver` (modified biharmonic), `SemiLagrangian`, epitrochoid mesh, icosphere/torus mesh generation, `.npy` snapshot export |
+| volterra-mars | MARS experimental system presets and dimensionless groups |
+| volterra-py | PyO3 bindings for all 2D/3D types and runners |
 
-The Cartesian-grid solver uses a periodic grid with 7-point finite differences. The DEC layer (`volterra-dec`) generalizes this to arbitrary well-centered Riemannian meshes via [cartan](https://github.com/alejandro-soto-franco/cartan) discrete exterior calculus.
+## Performance
+
+volterra's fused parallel Rust solver (rayon) outperforms both open-Qmin (C++/CUDA) and Ludwig (C/MPI) on passive Landau-de Gennes relaxation benchmarks. See [BENCHMARKS.md](BENCHMARKS.md) for full data.
+
+| N | Sites | volterra (CPU) | open-Qmin GPU | Speedup |
+|---|-------|---------------|---------------|---------|
+| 50 | 125K | 0.005 us/site/step | 0.027 | 5.5x |
+| 100 | 1M | 0.009 | 0.042 | 4.6x |
+| 200 | 8M | 0.009 | 0.048 | 5.3x |
+
+## Visualisation
+
+Automated simulation-to-video pipeline in `tools/viz/`:
+- 2D: matplotlib (director field, S colourmap, defect markers)
+- 3D: PyVista (isosurfaces, disclination tubes, volume rendering)
+- Surfaces: PyVista (director streamlines, defect charge density)
+- Video encoding: ffmpeg (h264)
 
 ## License
 
