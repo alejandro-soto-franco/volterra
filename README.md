@@ -47,6 +47,7 @@ volterra-core     trait definitions and error types
 volterra-fields   Q-tensor, velocity, pressure, and stress field types
 volterra-solver   equations of motion, time integration, defect tracking
 volterra-dec      DEC mesh, Hodge operators, covariant differential operators (in progress)
+volterra-mars     MARS experimental system presets and dimensionless groups
 volterra-py       PyO3 bindings  (pip install volterra-nematic)
 ```
 
