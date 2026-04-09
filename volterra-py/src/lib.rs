@@ -3,13 +3,13 @@
 // PyO3 0.25 / numpy 0.25 bindings for the volterra active nematics library.
 //
 // Exposed to Python (import volterra):
-//   volterra.MarsParams          -- physical / numerical parameters
-//   volterra.QField2D            -- Q-tensor field with numpy interop
-//   volterra.SnapStats           -- per-snapshot statistics
-//   volterra.DefectInfo          -- detected disclination
-//   volterra.run_mars_component1 -- Component 1 simulation runner
-//   volterra.k0_convolution      -- K₀ transfer map (Component 2)
-//   volterra.scan_defects        -- holonomy-based defect detection
+//   volterra.ActiveNematicParams     -- physical / numerical parameters
+//   volterra.QField2D               -- Q-tensor field with numpy interop
+//   volterra.SnapStats              -- per-snapshot statistics
+//   volterra.DefectInfo             -- detected disclination
+//   volterra.run_dry_active_nematic -- dry active nematic simulation runner
+//   volterra.k0_convolution         -- K₀ transfer map
+//   volterra.scan_defects           -- holonomy-based defect detection
 
 use numpy::ndarray::{Array1, Array2};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2};
@@ -18,32 +18,32 @@ use pyo3::prelude::*;
 
 mod bindings_3d;
 
-use volterra_core::MarsParams;
+use volterra_core::ActiveNematicParams;
 use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
 use volterra_solver::{
     BechStats, DefectInfo, SnapStats,
     ch_step_etd,
     k0_convolution,
-    run_mars_bech,
-    run_mars_component1,
-    run_mars_component1_hydro,
+    run_bech,
+    run_dry_active_nematic,
+    run_active_nematic_hydro,
     scan_defects,
     stokes_solve,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PyMarsParams
+// PyActiveNematicParams
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// All physical and numerical parameters for the MARS + lipid simulation.
-#[pyclass(name = "MarsParams")]
+/// All physical and numerical parameters for the active nematic simulation.
+#[pyclass(name = "ActiveNematicParams")]
 #[derive(Clone)]
-pub struct PyMarsParams {
-    inner: MarsParams,
+pub struct PyActiveNematicParams {
+    inner: ActiveNematicParams,
 }
 
 #[pymethods]
-impl PyMarsParams {
+impl PyActiveNematicParams {
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta, a_landau, c_landau, lambda_, k_l, gamma_l, xi_l, noise_amp=0.0, chi_ms=0.5, kappa_ch=1.0, a_ch=1.0, b_ch=1.0, m_l=0.1))]
@@ -69,7 +69,7 @@ impl PyMarsParams {
         b_ch: f64,
         m_l: f64,
     ) -> PyResult<Self> {
-        let p = MarsParams {
+        let p = ActiveNematicParams {
             nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta,
             a_landau, c_landau, lambda: lambda_, k_l, gamma_l, xi_l, noise_amp,
             chi_ms, kappa_ch, a_ch, b_ch, m_l,
@@ -80,7 +80,7 @@ impl PyMarsParams {
 
     #[staticmethod]
     fn default_test() -> Self {
-        Self { inner: MarsParams::default_test() }
+        Self { inner: ActiveNematicParams::default_test() }
     }
 
     #[getter] fn nx(&self) -> usize    { self.inner.nx }
@@ -130,7 +130,7 @@ impl PyMarsParams {
 
     fn __repr__(&self) -> String {
         format!(
-            "MarsParams(nx={}, ny={}, zeta_eff={:.4}, a_eff={:.4}, Pi={:.4})",
+            "ActiveNematicParams(nx={}, ny={}, zeta_eff={:.4}, a_eff={:.4}, Pi={:.4})",
             self.inner.nx, self.inner.ny,
             self.inner.zeta_eff, self.inner.a_eff(), self.inner.pi_number(),
         )
@@ -326,18 +326,18 @@ impl PyDefectInfo {
 // Free functions
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Run Component 1: single-phase MARS dry active nematic.
+/// Run the dry active nematic simulation.
 ///
 /// Returns (QField2D, list[SnapStats]).
 #[pyfunction]
-#[pyo3(name = "run_mars_component1")]
-fn run_mars_component1_py(
+#[pyo3(name = "run_dry_active_nematic")]
+fn run_dry_active_nematic_py(
     q_init: &PyQField2D,
-    params: &PyMarsParams,
+    params: &PyActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, Vec<PySnapStats>) {
-    let (q_final, stats) = run_mars_component1(
+    let (q_final, stats) = run_dry_active_nematic(
         &q_init.inner,
         &params.inner,
         n_steps,
@@ -350,7 +350,7 @@ fn run_mars_component1_py(
 /// Apply the K₀ transfer map Q_lip = M_SM(Q_rot).
 #[pyfunction]
 #[pyo3(name = "k0_convolution")]
-fn k0_convolution_py(q_rot: &PyQField2D, params: &PyMarsParams) -> PyQField2D {
+fn k0_convolution_py(q_rot: &PyQField2D, params: &PyActiveNematicParams) -> PyQField2D {
     PyQField2D { inner: k0_convolution(&q_rot.inner, &params.inner) }
 }
 
@@ -375,14 +375,14 @@ fn scan_defects_py(q: &PyQField2D, threshold: f64) -> Vec<PyDefectInfo> {
 ///
 /// Returns `(QField2D, list[SnapStats])`.
 #[pyfunction]
-#[pyo3(name = "run_mars_component1_hydro")]
-fn run_mars_component1_hydro_py(
+#[pyo3(name = "run_active_nematic_hydro")]
+fn run_active_nematic_hydro_py(
     q_init: &PyQField2D,
-    params: &PyMarsParams,
+    params: &PyActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, Vec<PySnapStats>) {
-    let (q_final, stats) = run_mars_component1_hydro(
+    let (q_final, stats) = run_active_nematic_hydro(
         &q_init.inner,
         &params.inner,
         n_steps,
@@ -398,7 +398,7 @@ fn run_mars_component1_hydro_py(
 /// of the stream-function biharmonic equation.
 #[pyfunction]
 #[pyo3(name = "stokes_solve")]
-fn stokes_solve_py(q: &PyQField2D, params: &PyMarsParams) -> PyVelocityField2D {
+fn stokes_solve_py(q: &PyQField2D, params: &PyActiveNematicParams) -> PyVelocityField2D {
     PyVelocityField2D { inner: stokes_solve(&q.inner, &params.inner) }
 }
 
@@ -507,20 +507,20 @@ impl PyBechStats {
 /// Run the full Beris-Edwards-Cahn-Hilliard (BECH) simulation.
 ///
 /// Couples the active rotor Q-field (BE + Stokes) to the lyotropic lipid
-/// volume fraction φ_l (CH-ETD1 + Maier-Saupe).  See `run_mars_bech` in
+/// volume fraction φ_l (CH-ETD1 + Maier-Saupe).  See `run_bech` in
 /// volterra-solver for the full algorithm description.
 ///
 /// Returns `(QField2D, ScalarField2D, list[BechStats])`.
 #[pyfunction]
-#[pyo3(name = "run_mars_bech")]
-fn run_mars_bech_py(
+#[pyo3(name = "run_bech")]
+fn run_bech_py(
     q_init: &PyQField2D,
     phi_init: &PyScalarField2D,
-    params: &PyMarsParams,
+    params: &PyActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, PyScalarField2D, Vec<PyBechStats>) {
-    let (q_fin, phi_fin, stats) = run_mars_bech(
+    let (q_fin, phi_fin, stats) = run_bech(
         &q_init.inner,
         &phi_init.inner,
         &params.inner,
@@ -541,7 +541,7 @@ fn ch_step_etd_py(
     phi: &PyScalarField2D,
     q_lip: &PyQField2D,
     v: &PyVelocityField2D,
-    params: &PyMarsParams,
+    params: &PyActiveNematicParams,
 ) -> PyScalarField2D {
     PyScalarField2D {
         inner: ch_step_etd(&phi.inner, &q_lip.inner, &v.inner, &params.inner),
@@ -563,22 +563,22 @@ fn ch_step_etd_py(
 /// Quick start
 /// -----------
 ///   import volterra, numpy as np
-///   p  = volterra.MarsParams.default_test()
+///   p  = volterra.ActiveNematicParams.default_test()
 ///   q0 = volterra.QField2D.random_perturbation(p.nx, p.ny, p.dx, 0.001, 42)
-///   q_fin, stats = volterra.run_mars_component1(q0, p, 5000, 100)
-///   S = np.array(q_fin.order_param()).reshape(p.nx, p.ny)
+///   q, stats = volterra.run_dry_active_nematic(q0, p, 5000, 100)
+///   S = np.array(q.order_param()).reshape(p.nx, p.ny)
 #[pymodule]
 fn volterra(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyMarsParams>()?;
+    m.add_class::<PyActiveNematicParams>()?;
     m.add_class::<PyQField2D>()?;
     m.add_class::<PyScalarField2D>()?;
     m.add_class::<PyVelocityField2D>()?;
     m.add_class::<PySnapStats>()?;
     m.add_class::<PyBechStats>()?;
     m.add_class::<PyDefectInfo>()?;
-    m.add_function(wrap_pyfunction!(run_mars_component1_py, m)?)?;
-    m.add_function(wrap_pyfunction!(run_mars_component1_hydro_py, m)?)?;
-    m.add_function(wrap_pyfunction!(run_mars_bech_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_dry_active_nematic_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_active_nematic_hydro_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_bech_py, m)?)?;
     m.add_function(wrap_pyfunction!(stokes_solve_py, m)?)?;
     m.add_function(wrap_pyfunction!(k0_convolution_py, m)?)?;
     m.add_function(wrap_pyfunction!(scan_defects_py, m)?)?;
