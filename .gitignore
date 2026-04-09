@@ -4,3 +4,4 @@ Cargo.lock
 .venv/
 docs/
 docs/superpowers/
+output/
