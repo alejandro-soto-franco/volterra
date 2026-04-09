@@ -96,6 +96,9 @@ pub use runner_dec::{run_dry_active_nematic_dec, SnapStatsDec};
 pub mod runner_dec_wet;
 pub use runner_dec_wet::run_wet_active_nematic_dec;
 
+pub mod engine;
+pub use engine::{NematicEngine, EngineStats};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
