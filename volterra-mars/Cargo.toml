@@ -1,0 +1,14 @@
+[package]
+name = "volterra-mars"
+description = "MARS (Microfluidic Active Rod Suspension) presets and domain-specific extensions for volterra"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+volterra-core   = { path = "../volterra-core", version = "0.2.0" }
+volterra-solver = { path = "../volterra-solver", version = "0.2.0" }

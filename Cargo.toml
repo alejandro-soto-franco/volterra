@@ -5,6 +5,7 @@ members = [
     "volterra-core",
     "volterra-dec",
     "volterra-fields",
+    "volterra-mars",
     "volterra-solver",
     "volterra-py",
 ]
