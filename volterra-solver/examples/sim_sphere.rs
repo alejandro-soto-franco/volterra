@@ -21,8 +21,8 @@ use volterra_dec::DecDomain;
 
 fn main() {
     let refinement = 4; // 2562 vertices, 5120 faces
-    let n_steps = 5000;
-    let snap_every = 25;
+    let n_steps = 20000;
+    let snap_every = 100;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let out_dir = format!("{home}/.volterra-bench/viz/sphere");
@@ -51,11 +51,11 @@ fn main() {
     // Wet active nematic parameters.
     // Activity drives flow, flow creates distortions, distortions nucleate defects.
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.001;
-    params.zeta_eff = 0.5;  // extensile activity
+    params.dt = 0.0001;     // small dt for CFL stability with flow
+    params.zeta_eff = 0.3;  // extensile activity
     params.k_r = 0.04;      // Frank elastic constant
     params.gamma_r = 1.0;   // rotational viscosity
-    params.eta = 1.0;       // fluid viscosity
+    params.eta = 5.0;       // high viscosity damps velocity, improves stability
     params.a_landau = -0.2;
     params.c_landau = 2.0;
     params.lambda = 0.7;    // flow-alignment parameter
@@ -68,7 +68,7 @@ fn main() {
     let stokes = StokesSolverDec::new(&domain.ops)
         .expect("Stokes solver factorisation failed");
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
+    let mut q = QFieldDec::random_perturbation(nv, 0.05, 42);
 
     // Write metadata.
     let meta = serde_json::json!({
