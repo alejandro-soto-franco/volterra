@@ -15,7 +15,9 @@
 
 pub mod boundary_conditions;
 pub mod connection_laplacian;
+pub mod curved_stokes;
 pub mod mesh_gen;
+pub mod semi_lagrangian;
 pub mod snapshot;
 pub mod curvature_correction;
 pub mod domain;
