@@ -17,7 +17,7 @@
 //! Do NOT replace with -(2/3)Tr(DQ)I -- that form is incorrect (Ball 2010).
 
 use nalgebra::SMatrix;
-use volterra_core::MarsParams3D;
+use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, VelocityField3D};
 
 /// Compute the active molecular field H at each vertex.
@@ -30,7 +30,7 @@ use volterra_fields::{QField3D, VelocityField3D};
 /// ```
 /// where a_eff = a_landau - zeta_eff/2 and Tr(Q^2) is evaluated with q33 = -(q11+q22).
 /// Gamma_r is NOT applied here; it is applied once in beris_edwards_rhs_3d.
-pub fn molecular_field_3d(q: &QField3D, p: &MarsParams3D, t: f64) -> QField3D {
+pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QField3D {
     let a_eff = p.a_eff();
     let c = p.c_landau;
     let k_r = p.k_r;
@@ -74,7 +74,7 @@ pub fn molecular_field_3d(q: &QField3D, p: &MarsParams3D, t: f64) -> QField3D {
 /// S = xi*(D*Q + Q*D) - 2*xi*Tr(Q*D)*Q + Omega*Q - Q*Omega
 /// ```
 ///
-/// `xi` is the flow-alignment parameter (MarsParams3D.lambda field).
+/// `xi` is the flow-alignment parameter (ActiveNematicParams3D.lambda field).
 ///
 /// The nonlinear term -2*xi*Tr(Q*D)*Q is required to maintain the traceless
 /// constraint on Q under flow. Do NOT substitute -(2/3)*Tr(D*Q)*I.
@@ -104,12 +104,12 @@ pub fn co_rotation_3d(vel: &VelocityField3D, q: &QField3D, xi: f64) -> QField3D 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volterra_core::MarsParams3D;
+    use volterra_core::ActiveNematicParams3D;
     use volterra_fields::{QField3D, VelocityField3D};
 
     #[test]
     fn test_molecular_field_uniform_no_mag() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         let q = QField3D::uniform(4, 4, 4, 1.0, [0.1, 0.0, 0.0, -0.05, 0.0]);
         let h = molecular_field_3d(&q, &p, 0.0);
         let lap = q.laplacian();
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_co_rotation_traceless() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         let q = QField3D::uniform(4, 4, 4, 1.0, [0.2, 0.05, -0.03, -0.1, 0.02]);
         let mut vel = VelocityField3D::zeros(4, 4, 4, 1.0);
         for k in 0..vel.u.len() {
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_co_rotation_zero_for_zero_q() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         let q = QField3D::zeros(4, 4, 4, 1.0);
         let vel = VelocityField3D::uniform(4, 4, 4, 1.0, [1.0, 0.5, 0.2]);
         let s = co_rotation_3d(&vel, &q, p.lambda);

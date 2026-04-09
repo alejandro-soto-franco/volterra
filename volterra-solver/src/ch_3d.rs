@@ -44,7 +44,7 @@
 //! ```
 
 use rustfft::{FftPlanner, num_complex::Complex};
-use volterra_core::MarsParams3D;
+use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, ScalarField3D};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ use volterra_fields::{QField3D, ScalarField3D};
 pub fn ch_step_etd_3d(
     phi: &ScalarField3D,
     q_lip: &QField3D,
-    p: &MarsParams3D,
+    p: &ActiveNematicParams3D,
     dt: f64,
 ) -> ScalarField3D {
     let nx = phi.nx;
@@ -285,7 +285,7 @@ fn wavenumber(idx: usize, n: usize, dx: f64) -> f64 {
 pub fn ch_step_etd_enriched_3d(
     phi: &ScalarField3D,
     q_lip: &QField3D,
-    p: &MarsParams3D,
+    p: &ActiveNematicParams3D,
     dt: f64,
 ) -> ScalarField3D {
     if p.kappa_w == 0.0 && p.kappa_bar_g == 0.0 {
@@ -406,7 +406,7 @@ pub fn ch_step_etd_enriched_3d(
 ///   dt_max = 0.1 · ε³ / (M_l |κ̄_G| (π/dx)⁶)
 ///
 /// Returns f64::INFINITY when p.kappa_bar_g = 0.
-pub fn enriched_ch_dt_bound(p: &MarsParams3D) -> f64 {
+pub fn enriched_ch_dt_bound(p: &ActiveNematicParams3D) -> f64 {
     if p.kappa_bar_g == 0.0 || p.m_l == 0.0 {
         return f64::INFINITY;
     }
@@ -421,14 +421,14 @@ pub fn enriched_ch_dt_bound(p: &MarsParams3D) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volterra_core::MarsParams3D;
+    use volterra_core::ActiveNematicParams3D;
     use volterra_fields::{QField3D, ScalarField3D};
 
     /// Enriched stepper with kappa_w=0 and kappa_bar_g=0 must exactly reproduce
     /// the plain ch_step_etd_3d result (no new physics).
     #[test]
     fn test_enriched_ch_matches_plain_when_no_curvature() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.kappa_w = 0.0;
         p.kappa_bar_g = 0.0;
         p.epsilon_ch = 1.0;
@@ -449,7 +449,7 @@ mod tests {
     /// Enriched stepper must conserve mass (spatial mean) for any curvature params.
     #[test]
     fn test_enriched_ch_conserves_mass() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.a_ch = 0.0;
         p.b_ch = 0.0;
         p.chi_ms = 0.0;
@@ -475,7 +475,7 @@ mod tests {
     /// from the plain stepper.
     #[test]
     fn test_enriched_ch_differs_with_nonzero_kappa_bar_g() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.a_ch = 0.0;
         p.b_ch = 0.0;
         p.chi_ms = 0.0;
@@ -508,7 +508,7 @@ mod tests {
     /// With nonzero c0_sp, κ_eff differs from κ_CH.
     #[test]
     fn test_enriched_ch_differs_with_nonzero_c0() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.a_ch = 0.0;
         p.b_ch = 0.0;
         p.chi_ms = 0.0;
@@ -548,7 +548,7 @@ mod tests {
         // Set a_ch=b_ch=chi_ms=0 so N=0 everywhere; the equation reduces to
         // pure linear diffusion and the spatial mean is conserved to machine
         // precision regardless of phi.
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.a_ch = 0.0;
         p.b_ch = 0.0;
         p.chi_ms = 0.0;
