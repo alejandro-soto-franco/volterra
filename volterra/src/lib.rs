@@ -24,8 +24,8 @@
 //! ```rust,no_run
 //! use volterra::prelude::*;
 //!
-//! // Build parameters for a 128x128 active turbulent MARS simulation.
-//! let mut params = MarsParams::default_test();
+//! // Build parameters for a 128x128 active turbulent simulation.
+//! let mut params = ActiveNematicParams::default_test();
 //! params.nx = 128;
 //! params.ny = 128;
 //! params.zeta_eff = 3.0;
@@ -35,7 +35,7 @@
 //! let q_init = QField2D::random_perturbation(params.nx, params.ny, params.dx, 0.001, 42);
 //!
 //! // Run 1000 steps, snapshot every 100.
-//! let (_q_final, stats) = run_mars_component1(&q_init, &params, 1000, 100);
+//! let (_q_final, stats) = run_dry_active_nematic(&q_init, &params, 1000, 100);
 //! for s in &stats {
 //!     println!("t={:.2}  S={:.4}  defects={}", s.time, s.mean_s, s.n_defects);
 //! }
@@ -46,11 +46,11 @@ pub use volterra_fields as fields;
 pub use volterra_solver as solver;
 
 pub mod prelude {
-    pub use volterra_core::{MarsParams, VError};
+    pub use volterra_core::{ActiveNematicParams, VError};
     pub use volterra_fields::{QField2D, VelocityField2D};
     pub use volterra_solver::{
         DefectInfo, SnapStats, beris_edwards_rhs, defect_count, k0_convolution,
-        molecular_field, run_mars_component1, scan_defects,
+        molecular_field, run_dry_active_nematic, scan_defects,
         EulerIntegrator, RK4Integrator,
     };
 }
