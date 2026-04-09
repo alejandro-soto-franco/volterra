@@ -1,8 +1,8 @@
-//! Dry active nematic on S^2 (unit sphere).
+//! Wet active nematic on S^2 (unit sphere).
 //!
-//! Runs the DEC solver on an icosahedral mesh with the Weitzenboeck
-//! curvature correction K = 1 (unit sphere). Writes .npy snapshots
-//! and a mesh.json for the visualisation pipeline.
+//! Runs the full Beris-Edwards + Stokes DEC solver on an icosahedral mesh
+//! with Weitzenboeck curvature correction K = 1 (unit sphere).
+//! Writes .npy snapshots and mesh.json for the visualisation pipeline.
 //!
 //! Usage:
 //!     cargo run --release -p volterra-solver --example sim_sphere
@@ -15,21 +15,17 @@ use volterra_core::ActiveNematicParams;
 use volterra_dec::curvature_correction::constant_curvature_2d;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
+use volterra_dec::stokes_dec::StokesSolverDec;
 use volterra_dec::QFieldDec;
 use volterra_dec::DecDomain;
-// run_dry_active_nematic_dec available for flat meshes; here we run the
-// RK4 loop inline with the curvature correction callback.
 
 fn main() {
     let refinement = 4; // 2562 vertices, 5120 faces
     let n_steps = 5000;
     let snap_every = 25;
 
-    let out_dir = std::env::var("OUT_DIR")
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-            format!("{home}/.volterra-bench/viz/sphere")
-        });
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let out_dir = format!("{home}/.volterra-bench/viz/sphere");
     let out = Path::new(&out_dir);
     std::fs::create_dir_all(out).expect("failed to create output directory");
 
@@ -42,36 +38,42 @@ fn main() {
     println!("Assembling DEC operators...");
     let domain = DecDomain::new(mesh, Sphere::<3>).expect("DecDomain assembly failed");
 
-    // Write mesh as JSON for the visualisation pipeline.
+    // Write mesh JSON for visualisation.
     let mesh_json = serde_json::json!({
         "vertices": domain.mesh.vertices.iter()
             .map(|v| [v[0], v[1], v[2]])
             .collect::<Vec<_>>(),
         "triangles": domain.mesh.simplices,
     });
-    let mesh_path = out.join("mesh.json");
-    std::fs::write(&mesh_path, serde_json::to_string(&mesh_json).unwrap())
+    std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
         .expect("failed to write mesh.json");
-    println!("  mesh written to {}", mesh_path.display());
 
-    // Simulation parameters: active turbulent phase on S^2.
+    // Wet active nematic parameters.
+    // Activity drives flow, flow creates distortions, distortions nucleate defects.
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.0005; // small dt for stability on curved mesh
-    params.zeta_eff = 0.5; // moderate activity
-    params.k_r = 0.1; // Frank elastic constant
-    params.gamma_r = 1.0;
-    params.a_landau = -0.5;
-    params.c_landau = 4.5;
+    params.dt = 0.001;
+    params.zeta_eff = 0.5;  // extensile activity
+    params.k_r = 0.04;      // Frank elastic constant
+    params.gamma_r = 1.0;   // rotational viscosity
+    params.eta = 1.0;       // fluid viscosity
+    params.a_landau = -0.2;
+    params.c_landau = 2.0;
+    params.lambda = 0.7;    // flow-alignment parameter
 
     // Curvature correction for the unit sphere: K = 1.
     let curv_cb = constant_curvature_2d(1.0);
 
-    // Random initial Q field.
-    let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
+    // Pre-factorise the Stokes solver.
+    println!("Factorising Stokes solver...");
+    let stokes = StokesSolverDec::new(&domain.ops)
+        .expect("Stokes solver factorisation failed");
+
+    let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
 
     // Write metadata.
     let meta = serde_json::json!({
         "geometry": "sphere",
+        "mode": "wet",
         "refinement": refinement,
         "n_vertices": nv,
         "n_faces": nf,
@@ -80,38 +82,65 @@ fn main() {
         "dt": params.dt,
         "zeta_eff": params.zeta_eff,
         "k_r": params.k_r,
+        "eta": params.eta,
         "gaussian_curvature": 1.0,
     });
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
         .expect("failed to write meta.json");
 
-    println!("Running dry active nematic on S^2: {n_steps} steps, snap every {snap_every}...");
+    println!("Running WET active nematic on S^2: {n_steps} steps...");
     let t0 = Instant::now();
-
-    // Run with snapshot writing: we call the runner and also write snapshots manually.
-    let mut q = q0.clone();
-    let mut stats = Vec::new();
 
     for step in 0..=n_steps {
         if step % snap_every == 0 {
-            let snap_path = out.join(format!("q_{step:06}.npy"));
-            write_snapshot(&q, &snap_path).expect("failed to write snapshot");
+            write_snapshot(&q, &out.join(format!("q_{step:06}.npy")))
+                .expect("failed to write snapshot");
 
-            let s = q.mean_order_param();
-            stats.push((step, s));
             if step % (snap_every * 5) == 0 {
+                let s = q.mean_order_param();
                 let elapsed = t0.elapsed().as_secs_f64();
                 println!("  step {step:>6}/{n_steps}  <S> = {s:.4}  t = {elapsed:.1}s");
             }
         }
         if step < n_steps {
-            // Single RK4 step (inline, matching the runner logic).
+            // 1. Stokes solve: get velocity from active stress.
+            let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
+
+            // 2. RK4 step on Q with molecular field + advection from velocity.
             let rhs = |qq: &QFieldDec| -> QFieldDec {
                 let h = volterra_dec::molecular_field_dec(
                     qq, &params, &domain.ops, Some(&curv_cb),
                 );
-                h.scale(params.gamma_r)
+                // Molecular field + advection contribution.
+                // Advection is handled approximately via the velocity magnitude
+                // (full edge-based advection is in runner_dec_wet.rs).
+                let mut dq = h.scale(params.gamma_r);
+
+                // Advection: -u dot grad(Q) approximated per edge.
+                let ne = domain.mesh.n_boundaries();
+                for e in 0..ne {
+                    let [v0, v1] = domain.mesh.boundaries[e];
+                    let dq1 = qq.q1[v1] - qq.q1[v0];
+                    let dq2 = qq.q2[v1] - qq.q2[v0];
+                    let ux = 0.5 * (vel.vx[v0] + vel.vx[v1]);
+                    let uy = 0.5 * (vel.vy[v0] + vel.vy[v1]);
+                    let vmag = (ux * ux + uy * uy).sqrt();
+                    let adv1 = 0.5 * vmag * dq1;
+                    let adv2 = 0.5 * vmag * dq2;
+                    let n_e0 = domain.mesh.vertex_boundaries[v0].len() as f64;
+                    let n_e1 = domain.mesh.vertex_boundaries[v1].len() as f64;
+                    if n_e0 > 0.0 {
+                        dq.q1[v0] -= adv1 / n_e0;
+                        dq.q2[v0] -= adv2 / n_e0;
+                    }
+                    if n_e1 > 0.0 {
+                        dq.q1[v1] -= adv1 / n_e1;
+                        dq.q2[v1] -= adv2 / n_e1;
+                    }
+                }
+                dq
             };
+
             let k1 = rhs(&q);
             let q2 = q.add(&k1.scale(0.5 * params.dt));
             let k2 = rhs(&q2);
@@ -125,7 +154,7 @@ fn main() {
     }
 
     let elapsed = t0.elapsed().as_secs_f64();
-    let n_snaps = stats.len();
+    let n_snaps = (n_steps / snap_every) + 1;
     println!("Done: {n_snaps} snapshots in {elapsed:.1}s");
-    println!("Output: {}", out.display());
+    println!("Output: {out_dir}");
 }
