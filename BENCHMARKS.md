@@ -176,29 +176,47 @@ Tests how throughput scales with problem size, revealing cache effects.
 
 ## 8. GPU Comparison: volterra (CPU) vs open-Qmin (CUDA, RTX 5060)
 
-open-Qmin rebuilt with CUDA support in a container (Ubuntu 22.04, CUDA 12.6, compute_89 compatibility mode for the Blackwell RTX 5060). Amortised over enough steps to reduce container/GPU init overhead.
+open-Qmin rebuilt with CUDA support in a container (Ubuntu 22.04, CUDA 12.6, compute_89 compatibility mode for the Blackwell RTX 5060). All runs amortised over enough steps to reduce container/GPU init overhead.
 
 ### Per-step throughput (us/site/step, lower is better)
 
-| N | Sites | volterra (CPU, rayon) | open-Qmin (CPU, 1T) | open-Qmin (GPU) | volterra vs GPU |
-|---|-------|--------------------|-------------------|----------------|----------------|
-| 50 | 125K | 0.014 | 0.098 | 0.028 | 2.0x faster |
-| 100 | 1M | 0.023 | 0.054 | 0.039 | 1.7x faster |
+| N | Sites | volterra (rayon) | oQmin CPU (1T) | oQmin GPU | GPU speedup (oQmin) | volterra vs GPU |
+|---|-------|-----------------|---------------|-----------|--------------------|----|
+| 20 | 8K | 0.056 | 0.228 | 0.153 | 1.5x | volterra 2.7x faster |
+| 30 | 27K | 0.028 | 0.079 | 0.043 | 1.8x | volterra 1.5x faster |
+| 50 | 125K | 0.014 | 0.034 | 0.027 | 1.2x | volterra 2.0x faster |
+| 75 | 422K | 0.012 | 0.042 | 0.038 | 1.1x | volterra 3.2x faster |
+| 100 | 1M | 0.024 | 0.046 | 0.042 | 1.1x | volterra 1.7x faster |
+| 150 | 3.4M | 0.023 | 0.046 | 0.044 | 1.0x | volterra 1.9x faster |
+| 200 | 8M | 0.022 | 0.049 | 0.048 | 1.0x | volterra 2.2x faster |
 
-**volterra's CPU-only Rust implementation outperforms open-Qmin's CUDA path** at all tested sizes. The GPU provides only a 1.4-3.5x speedup over open-Qmin's own CPU path, which is not enough to overcome volterra's per-step advantage.
+### Wall-clock time (seconds)
 
-### Why open-Qmin GPU is slow
+| N | Sites | Steps | volterra | oQmin CPU | oQmin GPU |
+|---|-------|-------|----------|-----------|-----------|
+| 20 | 8K | 1,000 | 0.4 | 1.8 | 1.2 |
+| 30 | 27K | 1,000 | 0.8 | 2.1 | 1.2 |
+| 50 | 125K | 1,000 | 1.8 | 4.3 | 3.4 |
+| 75 | 422K | 500 | 2.5 | 8.8 | 8.0 |
+| 100 | 1M | 200 | 4.8 | 9.3 | 8.3 |
+| 150 | 3.4M | 100 | 7.9 | 15.4 | 14.7 |
+| 200 | 8M | 50 | 8.8 | 19.8 | 19.1 |
 
-1. **Kernel launch overhead**: FIRE's per-iteration kernel dispatch cost is significant relative to the actual computation at N <= 100.
-2. **Compute capability mismatch**: compiled for compute_89 (Ada Lovelace compat) on a compute_120 GPU (Blackwell). Native compilation may improve performance.
-3. **Memory-bound kernel**: the LdG force computation is a 6-point stencil (memory-bound), where the GPU's compute advantage over CPU is limited by memory bandwidth.
+### Analysis
 
-### Implications for volterra
+**open-Qmin's GPU acceleration is negligible at research-relevant sizes.** The RTX 5060 gives open-Qmin only a 1.0-1.8x speedup over its own CPU path. At N >= 75, the GPU provides essentially zero benefit (1.0-1.1x). The FIRE minimisation step is memory-bound (6-point stencil, 5 Q-components per site), and the GPU's compute throughput advantage is wasted waiting on memory.
 
-CUDA acceleration is **not a priority** for volterra. The CPU rayon path already beats the GPU competition for the problem sizes relevant to active nematic research (N = 50-200). CUDA would become relevant for:
-- N > 500 (where GPU memory bandwidth dominates)
-- Real-time interactive visualisation
-- Competitive benchmarks on high-end server GPUs (A100, H100) with much higher bandwidth
+**volterra (CPU-only, Rust, rayon) beats open-Qmin CUDA at every tested grid size**, with margins from 1.5x (N=30) to 3.2x (N=75). volterra's advantage comes from:
+
+1. **Fused stencil + bulk computation**: one parallel pass per vertex, no intermediate Laplacian allocation
+2. **rayon work-stealing**: scales to 8 effective threads with minimal overhead
+3. **Cache-friendly access pattern**: the fused kernel touches each vertex's data once, vs open-Qmin's separate force computation + FIRE velocity update + position update passes
+
+### Implications
+
+CUDA acceleration is not a priority for volterra. The crossover point where GPU memory bandwidth would matter (N > 300, 27M+ sites) exceeds typical active nematic research grids. For the problem sizes in arXiv:2503.10880 (N = 100), volterra is 1.7x faster than open-Qmin's best GPU path.
+
+**Caveat:** open-Qmin GPU was compiled for compute_89 (Ada Lovelace compatibility mode) on a compute_120 GPU (Blackwell). Native Blackwell compilation (requires CUDA 13.2+) may improve GPU performance by 10-20%. Even a 20% improvement would not change the conclusion at these sizes.
 
 ---
 
