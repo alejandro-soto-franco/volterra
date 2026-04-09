@@ -20,7 +20,7 @@ use volterra_dec::QFieldDec;
 use volterra_dec::DecDomain;
 
 fn main() {
-    let refinement = 4; // 2562 vertices, 5120 faces
+    let refinement = 5; // 10242 vertices, 20480 faces
     let n_steps = 30000;
     let snap_every = 150;
 
