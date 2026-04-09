@@ -95,9 +95,8 @@ impl StokesSolverDec {
         let poisson = PoissonSolver::new(ops)?;
         let coords = extract_coords(mesh);
         let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
-        let star1: Vec<f64> = (0..ops.hodge.star1().len())
-            .map(|e| ops.hodge.star1()[e])
-            .collect();
+        let s1 = ops.hodge.star1();
+        let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
         Ok(Self { poisson, n_vertices, coords, dual_areas, star1 })
     }
 
