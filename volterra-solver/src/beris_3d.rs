@@ -14,9 +14,10 @@
 //! Noise injection (`Q += noise_amp * sqrt(dt) * W`) is applied by the
 //! integrators, not in the RHS, matching the 2D convention.
 
+use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, VelocityField3D};
-use crate::mol_field_3d::{molecular_field_3d, co_rotation_3d};
+use crate::mol_field_3d::{molecular_field_3d, molecular_field_3d_par, co_rotation_3d};
 
 /// Full Beris-Edwards RHS: `dQ/dt = -u · nabla Q + S(W, Q) + Gamma_r * H`.
 ///
@@ -158,6 +159,91 @@ fn add_scaled(q: &QField3D, dq: &QField3D, scale: f64) -> QField3D {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Parallel versions (rayon)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Parallel Beris-Edwards RHS for the **dry** active nematic (no flow).
+///
+/// Uses the fused molecular field (`molecular_field_3d_par`) which computes
+/// the Laplacian stencil and bulk LdG terms in a single parallel pass.
+/// For the wet case (with flow), use [`beris_edwards_rhs_3d`] which handles
+/// advection and co-rotation.
+pub fn beris_edwards_rhs_3d_par_dry(
+    q: &QField3D,
+    p: &ActiveNematicParams3D,
+    t: f64,
+) -> QField3D {
+    let h = molecular_field_3d_par(q, p, t);
+    let gamma_r = p.gamma_r;
+    let n = q.len();
+
+    let out_data: Vec<[f64; 5]> = (0..n)
+        .into_par_iter()
+        .map(|k| {
+            let mut r = [0.0_f64; 5];
+            for c in 0..5 {
+                r[c] = gamma_r * h.q[k][c];
+            }
+            r
+        })
+        .collect();
+
+    QField3D {
+        q: out_data,
+        nx: q.nx,
+        ny: q.ny,
+        nz: q.nz,
+        dx: q.dx,
+    }
+}
+
+/// Parallel Euler step: Q_new = Q + dt * RHS.
+pub fn euler_step_par(q: &QField3D, dt: f64, rhs: &QField3D) -> QField3D {
+    let n = q.len();
+    let out_data: Vec<[f64; 5]> = (0..n)
+        .into_par_iter()
+        .map(|k| {
+            let mut r = [0.0_f64; 5];
+            for c in 0..5 {
+                r[c] = q.q[k][c] + dt * rhs.q[k][c];
+            }
+            r
+        })
+        .collect();
+
+    QField3D {
+        q: out_data,
+        nx: q.nx,
+        ny: q.ny,
+        nz: q.nz,
+        dx: q.dx,
+    }
+}
+
+/// Parallel add_scaled: returns q + scale * dq.
+fn add_scaled_par(q: &QField3D, dq: &QField3D, scale: f64) -> QField3D {
+    let n = q.len();
+    let out_data: Vec<[f64; 5]> = (0..n)
+        .into_par_iter()
+        .map(|k| {
+            let mut r = [0.0_f64; 5];
+            for c in 0..5 {
+                r[c] = q.q[k][c] + scale * dq.q[k][c];
+            }
+            r
+        })
+        .collect();
+
+    QField3D {
+        q: out_data,
+        nx: q.nx,
+        ny: q.ny,
+        nz: q.nz,
+        dx: q.dx,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -212,5 +298,64 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Verify that the parallel molecular field matches the sequential version.
+    #[test]
+    fn test_parallel_molecular_field_matches_sequential() {
+        let p = ActiveNematicParams3D::default_test();
+        let q = QField3D::random_perturbation(8, 8, 8, 1.0, 0.1, 42);
+
+        let h_seq = molecular_field_3d(&q, &p, 0.5);
+        let h_par = molecular_field_3d_par(&q, &p, 0.5);
+
+        let max_diff: f64 = h_seq.q.iter().zip(&h_par.q)
+            .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            max_diff < 1e-10,
+            "parallel should match sequential: max_diff = {max_diff}"
+        );
+    }
+
+    /// Verify that the parallel dry RHS matches the sequential version.
+    #[test]
+    fn test_parallel_rhs_matches_sequential() {
+        let p = ActiveNematicParams3D::default_test();
+        let q = QField3D::random_perturbation(8, 8, 8, 1.0, 0.1, 42);
+
+        let rhs_seq = beris_edwards_rhs_3d(&q, None, &p, 0.3);
+        let rhs_par = beris_edwards_rhs_3d_par_dry(&q, &p, 0.3);
+
+        let max_diff: f64 = rhs_seq.q.iter().zip(&rhs_par.q)
+            .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            max_diff < 1e-10,
+            "parallel RHS should match sequential: max_diff = {max_diff}"
+        );
+    }
+
+    /// Verify the parallel Euler step.
+    #[test]
+    fn test_parallel_euler_step() {
+        let p = ActiveNematicParams3D::default_test();
+        let q = QField3D::random_perturbation(8, 8, 8, 1.0, 0.1, 42);
+        let rhs = beris_edwards_rhs_3d_par_dry(&q, &p, 0.0);
+        let dt = 0.001;
+
+        let q_seq = EulerIntegrator3D.step(&q, dt, &rhs);
+        let q_par = euler_step_par(&q, dt, &rhs);
+
+        let max_diff: f64 = q_seq.q.iter().zip(&q_par.q)
+            .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
+            .fold(0.0_f64, f64::max);
+
+        assert!(
+            max_diff < 1e-14,
+            "parallel Euler should match sequential: max_diff = {max_diff}"
+        );
     }
 }
