@@ -1,8 +1,7 @@
-//! Dry active nematic on a torus (T^2 embedded in R^3).
+//! Wet active nematic on a torus (T^2 embedded in R^3).
 //!
-//! Runs the DEC solver on a torus mesh with variable Gaussian curvature.
-//! K > 0 on the outer equator, K < 0 on the inner equator.
-//! Defects are expected to migrate toward regions of maximum positive K.
+//! Full Beris-Edwards + Stokes on a torus mesh with variable Gaussian
+//! curvature. K > 0 on the outer equator, K < 0 on the inner equator.
 
 use std::path::Path;
 use std::time::Instant;
@@ -11,6 +10,7 @@ use volterra_core::ActiveNematicParams;
 use volterra_dec::curvature_correction::variable_curvature_2d;
 use volterra_dec::mesh_gen::{torus_mesh, torus_gaussian_curvature};
 use volterra_dec::snapshot::write_snapshot;
+use volterra_dec::stokes_dec::StokesSolverDec;
 use volterra_dec::QFieldDec;
 use volterra_dec::DecDomain;
 
@@ -55,18 +55,25 @@ fn main() {
     let curv_cb = variable_curvature_2d(curvatures.clone());
 
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.0005;
-    params.zeta_eff = 0.3;
-    params.k_r = 0.1;
+    params.dt = 0.001;
+    params.zeta_eff = 0.5;
+    params.k_r = 0.04;
     params.gamma_r = 1.0;
-    params.a_landau = -0.5;
-    params.c_landau = 4.5;
+    params.eta = 1.0;
+    params.a_landau = -0.2;
+    params.c_landau = 2.0;
+    params.lambda = 0.7;
 
-    let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
+    // Pre-factorise Stokes solver.
+    println!("Factorising Stokes solver...");
+    let stokes = StokesSolverDec::new(&domain.ops)
+        .expect("Stokes solver factorisation failed");
 
-    // Write metadata.
+    let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
+
     let meta = serde_json::json!({
         "geometry": "torus",
+        "mode": "wet",
         "major_radius": major_r,
         "minor_radius": minor_r,
         "n_major": n_major,
@@ -83,10 +90,9 @@ fn main() {
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
         .expect("failed to write meta.json");
 
-    println!("Running dry active nematic on torus: {n_steps} steps...");
+    println!("Running WET active nematic on torus: {n_steps} steps...");
     let t0 = Instant::now();
 
-    let mut q = q0;
     for step in 0..=n_steps {
         if step % snap_every == 0 {
             write_snapshot(&q, &out.join(format!("q_{step:06}.npy")))
@@ -99,12 +105,40 @@ fn main() {
             }
         }
         if step < n_steps {
+            // 1. Stokes solve.
+            let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
+
+            // 2. RK4 with molecular field + advection.
             let rhs = |qq: &QFieldDec| -> QFieldDec {
                 let h = volterra_dec::molecular_field_dec(
                     qq, &params, &domain.ops, Some(&curv_cb),
                 );
-                h.scale(params.gamma_r)
+                let mut dq = h.scale(params.gamma_r);
+
+                let ne = domain.mesh.n_boundaries();
+                for e in 0..ne {
+                    let [v0, v1] = domain.mesh.boundaries[e];
+                    let dq1 = qq.q1[v1] - qq.q1[v0];
+                    let dq2 = qq.q2[v1] - qq.q2[v0];
+                    let ux = 0.5 * (vel.vx[v0] + vel.vx[v1]);
+                    let uy = 0.5 * (vel.vy[v0] + vel.vy[v1]);
+                    let vmag = (ux * ux + uy * uy).sqrt();
+                    let adv1 = 0.5 * vmag * dq1;
+                    let adv2 = 0.5 * vmag * dq2;
+                    let n_e0 = domain.mesh.vertex_boundaries[v0].len() as f64;
+                    let n_e1 = domain.mesh.vertex_boundaries[v1].len() as f64;
+                    if n_e0 > 0.0 {
+                        dq.q1[v0] -= adv1 / n_e0;
+                        dq.q2[v0] -= adv2 / n_e0;
+                    }
+                    if n_e1 > 0.0 {
+                        dq.q1[v1] -= adv1 / n_e1;
+                        dq.q2[v1] -= adv2 / n_e1;
+                    }
+                }
+                dq
             };
+
             let k1 = rhs(&q);
             let q2 = q.add(&k1.scale(0.5 * params.dt));
             let k2 = rhs(&q2);
