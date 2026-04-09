@@ -10,7 +10,7 @@ use volterra_core::ActiveNematicParams;
 use volterra_dec::curvature_correction::variable_curvature_2d;
 use volterra_dec::mesh_gen::{torus_mesh, torus_gaussian_curvature};
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::stokes_dec::StokesSolverDec;
+use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
 use volterra_dec::QFieldDec;
 use volterra_dec::DecDomain;
 
@@ -66,7 +66,7 @@ fn main() {
 
     // Pre-factorise Stokes solver.
     println!("Factorising Stokes solver...");
-    let stokes = StokesSolverDec::new(&domain.ops)
+    let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh)
         .expect("Stokes solver factorisation failed");
 
     let mut q = QFieldDec::random_perturbation(nv, 0.05, 42);
@@ -90,6 +90,15 @@ fn main() {
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
         .expect("failed to write meta.json");
 
+    // Extract vertex coordinates for advection.
+    let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
+        [v[0], v[1], v[2]]
+    }).collect();
+
+    // Higher activity for torus (chi = 0, need flow instability to create defects).
+    params.zeta_eff = 1.0;
+    params.eta = 2.0;
+
     println!("Running WET active nematic on torus: {n_steps} steps...");
     let t0 = Instant::now();
 
@@ -105,36 +114,25 @@ fn main() {
             }
         }
         if step < n_steps {
-            // 1. Stokes solve.
             let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
 
-            // 2. RK4 with molecular field + advection.
+            let coords = &stokes_coords;
             let rhs = |qq: &QFieldDec| -> QFieldDec {
                 let h = volterra_dec::molecular_field_dec(
                     qq, &params, &domain.ops, Some(&curv_cb),
                 );
                 let mut dq = h.scale(params.gamma_r);
 
-                let ne = domain.mesh.n_boundaries();
-                for e in 0..ne {
-                    let [v0, v1] = domain.mesh.boundaries[e];
-                    let dq1 = qq.q1[v1] - qq.q1[v0];
-                    let dq2 = qq.q2[v1] - qq.q2[v0];
-                    let ux = 0.5 * (vel.vx[v0] + vel.vx[v1]);
-                    let uy = 0.5 * (vel.vy[v0] + vel.vy[v1]);
-                    let vmag = (ux * ux + uy * uy).sqrt();
-                    let adv1 = 0.5 * vmag * dq1;
-                    let adv2 = 0.5 * vmag * dq2;
-                    let n_e0 = domain.mesh.vertex_boundaries[v0].len() as f64;
-                    let n_e1 = domain.mesh.vertex_boundaries[v1].len() as f64;
-                    if n_e0 > 0.0 {
-                        dq.q1[v0] -= adv1 / n_e0;
-                        dq.q2[v0] -= adv2 / n_e0;
-                    }
-                    if n_e1 > 0.0 {
-                        dq.q1[v1] -= adv1 / n_e1;
-                        dq.q2[v1] -= adv2 / n_e1;
-                    }
+                let adv = advect_q(
+                    qq, &vel,
+                    &domain.mesh.boundaries,
+                    &domain.mesh.vertex_boundaries,
+                    coords,
+                );
+                let nv = qq.n_vertices;
+                for i in 0..nv {
+                    dq.q1[i] -= adv.q1[i];
+                    dq.q2[i] -= adv.q2[i];
                 }
                 dq
             };
