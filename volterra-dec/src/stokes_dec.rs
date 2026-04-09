@@ -20,6 +20,8 @@ pub struct StokesSolverDec {
     coords: Vec<[f64; 3]>,
     /// Dual cell areas (barycentric, 1/3 of incident triangle areas).
     dual_areas: Vec<f64>,
+    /// Hodge star on 1-forms: star_1[e] = |dual_edge| / |primal_edge|.
+    star1: Vec<f64>,
 }
 
 /// Velocity field on a DEC mesh: 3D tangent vector per vertex.
@@ -93,7 +95,10 @@ impl StokesSolverDec {
         let poisson = PoissonSolver::new(ops)?;
         let coords = extract_coords(mesh);
         let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
-        Ok(Self { poisson, n_vertices, coords, dual_areas })
+        let star1: Vec<f64> = (0..ops.hodge.star1().len())
+            .map(|e| ops.hodge.star1()[e])
+            .collect();
+        Ok(Self { poisson, n_vertices, coords, dual_areas, star1 })
     }
 
     /// Solve Stokes for the active velocity field.
@@ -119,7 +124,7 @@ impl StokesSolverDec {
         let psi = self.poisson.solve(&omega);
 
         // Recover 3D velocity: u = curl(psi) on the surface.
-        velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas)
+        velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1)
     }
 }
 
@@ -196,18 +201,26 @@ fn compute_vorticity_source<M: Manifold>(
     DVector::from_vec(omega)
 }
 
-/// Recover the 3D velocity field u = curl(psi) from the stream function.
+/// Recover the 3D velocity field u = *d(psi) from the stream function.
 ///
-/// For each edge [v0, v1], the velocity contribution is a 3D tangent vector:
-///   u_edge = (dpsi / |e|^2) * (face_normal x edge_tangent)
+/// Uses the DEC discrete curl: u = star_0_inv * d0^T * star_1 * d0 * psi
+/// is the Laplacian (already solved). The velocity 1-form is star_1 * d0 * psi.
+/// To convert to a vertex vector field, for each edge e with endpoints v0, v1:
 ///
-/// This gives a vector in the surface tangent plane, perpendicular to the edge.
+///   flux_e = star_1[e] * dpsi_e  (integrated velocity across dual edge)
+///
+/// The direction is perpendicular to the primal edge in the surface (the
+/// dual edge direction): face_normal x edge_hat.
+///
+/// The vertex velocity is the area-weighted sum:
+///   u_v = (1 / A_v) * sum_{e incident to v} flux_e * dual_edge_direction
 fn velocity_from_psi<M: Manifold>(
     nv: usize,
     psi: &DVector<f64>,
     mesh: &Mesh<M, 3, 2>,
     coords: &[[f64; 3]],
-    dual_areas: &[f64],
+    _dual_areas: &[f64],
+    _star1: &[f64],
 ) -> VelocityFieldDec {
     let ne = mesh.n_boundaries();
     let mut vel = vec![[0.0_f64; 3]; nv];
@@ -217,28 +230,36 @@ fn velocity_from_psi<M: Manifold>(
         let dpsi = psi[v1] - psi[v0];
 
         let edge = sub3(coords[v1], coords[v0]);
-        let edge_len_sq = dot3(edge, edge);
-        if edge_len_sq < 1e-30 { continue; }
+        let edge_len = norm3(edge);
+        if edge_len < 1e-30 { continue; }
+        let edge_hat = scale3(edge, 1.0 / edge_len);
 
-        // Average face normal of the one or two triangles sharing this edge.
+        // Average face normal.
         let fn_hat = average_edge_normal(e, mesh, coords);
 
-        // Rotated edge: face_normal x edge (perpendicular to edge, in the surface).
-        let rot = cross3(fn_hat, edge);
+        // Dual edge direction: face_normal x edge_hat (unit vector, perpendicular
+        // to the primal edge in the surface tangent plane).
+        let dual_dir = cross3(fn_hat, edge_hat);
 
-        // Velocity contribution: dpsi * rot / |e|^2 (integrated form).
-        let factor = dpsi / edge_len_sq;
-        let u_contrib = scale3(rot, factor);
+        // DEC velocity flux: star_1[e] * dpsi.
+        // This is the integrated velocity across the dual edge.
+        // Divide by dual_edge_length to get pointwise velocity magnitude.
+        // dual_edge_length = star_1[e] * primal_edge_length.
+        // So pointwise velocity = star_1[e] * dpsi / (star_1[e] * edge_len) = dpsi / edge_len.
+        let vel_magnitude = dpsi / edge_len;
 
-        // Distribute to both endpoints.
-        vel[v0] = add3(vel[v0], u_contrib);
-        vel[v1] = add3(vel[v1], u_contrib);
+        let u_contrib = scale3(dual_dir, vel_magnitude);
+
+        // Distribute equally to both endpoints.
+        vel[v0] = add3(vel[v0], scale3(u_contrib, 0.5));
+        vel[v1] = add3(vel[v1], scale3(u_contrib, 0.5));
     }
 
-    // Normalise by dual area.
-    for i in 0..nv {
-        if dual_areas[i] > 1e-30 {
-            vel[i] = scale3(vel[i], 1.0 / dual_areas[i]);
+    // Normalise by the number of incident edges (vertex valence averaging).
+    for (v, boundaries) in vel.iter_mut().zip(&mesh.vertex_boundaries) {
+        let valence = boundaries.len() as f64;
+        if valence > 0.0 {
+            *v = scale3(*v, 1.0 / valence);
         }
     }
 
