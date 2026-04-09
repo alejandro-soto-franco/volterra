@@ -16,6 +16,7 @@ cartan-manifolds = { workspace = true }
 cartan-dec       = { workspace = true }
 cartan-remesh    = { workspace = true }
 nalgebra         = { workspace = true }
+rand             = { workspace = true }
 rayon            = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
