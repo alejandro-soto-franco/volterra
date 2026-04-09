@@ -3,7 +3,7 @@
 // PyO3 bindings for 3D simulation types.
 //
 // Exposed to Python (import volterra):
-//   volterra.MarsParams3D   -- physical / numerical parameters for the 3D simulation
+//   volterra.ActiveNematicParams3D -- physical / numerical parameters for the 3D simulation
 //   volterra.QField3D       -- 3D Q-tensor field with numpy interop
 //   volterra.VelocityField3D -- 3D velocity field with numpy interop
 //   volterra.ScalarField3D  -- 3D scalar (concentration / pressure) field with numpy interop
@@ -14,24 +14,24 @@ use numpy::ndarray::{Array1, Array2, Array4};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray4, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use volterra_core::MarsParams3D;
+use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
 use volterra_solver::{BechStats3D, SnapStats3D};
 use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCharge, Sign};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PyMarsParams3D
+// PyActiveNematicParams3D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// All physical and numerical parameters for the 3D MARS + lipid simulation.
-#[pyclass(name = "MarsParams3D")]
+/// All physical and numerical parameters for the 3D active nematic simulation.
+#[pyclass(name = "ActiveNematicParams3D")]
 #[derive(Clone)]
-pub struct PyMarsParams3D {
-    inner: MarsParams3D,
+pub struct PyActiveNematicParams3D {
+    inner: ActiveNematicParams3D,
 }
 
 #[pymethods]
-impl PyMarsParams3D {
+impl PyActiveNematicParams3D {
     #[new]
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
@@ -69,7 +69,7 @@ impl PyMarsParams3D {
         omega_b: f64,
         noise_amp: f64,
     ) -> PyResult<Self> {
-        let p = MarsParams3D {
+        let p = ActiveNematicParams3D {
             nx, ny, nz, dx, dt,
             k_r, gamma_r, zeta_eff, eta,
             a_landau, c_landau, b_landau,
@@ -89,7 +89,7 @@ impl PyMarsParams3D {
     /// Construct the default test parameter set (16x16x16 grid, active turbulent phase).
     #[staticmethod]
     fn default_test() -> Self {
-        Self { inner: MarsParams3D::default_test() }
+        Self { inner: ActiveNematicParams3D::default_test() }
     }
 
     // ── Getters ────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ impl PyMarsParams3D {
 
     fn __repr__(&self) -> String {
         format!(
-            "MarsParams3D(nx={}, ny={}, nz={}, zeta_eff={:.4}, a_eff={:.4}, Pi={:.4})",
+            "ActiveNematicParams3D(nx={}, ny={}, nz={}, zeta_eff={:.4}, a_eff={:.4}, Pi={:.4})",
             self.inner.nx, self.inner.ny, self.inner.nz,
             self.inner.zeta_eff, self.inner.a_eff(), self.inner.pi_number(),
         )
@@ -419,7 +419,7 @@ impl PyScalarField3D {
 // PySnapStats3D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Per-snapshot statistics for the dry active nematic run (run_mars_3d).
+/// Per-snapshot statistics for the dry active nematic run (run_dry_active_nematic_3d).
 #[pyclass(name = "SnapStats3D")]
 #[derive(Clone)]
 pub struct PySnapStats3D {
@@ -456,7 +456,7 @@ impl PySnapStats3D {
 // PyBechStats3D
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Per-snapshot statistics for the full BECH run (run_mars_3d_full).
+/// Per-snapshot statistics for the full BECH run (run_bech_3d).
 #[pyclass(name = "BechStats3D")]
 #[derive(Clone)]
 pub struct PyBechStats3D {
@@ -658,17 +658,17 @@ impl PyDisclinationEvent {
 /// Snapshots are written to `out_dir` every `snap_every` steps. Returns
 /// `(q_final, stats)` where `stats` contains one `SnapStats3D` per snapshot.
 #[pyfunction]
-#[pyo3(name = "run_mars_3d")]
-fn run_mars_3d_py(
+#[pyo3(name = "run_dry_active_nematic_3d")]
+fn run_dry_active_nematic_3d_py(
     q_init: &PyQField3D,
-    params: &PyMarsParams3D,
+    params: &PyActiveNematicParams3D,
     n_steps: usize,
     snap_every: usize,
     out_dir: &str,
     track_defects: bool,
 ) -> PyResult<(PyQField3D, Vec<PySnapStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, stats) = volterra_solver::run_mars_3d(
+    let (q_final, stats) = volterra_solver::run_dry_active_nematic_3d(
         &q_init.inner,
         &params.inner,
         n_steps,
@@ -686,18 +686,18 @@ fn run_mars_3d_py(
 /// Snapshots are written to `out_dir` every `snap_every` steps. Returns
 /// `(q_final, phi_final, stats)` where `stats` contains one `BechStats3D` per snapshot.
 #[pyfunction]
-#[pyo3(name = "run_mars_3d_full")]
-fn run_mars_3d_full_py(
+#[pyo3(name = "run_bech_3d")]
+fn run_bech_3d_py(
     q_init: &PyQField3D,
     phi_init: &PyScalarField3D,
-    params: &PyMarsParams3D,
+    params: &PyActiveNematicParams3D,
     n_steps: usize,
     snap_every: usize,
     out_dir: &str,
     track_defects: bool,
 ) -> PyResult<(PyQField3D, PyScalarField3D, Vec<PyBechStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, phi_final, stats) = volterra_solver::run_mars_3d_full(
+    let (q_final, phi_final, stats) = volterra_solver::run_bech_3d(
         &q_init.inner,
         &phi_init.inner,
         &params.inner,
@@ -718,7 +718,7 @@ fn run_mars_3d_full_py(
 
 /// Register 3D binding classes and runner functions into the volterra Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyMarsParams3D>()?;
+    m.add_class::<PyActiveNematicParams3D>()?;
     m.add_class::<PyQField3D>()?;
     m.add_class::<PyVelocityField3D>()?;
     m.add_class::<PyScalarField3D>()?;
@@ -726,7 +726,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBechStats3D>()?;
     m.add_class::<PyDisclinationLine>()?;
     m.add_class::<PyDisclinationEvent>()?;
-    m.add_function(wrap_pyfunction!(run_mars_3d_py, m)?)?;
-    m.add_function(wrap_pyfunction!(run_mars_3d_full_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_dry_active_nematic_3d_py, m)?)?;
+    m.add_function(wrap_pyfunction!(run_bech_3d_py, m)?)?;
     Ok(())
 }
