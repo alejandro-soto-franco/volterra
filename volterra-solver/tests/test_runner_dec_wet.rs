@@ -73,7 +73,7 @@ fn wet_dec_order_grows_with_activity() {
     let ops = Operators::from_mesh(&mesh, &manifold);
 
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.005;
+    params.dt = 0.0005; // small dt for CFL stability with real flow velocities
 
     assert!(params.a_eff() < 0.0, "need active regime");
 

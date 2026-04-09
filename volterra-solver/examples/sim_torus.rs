@@ -19,8 +19,8 @@ fn main() {
     let minor_r = 1.0;
     let n_major = 80;
     let n_minor = 40;
-    let n_steps = 5000;
-    let snap_every = 25;
+    let n_steps = 20000;
+    let snap_every = 100;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let out_dir = format!("{home}/.volterra-bench/viz/torus");
@@ -55,11 +55,11 @@ fn main() {
     let curv_cb = variable_curvature_2d(curvatures.clone());
 
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.001;
-    params.zeta_eff = 0.5;
+    params.dt = 0.0001;
+    params.zeta_eff = 0.3;
     params.k_r = 0.04;
     params.gamma_r = 1.0;
-    params.eta = 1.0;
+    params.eta = 5.0;
     params.a_landau = -0.2;
     params.c_landau = 2.0;
     params.lambda = 0.7;
@@ -69,7 +69,7 @@ fn main() {
     let stokes = StokesSolverDec::new(&domain.ops)
         .expect("Stokes solver factorisation failed");
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
+    let mut q = QFieldDec::random_perturbation(nv, 0.05, 42);
 
     let meta = serde_json::json!({
         "geometry": "torus",
