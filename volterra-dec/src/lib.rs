@@ -13,6 +13,7 @@
 //! | [`helfrich`] | Helfrich bending energy and forces |
 //! | [`variational`] | BAOAB splitting integrator for membrane dynamics |
 
+pub mod curvature_correction;
 pub mod domain;
 pub mod helfrich;
 pub mod molecular_field_dec;
