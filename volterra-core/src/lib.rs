@@ -10,7 +10,7 @@
 //!
 //! ## Parameters
 //!
-//! - [`MarsParams`] -- all physical and numerical parameters for the MARS + lipid system
+//! - [`ActiveNematicParams`] -- all physical and numerical parameters for the active nematic + concentration field system
 //!
 //! ## Error type
 //!
@@ -47,8 +47,8 @@ pub enum VError {
 // Physical parameters
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// All physical and numerical parameters for the single-phase MARS simulation
-/// and the coupled MARS + lyotropic lipid (LNP) system.
+/// All physical and numerical parameters for the single-phase active nematic
+/// simulation and the coupled active nematic + concentration field system.
 ///
 /// ## Dimensionless groups
 ///
@@ -62,7 +62,7 @@ pub enum VError {
 ///
 /// The coherent transfer window is zeta_one < zeta_eff < zeta_star.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarsParams {
+pub struct ActiveNematicParams {
     // ── Grid ──────────────────────────────────────────────────────────────
     /// Number of grid vertices in x.
     pub nx: usize,
@@ -97,7 +97,7 @@ pub struct MarsParams {
     ///
     /// The noise is applied as `Q += noise_amp * sqrt(dt) * W` where `W` is
     /// an i.i.d. standard Gaussian per component per grid vertex.  This models
-    /// the stochastic reorientation fluctuations of the MARS rod ensemble.
+    /// the stochastic reorientation fluctuations of the active rod ensemble.
     /// Set to 0.0 (default) to disable noise.
     pub noise_amp: f64,
 
@@ -107,7 +107,7 @@ pub struct MarsParams {
     /// Lipid rotational viscosity Γ_l.
     pub gamma_l: f64,
     /// Lipid coupling length ξ_l (range of the K₀ response kernel).
-    /// Determines LNP radius: R_LNP ~ ℓ_d = sqrt(K_r / zeta_eff).
+    /// Determines the concentration-field response radius.
     pub xi_l: f64,
 
     // ── Cahn-Hilliard / Maier-Saupe (BECH: full two-field coupling) ───────
@@ -115,7 +115,7 @@ pub struct MarsParams {
     ///
     /// Drives lipid accumulation in regions of high orientational order:
     /// f_MS = -χ_MS φ_l Tr(Q_lip²).  A positive χ_MS > 0 is required for
-    /// the orientational-concentration coupling to template LNP nucleation.
+    /// the orientational-concentration coupling to template phase separation.
     pub chi_ms: f64,
     /// Cahn-Hilliard gradient energy coefficient κ_l (simulation units of K_r dx²).
     ///
@@ -145,10 +145,10 @@ pub struct MarsParams {
     pub m_l: f64,
 }
 
-impl MarsParams {
+impl ActiveNematicParams {
     /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
     ///
-    /// This equals the mean rotor defect spacing and sets the LNP radius.
+    /// This equals the mean rotor defect spacing.
     pub fn defect_length(&self) -> f64 {
         (self.k_r / self.zeta_eff).sqrt()
     }
@@ -278,19 +278,19 @@ impl MarsParams {
 // 3D Parameters
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// All physical and numerical parameters for the 3D MARS + lipid simulation.
+/// All physical and numerical parameters for the 3D active nematic + concentration field simulation.
 ///
 /// ## Symbol conventions
 ///
 /// `lambda` in this struct is the flow-alignment parameter xi from Jeffery orbit
 /// theory (eq. xi_flow in the paper): xi = (r^2-1)/(r^2+1). Named `lambda` in
-/// the struct to match the MarsParams convention; used as `xi` in all physics docs.
+/// the struct to match the 2D ActiveNematicParams convention; used as `xi` in all physics docs.
 ///
 /// `chi_a` encodes mu_0 * Delta_chi / 2 (SI). The magnetic torque molecular field
 /// H_mag = chi_a * b0^2 * [...]. Do NOT multiply by gamma_r inside molecular_field_3d;
 /// the single Gamma_r multiplication occurs in beris_edwards_rhs_3d.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarsParams3D {
+pub struct ActiveNematicParams3D {
     pub nx: usize,
     pub ny: usize,
     pub nz: usize,
@@ -347,7 +347,7 @@ pub struct MarsParams3D {
 
 fn default_epsilon_ch() -> f64 { 1.0 }
 
-impl MarsParams3D {
+impl ActiveNematicParams3D {
     /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
     pub fn defect_length(&self) -> f64 {
         (self.k_r / self.zeta_eff).sqrt()
@@ -539,14 +539,14 @@ mod tests_3d {
     use super::*;
 
     #[test]
-    fn test_mars_params_3d_validate_ok() {
-        let p = MarsParams3D::default_test();
+    fn test_params_3d_validate_ok() {
+        let p = ActiveNematicParams3D::default_test();
         assert!(p.validate().is_ok());
     }
 
     #[test]
-    fn test_mars_params_3d_defect_length() {
-        let p = MarsParams3D::default_test();
+    fn test_params_3d_defect_length() {
+        let p = ActiveNematicParams3D::default_test();
         let ld = p.defect_length();
         assert!(ld > 0.0, "defect_length must be positive");
         // ld = sqrt(k_r / zeta_eff) = sqrt(1/2) ~ 0.707
@@ -554,8 +554,8 @@ mod tests_3d {
     }
 
     #[test]
-    fn test_mars_params_3d_invalid_nz() {
-        let mut p = MarsParams3D::default_test();
+    fn test_params_3d_invalid_nz() {
+        let mut p = ActiveNematicParams3D::default_test();
         p.nz = 0;
         assert!(p.validate().is_err());
     }
@@ -567,13 +567,13 @@ mod tests {
 
     #[test]
     fn default_test_params_valid() {
-        let p = MarsParams::default_test();
+        let p = ActiveNematicParams::default_test();
         assert!(p.validate().is_ok());
     }
 
     #[test]
     fn defect_length_correct() {
-        let mut p = MarsParams::default_test();
+        let mut p = ActiveNematicParams::default_test();
         p.k_r = 4.0;
         p.zeta_eff = 1.0;
         assert!((p.defect_length() - 2.0).abs() < 1e-12);
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn a_eff_correct() {
-        let mut p = MarsParams::default_test();
+        let mut p = ActiveNematicParams::default_test();
         p.a_landau = -1.0;
         p.zeta_eff = 3.0;
         // a_eff = -1.0 - 1.5 = -2.5
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn invalid_params_caught() {
-        let mut p = MarsParams::default_test();
+        let mut p = ActiveNematicParams::default_test();
         p.dx = -1.0;
         assert!(p.validate().is_err());
         p.dx = 1.0;
@@ -605,28 +605,28 @@ mod tests_approach_b {
 
     #[test]
     fn test_new_params_present() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         assert!(p.kappa_w >= 0.0);
         assert!(p.epsilon_ch > 0.0);
     }
 
     #[test]
     fn test_validate_rejects_negative_kappa_w() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.kappa_w = -1.0;
         assert!(p.validate().is_err());
     }
 
     #[test]
     fn test_validate_rejects_zero_epsilon_ch() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.epsilon_ch = 0.0;
         assert!(p.validate().is_err());
     }
 
     #[test]
     fn test_kappa_eff() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.kappa_ch = 1.0;
         p.kappa_w = 2.0;
         p.c0_sp = -0.5;
@@ -637,7 +637,7 @@ mod tests_approach_b {
 
     #[test]
     fn test_validate_rejects_dt_violating_kappa_bar_bound() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.kappa_bar_g = 1e4; // large |κ̄_G| → tiny dt_max
         p.dt = 1.0;          // grossly too large
         p.epsilon_ch = 1.0;
@@ -646,7 +646,7 @@ mod tests_approach_b {
 
     #[test]
     fn test_validate_accepts_safe_dt_for_kappa_bar() {
-        let mut p = MarsParams3D::default_test();
+        let mut p = ActiveNematicParams3D::default_test();
         p.kappa_bar_g = 0.0; // disabled
         assert!(p.validate().is_ok(), "kappa_bar_g=0 must always pass");
     }
