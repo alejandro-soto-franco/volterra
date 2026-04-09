@@ -21,8 +21,8 @@ use volterra_dec::DecDomain;
 
 fn main() {
     let refinement = 4; // 2562 vertices, 5120 faces
-    let n_steps = 20000;
-    let snap_every = 100;
+    let n_steps = 50000;
+    let snap_every = 250;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let out_dir = format!("{home}/.volterra-bench/viz/sphere");
@@ -51,24 +51,31 @@ fn main() {
     // Wet active nematic parameters.
     // Activity drives flow, flow creates distortions, distortions nucleate defects.
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.0001;     // small dt for CFL stability with flow
-    params.zeta_eff = 0.3;  // extensile activity
-    params.k_r = 0.04;      // Frank elastic constant
+    // Parameters following Giomi (2015) PRX / Shankar-Marchetti conventions,
+    // scaled for a unit sphere with l_a ~ R/2 (4 motile defects expected).
+    params.dt = 0.001;      // conservative for curvature correction stability
+    params.zeta_eff = 0.04; // extensile activity (l_a = sqrt(K/zeta) = 0.5)
+    params.k_r = 0.01;      // Frank elastic constant (l_c = sqrt(K/|a|) = 0.16)
     params.gamma_r = 1.0;   // rotational viscosity
-    params.eta = 5.0;       // high viscosity damps velocity, improves stability
-    params.a_landau = -0.2;
-    params.c_landau = 2.0;
+    params.eta = 0.5;       // fluid viscosity
+    params.a_landau = -0.4; // deep in the nematic phase
+    params.c_landau = 2.0;  // cubic stabilisation (S_eq ~ 0.55)
     params.lambda = 0.7;    // flow-alignment parameter
 
-    // Curvature correction for the unit sphere: K = 1.
-    let curv_cb = constant_curvature_2d(1.0);
+    // Curvature correction for the unit sphere: K = 1/R^2 = 1.
+    // On a unit sphere, the -4K correction is very strong (effectively
+    // a_eff_total = a_eff + 4K = -0.4 + 4 = 3.6, isotropic phase).
+    // For visible nematic dynamics, either use a large sphere (small K)
+    // or disable the correction and rely on topology alone.
+    // Here we use a reduced correction (10% of full K) as a compromise.
+    let curv_cb = constant_curvature_2d(0.1);
 
     // Pre-factorise the Stokes solver.
     println!("Factorising Stokes solver...");
     let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh)
         .expect("Stokes solver factorisation failed");
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.05, 42);
+    let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
 
     // Write metadata.
     let meta = serde_json::json!({
