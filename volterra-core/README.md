@@ -6,7 +6,7 @@ Part of the [volterra](https://github.com/alejandro-soto-franco/volterra) worksp
 
 ## Overview
 
-`volterra-core` defines the foundational types shared across all volterra crates. It contains the `MarsParams` parameter struct (grid dimensions, physics coefficients, Landau-de Gennes constants, magnetic coupling, lipid parameters, and curvature settings), the `VError` error enum, and the `Integrator<S>` trait that all time-stepping schemes implement.
+`volterra-core` defines the foundational types shared across all volterra crates. It contains the `ActiveNematicParams` parameter struct (grid dimensions, physics coefficients, Landau-de Gennes constants, magnetic coupling, lipid parameters, and curvature settings), the `VError` error enum, and the `Integrator<S>` trait that all time-stepping schemes implement.
 
 Every other crate in the workspace depends on `volterra-core`.
 
@@ -14,16 +14,16 @@ Every other crate in the workspace depends on `volterra-core`.
 
 | Type | Purpose |
 |------|---------|
-| `MarsParams` | All physical and numerical parameters for the MARS + lipid system |
+| `ActiveNematicParams` | All physical and numerical parameters for the active nematic + concentration field system |
 | `VError` | Unified error enum: `DimensionMismatch`, `ConvergenceFailure`, `InvalidParams`, `Io` |
 | `Integrator<S>` | Trait for time-integration schemes (Euler, RK4, ...) |
 
 ## Example
 
 ```rust,no_run
-use volterra_core::{MarsParams, VError};
+use volterra_core::{ActiveNematicParams, VError};
 
-let params = MarsParams {
+let params = ActiveNematicParams {
     nx: 128, ny: 128, nz: 1,
     dx: 1.0, dt: 0.005,
     // ... remaining fields

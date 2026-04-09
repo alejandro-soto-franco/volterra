@@ -4,6 +4,24 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [Unreleased]
+
+### Breaking
+
+- Renamed `MarsParams` to `ActiveNematicParams`, `MarsParams3D` to `ActiveNematicParams3D`.
+- Renamed runner functions: `run_mars_component1` to `run_dry_active_nematic`,
+  `run_mars_component1_hydro` to `run_active_nematic_hydro`,
+  `run_mars_bech` to `run_bech`, `run_mars_3d` to `run_dry_active_nematic_3d`,
+  `run_mars_3d_full` to `run_bech_3d`.
+- Python API: all class and function names updated to match.
+
+### Added
+
+- New `volterra-mars` crate with MARS-specific parameter presets (`MarsPreset`)
+  and dimensionless group helpers (`MarsLnpDimensionless`).
+
+---
+
 ## [0.2.0] - 2026-04-08
 
 ### Added
@@ -23,7 +41,7 @@ All notable changes to volterra are documented here.
 
 ### Added
 
-- **volterra-core**: `MarsParams3D` (grid, physics, Landau, magnetic, lipid, curvature parameters), `VError` (4 variants), `Integrator<S>` trait.
+- **volterra-core**: `ActiveNematicParams3D` (grid, physics, Landau, magnetic, lipid, curvature parameters), `VError` (4 variants), `Integrator<S>` trait.
 - **volterra-fields**: `QField2D`, `QField3D` (traceless symmetric Q-tensor fields), `VelocityField2D/3D`, `ScalarField2D/3D`, `PressureField3D`, `ConcentrationField3D`. Structure-of-arrays layout.
 - **volterra-solver**: 3D Cartesian-grid Beris-Edwards solver with molecular field, Stokes FFT pressure solve, Cahn-Hilliard ETD, disclination detection via cartan holonomy.
 - **volterra-py**: PyO3 bindings (PyPI: `volterra-nematic`, import as `volterra`).
