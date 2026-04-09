@@ -412,7 +412,7 @@ fn write_npy<const N: usize>(
     // The magic + header-length field occupies 10 bytes:
     //   6 bytes magic (\x93NUMPY\x01\x00) + 2 bytes HEADER_LEN (uint16 LE)
     //   + 2 bytes for version (already in magic) = total 10.
-    // Wait: magic is \x93NUMPY\x01\x00 = 8 bytes, HEADER_LEN is 2 bytes = 10 total.
+    // Magic is \x93NUMPY\x01\x00 = 8 bytes, HEADER_LEN is 2 bytes = 10 total.
     // We need total_file_size_up_to_data to be a multiple of 64.
     // The header block (HEADER_LEN bytes) must include the dict + padding + \n.
     // total = 10 + HEADER_LEN; we want this to be a multiple of 64.

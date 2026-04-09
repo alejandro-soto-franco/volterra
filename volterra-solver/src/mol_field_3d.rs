@@ -68,13 +68,12 @@ pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QF
     out
 }
 
-/// Fused parallel molecular field: computes the Laplacian inline and combines
-/// with bulk LdG terms in a single parallel pass. No intermediate allocation.
+/// Parallel molecular field computation with fused Laplacian stencil.
 ///
-/// This is 2-3x faster than the sequential version at N >= 50 due to:
-/// 1. rayon parallelism across vertices
-/// 2. No separate Laplacian allocation (saves one full QField3D clone)
-/// 3. Better cache locality (stencil + bulk in one pass per vertex)
+/// Computes the active molecular field H at each vertex using a single
+/// parallel pass that inlines the 6-point Laplacian stencil with the
+/// bulk Landau-de Gennes terms. Avoids allocating an intermediate
+/// Laplacian field.
 pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QField3D {
     let a_eff = p.a_eff();
     let c = p.c_landau;
@@ -151,15 +150,12 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
     }
 }
 
-/// Fully fused in-place Euler step: computes the molecular field AND applies
-/// the Euler update `q += dt * gamma_r * H` in a single pass.
+/// Fused Euler step: computes the molecular field and applies the Euler
+/// update `Q <- Q + dt * gamma_r * H` in a single parallel pass.
 ///
-/// This is the fastest path for the dry active nematic runner:
-/// - Zero intermediate allocations (no separate H or RHS field)
-/// - Cache-blocked parallel iteration (L2-friendly tile traversal)
-/// - Manually unrolled 5-component stencil for auto-vectorisation
-///
-/// The output is written directly into a new Vec that becomes the updated q.
+/// Combines the Laplacian stencil, bulk Landau-de Gennes terms, magnetic
+/// torque, and time integration into one kernel per vertex. Allocates a
+/// single output vector (the updated Q) with no intermediate fields.
 pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64) {
     let a_eff = p.a_eff();
     let c_ldg = p.c_landau;

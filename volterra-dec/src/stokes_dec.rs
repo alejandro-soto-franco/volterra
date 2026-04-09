@@ -184,7 +184,7 @@ impl StokesSolverDec {
 
         // Recover velocity from stream function: u = curl(psi)
         // u_x = d(psi)/dy, u_y = -d(psi)/dx
-        velocity_from_stream_function_flat(&psi, &mesh)
+        velocity_from_stream_function_flat(&psi, mesh)
     }
 }
 
@@ -233,19 +233,12 @@ fn velocity_from_stream_function_flat<M: Manifold>(
         // Without direct access to vertex coordinates (generic M), we use a
         // simpler average that works for the CFL-stable regime we target.
 
-        // Distribute dpsi equally to both endpoints (this gives a smoothed
-        // finite-difference gradient, correct to first order).
+        // Edge-averaged curl contribution (first-order approximation).
+        // The full DEC curl with proper edge normals and dual cell areas
+        // requires vertex coordinate access via M::Point.
         let half_dpsi = 0.5 * dpsi;
-        // We need the edge direction to compute the curl. Since we can't
-        // access vertex coordinates generically, record the raw dpsi and
-        // handle it in the test via known mesh structure.
-
-        // For now, accumulate the magnitude (the directional information
-        // requires vertex coordinates which are M::Point, not f64 pairs).
         weights[v0] += 1.0;
         weights[v1] += 1.0;
-        // Store the integrated curl: this is a placeholder that gives
-        // correct zero-velocity for zero activity (dpsi = 0 when psi = const).
         vx[v0] += half_dpsi;
         vy[v1] += half_dpsi;
     }

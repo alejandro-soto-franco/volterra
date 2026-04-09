@@ -24,7 +24,7 @@ fn wet_dec_nematic_runs_without_nan() {
 
     let (q_fin, stats) = run_wet_active_nematic_dec(
         &q0, &params, &ops, &mesh, None, 50, 50,
-    );
+    ).unwrap();
 
     assert!(q_fin.mean_order_param().is_finite(), "mean_s should be finite");
     assert_eq!(stats.len(), 2, "snapshots at step 0 and 50");
@@ -47,7 +47,7 @@ fn wet_dec_zero_activity_matches_dry() {
 
     let (q_wet, _) = run_wet_active_nematic_dec(
         &q0, &params, &ops, &mesh, None, 100, 100,
-    );
+    ).unwrap();
 
     let (q_dry, _) = volterra_solver::run_dry_active_nematic_dec(
         &q0, &params, &ops, None, 100, 100,
@@ -83,7 +83,7 @@ fn wet_dec_order_grows_with_activity() {
 
     let (q_fin, _) = run_wet_active_nematic_dec(
         &q0, &params, &ops, &mesh, None, 100, 100,
-    );
+    ).unwrap();
 
     let s_after = q_fin.mean_order_param();
     assert!(
