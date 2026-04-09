@@ -21,6 +21,7 @@ rayon            = { workspace = true }
 delaunator       = "1"
 sprs             = "0.11"
 sprs-ldl         = "0.10"
+serde_json       = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
 
