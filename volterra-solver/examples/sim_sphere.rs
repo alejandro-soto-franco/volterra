@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
-use volterra_dec::curvature_correction::constant_curvature_2d;
+use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
 use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
@@ -62,13 +62,18 @@ fn main() {
     params.c_landau = 2.0;  // cubic stabilisation (S_eq ~ 0.55)
     params.lambda = 0.7;    // flow-alignment parameter
 
-    // Curvature correction for the unit sphere: K = 1/R^2 = 1.
-    // On a unit sphere, the -4K correction is very strong (effectively
-    // a_eff_total = a_eff + 4K = -0.4 + 4 = 3.6, isotropic phase).
-    // For visible nematic dynamics, either use a large sphere (small K)
-    // or disable the correction and rely on topology alone.
-    // Here we use a reduced correction (10% of full K) as a compromise.
-    let curv_cb = constant_curvature_2d(0.1);
+    // Extract vertex coordinates (needed by Stokes, advection, and connection Laplacian).
+    let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
+        [v[0], v[1], v[2]]
+    }).collect();
+
+    // Build the parallel-transport connection Laplacian.
+    // Curvature enters automatically through the holonomy angles.
+    let conn_lap = ConnectionLaplacian::new(
+        &domain.mesh, &stokes_coords,
+        &(0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect::<Vec<_>>(),
+        &(0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect::<Vec<_>>(),
+    );
 
     // Pre-factorise the Stokes solver.
     println!("Factorising Stokes solver...");
@@ -95,11 +100,6 @@ fn main() {
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
         .expect("failed to write meta.json");
 
-    // Extract vertex coordinates once for advection.
-    let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
-        [v[0], v[1], v[2]]
-    }).collect();
-
     println!("Running WET active nematic on S^2: {n_steps} steps...");
     let t0 = Instant::now();
 
@@ -121,8 +121,8 @@ fn main() {
             // 2. RK4 step on Q: molecular field + proper directional advection.
             let coords = &stokes_coords;
             let rhs = |qq: &QFieldDec| -> QFieldDec {
-                let h = volterra_dec::molecular_field_dec(
-                    qq, &params, &domain.ops, Some(&curv_cb),
+                let h = molecular_field_conn(
+                    qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
                 );
                 let mut dq = h.scale(params.gamma_r);
 
