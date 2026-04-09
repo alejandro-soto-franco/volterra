@@ -326,13 +326,13 @@ fn average_edge_normal<M: Manifold>(
     if len > 1e-14 { scale3(n, 1.0 / len) } else { [0.0, 0.0, 1.0] }
 }
 
-// Vector helpers.
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]-b[0], a[1]-b[1], a[2]-b[2]] }
-fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]+b[0], a[1]+b[1], a[2]+b[2]] }
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0]*s, a[1]*s, a[2]*s] }
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
-fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+// Vector helpers (pub(crate) for use by curved_stokes).
+pub(crate) fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]-b[0], a[1]-b[1], a[2]-b[2]] }
+pub(crate) fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]+b[0], a[1]+b[1], a[2]+b[2]] }
+pub(crate) fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0]*s, a[1]*s, a[2]*s] }
+pub(crate) fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
+pub(crate) fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
+pub(crate) fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
 }
 
