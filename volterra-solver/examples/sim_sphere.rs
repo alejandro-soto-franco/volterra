@@ -53,14 +53,14 @@ fn main() {
     let mut params = ActiveNematicParams::default_test();
     // Parameters tuned from sweep: zeta=0.5, eta=0.1, K=0.01 gives ~7% S fluctuation.
     // Low viscosity amplifies the active flow instability.
-    params.dt = 0.0001;     // small dt for CFL with low eta
-    params.zeta_eff = 0.5;  // extensile activity
-    params.k_r = 0.01;      // Frank elastic constant
-    params.gamma_r = 1.0;   // rotational viscosity
-    params.eta = 0.1;       // low viscosity (amplifies flow instability)
-    params.a_landau = -0.4; // deep in the nematic phase
-    params.c_landau = 2.0;  // cubic stabilisation
-    params.lambda = 0.7;    // flow-alignment parameter
+    params.dt = 0.0001;
+    params.zeta_eff = 0.5;
+    params.k_r = 0.01;
+    params.gamma_r = 1.0;
+    params.eta = 0.1;
+    params.a_landau = -0.4;
+    params.c_landau = 2.0;
+    params.lambda = 0.7;
 
     // Extract vertex coordinates (needed by Stokes, advection, and connection Laplacian).
     let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
