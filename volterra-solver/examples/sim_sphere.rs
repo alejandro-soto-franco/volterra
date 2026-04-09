@@ -21,9 +21,9 @@ use volterra_dec::DecDomain;
 // RK4 loop inline with the curvature correction callback.
 
 fn main() {
-    let refinement = 3; // 642 vertices, 1280 faces
-    let n_steps = 2000;
-    let snap_every = 50;
+    let refinement = 4; // 2562 vertices, 5120 faces
+    let n_steps = 5000;
+    let snap_every = 25;
 
     let out_dir = std::env::var("OUT_DIR")
         .unwrap_or_else(|_| {
@@ -61,7 +61,7 @@ fn main() {
     params.k_r = 0.1; // Frank elastic constant
     params.gamma_r = 1.0;
     params.a_landau = -0.5;
-    params.c_landau = 1.0;
+    params.c_landau = 4.5;
 
     // Curvature correction for the unit sphere: K = 1.
     let curv_cb = constant_curvature_2d(1.0);
