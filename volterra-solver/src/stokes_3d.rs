@@ -20,7 +20,7 @@
 //! The DC mode (k=0) is set to zero (no net translation on a periodic box).
 
 use rustfft::{FftPlanner, num_complex::Complex};
-use volterra_core::MarsParams3D;
+use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, VelocityField3D, PressureField3D};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ use volterra_fields::{QField3D, VelocityField3D, PressureField3D};
 /// A pair `(u, p_out)` where `u` is the divergence-free velocity field and
 /// `p_out` is a placeholder zero pressure field (pressure is not explicitly
 /// needed for the velocity in the spectral approach).
-pub fn stokes_solve_3d(q: &QField3D, p: &MarsParams3D) -> (VelocityField3D, PressureField3D) {
+pub fn stokes_solve_3d(q: &QField3D, p: &ActiveNematicParams3D) -> (VelocityField3D, PressureField3D) {
     // Use the Q-field's own grid dimensions so the solver works regardless of
     // whether the params grid matches (e.g. tests may use a smaller grid).
     let nx = q.nx;
@@ -311,7 +311,7 @@ fn wavenumber(idx: usize, n: usize, dx: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volterra_core::MarsParams3D;
+    use volterra_core::ActiveNematicParams3D;
     use volterra_fields::QField3D;
 
     /// The Stokes solver must produce a divergence-free velocity field.
@@ -320,7 +320,7 @@ mod tests {
     /// tolerance of 1e-8 (spectral accuracy on an 8³ grid is well within this).
     #[test]
     fn test_stokes_3d_incompressible() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         let q = QField3D::random_perturbation(8, 8, 8, 1.0, 0.1, 42);
         let (u, _p_out) = stokes_solve_3d(&q, &p);
         let div = u.divergence();
@@ -336,7 +336,7 @@ mod tests {
     /// A zero Q-tensor field must produce zero velocity.
     #[test]
     fn test_stokes_3d_zero_q_gives_zero_u() {
-        let p = MarsParams3D::default_test();
+        let p = ActiveNematicParams3D::default_test();
         let q = QField3D::zeros(8, 8, 8, 1.0);
         let (u, _p_out) = stokes_solve_3d(&q, &p);
         for &uv in &u.u {

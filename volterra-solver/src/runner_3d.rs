@@ -1,18 +1,18 @@
 #![allow(clippy::needless_range_loop)]
 // ~/volterra/volterra-solver/src/runner_3d.rs
 
-//! High-level 3D simulation runners for the MARS and BECH (Beris-Edwards +
-//! Cahn-Hilliard) models.
+//! High-level 3D simulation runners for dry active nematic and BECH
+//! (Beris-Edwards + Cahn-Hilliard) models.
 //!
 //! Two entry points are provided:
 //!
 //! | Function | Model | Fields evolved |
 //! |----------|-------|----------------|
-//! | [`run_mars_3d`] | dry active nematic | Q only |
-//! | [`run_mars_3d_full`] | full BECH | Q + φ + Stokes velocity |
+//! | [`run_dry_active_nematic_3d`] | dry active nematic | Q only |
+//! | [`run_bech_3d`] | full BECH | Q + φ + Stokes velocity |
 //!
 //! Both runners:
-//! - Accept an initial field and a [`volterra_core::MarsParams3D`].
+//! - Accept an initial field and a [`volterra_core::ActiveNematicParams3D`].
 //! - Advance by `n_steps` Euler steps, writing `.npy` snapshots every
 //!   `snap_every` steps to `out_dir`.
 //! - Return the final field(s) together with a vector of per-snapshot
@@ -25,7 +25,7 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
-use volterra_core::MarsParams3D;
+use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, ScalarField3D};
 
 use crate::beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D};
@@ -38,7 +38,7 @@ use cartan_geo::disclination::DisclinationLine;
 // Statistics types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Per-snapshot statistics for the dry active nematic run ([`run_mars_3d`]).
+/// Per-snapshot statistics for the dry active nematic run ([`run_dry_active_nematic_3d`]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapStats3D {
     /// Simulation time at this snapshot.
@@ -58,7 +58,7 @@ pub struct SnapStats3D {
     pub n_events: usize,
 }
 
-/// Per-snapshot statistics for the full BECH run ([`run_mars_3d_full`]).
+/// Per-snapshot statistics for the full BECH run ([`run_bech_3d`]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BechStats3D {
     /// Simulation time at this snapshot.
@@ -96,7 +96,7 @@ pub struct BechStats3D {
 /// # Arguments
 ///
 /// * `q_init`       - Initial Q-tensor field.
-/// * `p`            - MARS parameters (grid, physics, noise).
+/// * `p`            - Active nematic parameters (grid, physics, noise).
 /// * `n_steps`      - Number of time steps to advance.
 /// * `snap_every`   - Write a snapshot every this many steps.
 /// * `out_dir`      - Directory for `.npy` and `stats.json` output.
@@ -106,9 +106,9 @@ pub struct BechStats3D {
 /// # Returns
 ///
 /// `(q_final, stats)`: final Q-field and one [`SnapStats3D`] per snapshot.
-pub fn run_mars_3d(
+pub fn run_dry_active_nematic_3d(
     q_init: &QField3D,
-    p: &MarsParams3D,
+    p: &ActiveNematicParams3D,
     n_steps: usize,
     snap_every: usize,
     out_dir: &Path,
@@ -171,7 +171,7 @@ pub fn run_mars_3d(
             let s = compute_snap_stats(&q, &lines, n_events, t_snap);
             stats.push(s);
 
-            // Write Q snapshot named by step number (consistent with mars-lnp conventions).
+            // Write Q snapshot named by step number (consistent with snapshot conventions).
             let npy_path = out_dir.join(format!("q_{step:06}.npy"));
             if let Err(e) = write_npy(&npy_path, &q.q, p.nx, p.ny, p.nz, 5) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", npy_path.display());
@@ -211,10 +211,10 @@ pub fn run_mars_3d(
 /// # Returns
 ///
 /// `(q_final, phi_final, stats)`.
-pub fn run_mars_3d_full(
+pub fn run_bech_3d(
     q_init: &QField3D,
     phi_init: &ScalarField3D,
-    p: &MarsParams3D,
+    p: &ActiveNematicParams3D,
     n_steps: usize,
     snap_every: usize,
     out_dir: &Path,
@@ -276,7 +276,7 @@ pub fn run_mars_3d_full(
             let s = compute_bech_stats(&q, &phi, &lines, n_events, t_snap);
             stats.push(s);
 
-            // Write snapshots named by step number (consistent with mars-lnp conventions).
+            // Write snapshots named by step number (consistent with snapshot conventions).
             let q_path = out_dir.join(format!("q_{step:06}.npy"));
             if let Err(e) = write_npy(&q_path, &q.q, p.nx, p.ny, p.nz, 5) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", q_path.display());
@@ -473,17 +473,17 @@ fn write_npy<const N: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volterra_core::MarsParams3D;
+    use volterra_core::ActiveNematicParams3D;
     use volterra_fields::{QField3D, ScalarField3D};
 
     /// Smoke test: 5 steps of dry active turbulence on a tiny grid, no crash.
     #[test]
-    fn test_run_mars_3d_dry_smoke() {
-        let p = MarsParams3D::default_test(); // 16^3
+    fn test_run_dry_active_nematic_3d_dry_smoke() {
+        let p = ActiveNematicParams3D::default_test(); // 16^3
         let q_init = QField3D::random_perturbation(p.nx, p.ny, p.nz, p.dx, 0.01, 42);
         let tmp = std::env::temp_dir().join("volterra_test_run");
         std::fs::create_dir_all(&tmp).unwrap();
-        let (q_final, stats) = run_mars_3d(&q_init, &p, 5, 5, &tmp, false);
+        let (q_final, stats) = run_dry_active_nematic_3d(&q_init, &p, 5, 5, &tmp, false);
         assert_eq!(q_final.len(), q_init.len());
         assert_eq!(stats.len(), 1);
         assert!(stats[0].mean_s >= 0.0);
@@ -491,13 +491,13 @@ mod tests {
 
     /// Smoke test for the full BECH runner.
     #[test]
-    fn test_run_mars_3d_full_smoke() {
-        let p = MarsParams3D::default_test();
+    fn test_run_bech_3d_smoke() {
+        let p = ActiveNematicParams3D::default_test();
         let q_init = QField3D::random_perturbation(p.nx, p.ny, p.nz, p.dx, 0.01, 42);
         let phi_init = ScalarField3D::uniform(p.nx, p.ny, p.nz, p.dx, 0.3);
         let tmp = std::env::temp_dir().join("volterra_test_full");
         std::fs::create_dir_all(&tmp).unwrap();
-        let (q_f, phi_f, stats) = run_mars_3d_full(&q_init, &phi_init, &p, 5, 5, &tmp, false);
+        let (q_f, phi_f, stats) = run_bech_3d(&q_init, &phi_init, &p, 5, 5, &tmp, false);
         assert_eq!(q_f.len(), q_init.len());
         assert!((phi_f.mean() - 0.3).abs() < 0.01, "mass roughly conserved, got mean={}", phi_f.mean());
         assert_eq!(stats.len(), 1);

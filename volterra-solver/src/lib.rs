@@ -63,7 +63,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rustfft::{FftPlanner, num_complex::Complex};
-use volterra_core::{Integrator, MarsParams};
+use volterra_core::{Integrator, ActiveNematicParams};
 use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
 
 use cartan_geo::holonomy::{Disclination, scan_disclinations};
@@ -85,7 +85,7 @@ pub mod defects_3d;
 pub use defects_3d::{scan_defects_3d, track_defect_events};
 
 pub mod runner_3d;
-pub use runner_3d::{run_mars_3d, run_mars_3d_full, SnapStats3D, BechStats3D};
+pub use runner_3d::{run_dry_active_nematic_3d, run_bech_3d, SnapStats3D, BechStats3D};
 
 pub mod gauss_bonnet_3d;
 pub use gauss_bonnet_3d::gauss_bonnet_chi;
@@ -109,7 +109,7 @@ pub use gauss_bonnet_3d::gauss_bonnet_chi;
 /// ```
 ///
 /// This is the RHS driver in the dry active model `∂_t Q = Γ_r H_active`.
-pub fn molecular_field(q: &QField2D, params: &MarsParams) -> QField2D {
+pub fn molecular_field(q: &QField2D, params: &ActiveNematicParams) -> QField2D {
     let a_eff = params.a_eff();
     let c = params.c_landau;
     let k_r = params.k_r;
@@ -151,7 +151,7 @@ pub fn molecular_field(q: &QField2D, params: &MarsParams) -> QField2D {
 /// ```
 ///
 /// Returns a `QField2D` of the same shape as `q`.
-pub fn corotation_strain(q: &QField2D, v: &VelocityField2D, params: &MarsParams) -> QField2D {
+pub fn corotation_strain(q: &QField2D, v: &VelocityField2D, params: &ActiveNematicParams) -> QField2D {
     let lambda = params.lambda;
     let dx = q.dx;
     let mut out = QField2D::zeros(q.nx, q.ny, q.dx);
@@ -266,7 +266,7 @@ pub fn corotation_strain(q: &QField2D, v: &VelocityField2D, params: &MarsParams)
 pub fn beris_edwards_rhs(
     q: &QField2D,
     v: Option<&VelocityField2D>,
-    params: &MarsParams,
+    params: &ActiveNematicParams,
 ) -> QField2D {
     let h = molecular_field(q, params);
     let mut rhs = h.scale(params.gamma_r);
@@ -396,7 +396,7 @@ fn bessel_k0(x: f64) -> f64 {
 /// by skipping r = 0 in the discrete sum (error O(dx²) for smooth Q^rot).
 ///
 /// The result is the lipid Q-tensor `Q^lip`, the primary output of Component 2.
-pub fn k0_convolution(q_rot: &QField2D, params: &MarsParams) -> QField2D {
+pub fn k0_convolution(q_rot: &QField2D, params: &ActiveNematicParams) -> QField2D {
     let xi_l = params.xi_l;
     let dx = q_rot.dx;
     let nx = q_rot.nx as i64;
@@ -469,7 +469,7 @@ pub fn k0_convolution(q_rot: &QField2D, params: &MarsParams) -> QField2D {
 /// The k=0 mode (uniform translation) is set to zero.
 ///
 /// Returns a [`VelocityField2D`] on the same grid.
-pub fn stokes_solve(q: &QField2D, params: &MarsParams) -> VelocityField2D {
+pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField2D {
     let nx = q.nx;
     let ny = q.ny;
     let n = nx * ny;
@@ -591,7 +591,7 @@ pub fn stokes_solve(q: &QField2D, params: &MarsParams) -> VelocityField2D {
     VelocityField2D { v: v_data, nx, ny, dx }
 }
 
-/// Run the single-phase MARS simulation with full hydrodynamic coupling (Component 1).
+/// Run the active nematic simulation with full hydrodynamic coupling.
 ///
 /// At each time step the Stokes velocity field is re-computed from the active
 /// stress and fed back into the Beris-Edwards equation, enabling the
@@ -605,9 +605,9 @@ pub fn stokes_solve(q: &QField2D, params: &MarsParams) -> VelocityField2D {
 /// - `params`: Physical and numerical parameters.
 /// - `n_steps`: Total number of time steps.
 /// - `snap_every`: Steps between snapshot statistics.
-pub fn run_mars_component1_hydro(
+pub fn run_active_nematic_hydro(
     q_init: &QField2D,
-    params: &MarsParams,
+    params: &ActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
@@ -730,10 +730,10 @@ pub fn defect_count(defects: &[DefectInfo]) -> (usize, usize) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Simulation runner (Component 1: single-phase MARS)
+// Simulation runner (dry active nematic)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Statistics collected at each snapshot during a MARS run.
+/// Statistics collected at each snapshot during an active nematic run.
 #[derive(Debug, Clone)]
 pub struct SnapStats {
     /// Simulation time.
@@ -750,7 +750,7 @@ pub struct SnapStats {
     pub defect_density: f64,
 }
 
-/// Run the single-phase MARS simulation (Component 1).
+/// Run the dry active nematic simulation.
 ///
 /// Evolves the Q-tensor field forward for `n_steps` time steps using the RK4
 /// integrator. Every `snap_every` steps, detects defects and records statistics.
@@ -766,9 +766,9 @@ pub struct SnapStats {
 ///
 /// A tuple `(q_final, stats)` where `q_final` is the final Q-tensor field and
 /// `stats` is a list of snapshot statistics.
-pub fn run_mars_component1(
+pub fn run_dry_active_nematic(
     q_init: &QField2D,
-    params: &MarsParams,
+    params: &ActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
@@ -844,14 +844,14 @@ pub fn run_mars_component1(
 /// has templated strong order in the lipid phase.  At defect cores, where
 /// |Q_lip| → 0, the Maier-Saupe term vanishes and the double-well potential
 /// drives φ_l toward the disordered minimum, creating the concentration
-/// contrast that templates LNP closure on the defect scale ℓ_d.
+/// contrast that templates concentration-field closure on the defect scale ℓ_d.
 ///
 /// The gradient term `-κ_ch ∇²φ_l` penalises sharp concentration fronts,
 /// regularising the chemical potential at the CH coherence scale ξ_CH.
 pub fn ch_chemical_potential(
     phi: &ScalarField2D,
     q_lip: &QField2D,
-    params: &MarsParams,
+    params: &ActiveNematicParams,
 ) -> ScalarField2D {
     let lap_phi = phi.laplacian();
     let n = phi.len();
@@ -916,7 +916,7 @@ pub fn ch_step_etd(
     phi: &ScalarField2D,
     q_lip: &QField2D,
     v: &VelocityField2D,
-    params: &MarsParams,
+    params: &ActiveNematicParams,
 ) -> ScalarField2D {
     let nx = phi.nx;
     let ny = phi.ny;
@@ -1089,10 +1089,10 @@ pub struct BechStats {
 ///
 /// `(q_final, phi_final, stats)` where `stats` records defect and
 /// concentration statistics at each snapshot.
-pub fn run_mars_bech(
+pub fn run_bech(
     q_init: &QField2D,
     phi_init: &ScalarField2D,
-    params: &MarsParams,
+    params: &ActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, ScalarField2D, Vec<BechStats>) {
@@ -1172,8 +1172,8 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use std::f64::consts::PI;
 
-    fn default_params() -> MarsParams {
-        MarsParams::default_test()
+    fn default_params() -> ActiveNematicParams {
+        ActiveNematicParams::default_test()
     }
 
     // ── Molecular field tests ────────────────────────────────────────────────
@@ -1293,7 +1293,7 @@ mod tests {
         // vertex gets the same weight sum). Verify the output is uniform and
         // that both components scale by the same ratio relative to the input.
         let params = {
-            let mut p = MarsParams::default_test();
+            let mut p = ActiveNematicParams::default_test();
             p.nx = 32;
             p.ny = 32;
             p.xi_l = 3.0;
@@ -1356,14 +1356,14 @@ mod tests {
     // ── End-to-end: Component 1 ───────────────────────────────────────────────
 
     #[test]
-    fn run_mars_component1_grows_order() {
+    fn run_dry_active_nematic_grows_order() {
         // Start from a small random perturbation in the active turbulent regime.
         // After a few steps, the order parameter should grow (instability).
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         assert!(params.a_eff() < 0.0);
 
         let q_init = QField2D::random_perturbation(16, 16, 1.0, 0.001, 7);
-        let (q_final, stats) = run_mars_component1(&q_init, &params, 20, 5);
+        let (q_final, stats) = run_dry_active_nematic(&q_init, &params, 20, 5);
 
         assert!(q_final.max_norm().is_finite());
         // The order parameter should have grown from ~0.001.
@@ -1379,7 +1379,7 @@ mod tests {
     #[test]
     fn ch_chemical_potential_zero_at_zero_fields() {
         // μ(φ=0, Q=0) = a_ch * 0 + b_ch * 0³ - κ_ch ∇²(0) - χ_ms * 0 = 0.
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         let phi = ScalarField2D::zeros(8, 8, 1.0);
         let q_lip = QField2D::zeros(8, 8, 1.0);
         let mu = ch_chemical_potential(&phi, &q_lip, &params);
@@ -1391,7 +1391,7 @@ mod tests {
     #[test]
     fn ch_chemical_potential_linear_at_small_phi_no_q() {
         // For small uniform φ, no Q: μ ≈ a_ch φ (gradient term vanishes for uniform φ).
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         let phi0 = 0.01_f64;
         let phi = ScalarField2D::uniform(8, 8, 1.0, phi0);
         let q_lip = QField2D::zeros(8, 8, 1.0);
@@ -1406,7 +1406,7 @@ mod tests {
     fn ch_maier_saupe_lowers_chemical_potential() {
         // With Q > 0 and χ_ms > 0, the Maier-Saupe term -χ_ms Tr(Q²) < 0
         // lowers μ relative to the Q=0 case (lipid is drawn into ordered regions).
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         assert!(params.chi_ms > 0.0);
         let phi = ScalarField2D::uniform(8, 8, 1.0, 0.5);
         let q_zero = QField2D::zeros(8, 8, 1.0);
@@ -1427,7 +1427,7 @@ mod tests {
     #[test]
     fn ch_step_etd_conserves_mean() {
         // The CH equation is mass-conserving: ⟨φ⟩ must not drift.
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         let phi0 = 0.4_f64;
         let phi = ScalarField2D::uniform(16, 16, 1.0, phi0);
         let q_lip = QField2D::uniform(16, 16, 1.0, [0.1, 0.05]);
@@ -1444,7 +1444,7 @@ mod tests {
         // (since everything is uniform). Only the k≠0 Fourier modes see the
         // stiff operator; for a truly uniform initial condition φ̂_k≠0 = 0,
         // so φ remains uniform after one ETD step.
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         let phi0 = 0.5_f64;
         let phi = ScalarField2D::uniform(16, 16, 1.0, phi0);
         let q_lip = QField2D::uniform(16, 16, 1.0, [0.2, 0.0]);
@@ -1458,7 +1458,7 @@ mod tests {
     #[test]
     fn ch_step_etd_output_finite() {
         // Run a few BECH steps from random initial conditions; all fields stay finite.
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         let q_init   = QField2D::random_perturbation(16, 16, 1.0, 0.05, 99);
         // Initialise φ near the equilibrium value sqrt(a_ch/b_ch) = 1.0 with small noise.
         let phi_vals: Vec<f64> = (0..16*16).map(|k| {
@@ -1466,7 +1466,7 @@ mod tests {
             0.5 + 0.05 * (frac * 7.3).sin()
         }).collect();
         let phi_init = ScalarField2D { phi: phi_vals, nx: 16, ny: 16, dx: 1.0 };
-        let (q_fin, phi_fin, stats) = run_mars_bech(&q_init, &phi_init, &params, 10, 5);
+        let (q_fin, phi_fin, stats) = run_bech(&q_init, &phi_init, &params, 10, 5);
         assert!(q_fin.max_norm().is_finite());
         for &v in &phi_fin.phi {
             assert!(v.is_finite(), "phi_fin contains non-finite value");
@@ -1477,10 +1477,10 @@ mod tests {
     // ── BECH full run ────────────────────────────────────────────────────────
 
     #[test]
-    fn run_mars_bech_phi_variance_grows() {
+    fn run_bech_phi_variance_grows() {
         // Starting from uniform φ with a non-uniform Q (from active turbulence),
         // the Maier-Saupe coupling should drive phase separation: Var[φ] increases.
-        let params = MarsParams::default_test();
+        let params = ActiveNematicParams::default_test();
         // Use a larger χ_ms to make the effect visible in a short run.
         let mut p = params.clone();
         p.chi_ms = 2.0;
@@ -1488,7 +1488,7 @@ mod tests {
 
         let q_init = QField2D::random_perturbation(16, 16, 1.0, 0.3, 17);
         let phi_init = ScalarField2D::uniform(16, 16, 1.0, 0.4);
-        let (_, _, stats) = run_mars_bech(&q_init, &phi_init, &p, 50, 10);
+        let (_, _, stats) = run_bech(&q_init, &phi_init, &p, 50, 10);
 
         let var_init = stats.first().unwrap().phi_variance;
         let var_fin  = stats.last().unwrap().phi_variance;
