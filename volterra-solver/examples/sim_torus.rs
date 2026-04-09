@@ -17,10 +17,10 @@ use volterra_dec::DecDomain;
 fn main() {
     let major_r = 3.0;
     let minor_r = 1.0;
-    let n_major = 40;
-    let n_minor = 20;
-    let n_steps = 2000;
-    let snap_every = 50;
+    let n_major = 80;
+    let n_minor = 40;
+    let n_steps = 5000;
+    let snap_every = 25;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let out_dir = format!("{home}/.volterra-bench/viz/torus");
@@ -60,7 +60,7 @@ fn main() {
     params.k_r = 0.1;
     params.gamma_r = 1.0;
     params.a_landau = -0.5;
-    params.c_landau = 1.0;
+    params.c_landau = 4.5;
 
     let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
 
