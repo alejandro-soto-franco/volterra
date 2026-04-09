@@ -47,28 +47,94 @@ def scalar_order_3d(q11, q12, q13, q22, q23):
     return np.sqrt(1.5 * tr_q2)
 
 
-def render_isosurface(grid, s_data, threshold, frame_path,
-                      camera_position=None, window_size=(1920, 1080)):
-    """Render an isosurface of S at the given threshold."""
+def load_disclination_lines(json_path):
+    """Load disclination lines from a JSON file.
+
+    Expected format:
+        [{"vertices": [[x,y,z], ...], "tangents": [[tx,ty,tz], ...],
+          "curvatures": [...], "charge": "half_plus"|"half_minus"|"anti",
+          "is_loop": bool}, ...]
+    """
+    with open(json_path) as f:
+        data = json.load(f)
+    return data
+
+
+def add_disclination_lines(plotter, lines, tube_radius=0.3):
+    """Add disclination lines to a PyVista plotter as coloured tubes.
+
+    Colouring follows the Edinburgh convention (Head et al. 2024):
+      - +1/2 wedge: yellow (#f1c40f)
+      - -1/2 wedge: purple (#8e44ad)
+      - twist/anti: green (#27ae60)
+
+    If tangent data is available, tubes are coloured by the local defect
+    profile cos(beta) = T dot Omega along the line (continuous colourmap).
+    """
+    charge_colours = {
+        "half_plus": "#f1c40f",
+        "half_minus": "#8e44ad",
+        "anti": "#27ae60",
+    }
+
+    for line in lines:
+        verts = np.array(line["vertices"])
+        if len(verts) < 2:
+            continue
+
+        # Build a PyVista polyline from the vertices.
+        n_pts = len(verts)
+        cells = np.zeros(n_pts + 1, dtype=np.int64)
+        cells[0] = n_pts
+        cells[1:] = np.arange(n_pts)
+        polyline = pv.PolyData(verts, lines=cells)
+
+        # Colour by charge type (uniform per line).
+        charge = line.get("charge", "half_plus")
+        colour = charge_colours.get(charge, "#ffffff")
+
+        # If curvature data is available, map it to the tube.
+        if "curvatures" in line and len(line["curvatures"]) == n_pts:
+            polyline.point_data["curvature"] = np.array(line["curvatures"])
+            tube = polyline.tube(radius=tube_radius, n_sides=12)
+            plotter.add_mesh(tube, scalars="curvature", cmap="plasma",
+                             smooth_shading=True, specular=0.3,
+                             show_scalar_bar=False)
+        else:
+            tube = polyline.tube(radius=tube_radius, n_sides=12)
+            plotter.add_mesh(tube, color=colour, smooth_shading=True,
+                             specular=0.3)
+
+
+def render_frame_3d(grid, s_data, threshold, frame_path,
+                    disclination_lines=None,
+                    camera_position=None, window_size=(1920, 1080)):
+    """Render a 3D frame with S isosurface and optional disclination lines."""
     grid.point_data["S"] = s_data.ravel(order="F")
 
     plotter = pv.Plotter(off_screen=True, window_size=window_size)
-    plotter.set_background("black")
+    plotter.set_background("#1a1a2e")
 
-    # Volume rendering: transparent where S is high, opaque where S is low
-    # (defect cores have low S).
+    # S isosurface (reveals defect cores as tube-like structures).
     contour = grid.contour([threshold], scalars="S")
     if contour.n_points > 0:
-        plotter.add_mesh(contour, color="#e74c3c", opacity=0.7,
+        plotter.add_mesh(contour, color="#e74c3c", opacity=0.4,
                          smooth_shading=True, specular=0.5)
 
-    # Semi-transparent volume of the full S field.
-    plotter.add_mesh(grid.outline(), color="white", line_width=1)
-
-    # Add a scalar bar.
+    # Semi-transparent volume rendering of S.
     plotter.add_mesh(grid, scalars="S", cmap="coolwarm",
                      opacity="sigmoid_5", show_scalar_bar=True,
-                     scalar_bar_args={"title": "Scalar order S"})
+                     scalar_bar_args={"title": "Scalar order $S$",
+                                      "color": "white"})
+
+    # Domain outline.
+    plotter.add_mesh(grid.outline(), color="white", line_width=1, opacity=0.3)
+
+    # Disclination lines as coloured tubes.
+    if disclination_lines:
+        dx = grid.spacing[0]
+        add_disclination_lines(plotter, disclination_lines,
+                               tube_radius=0.4 * dx)
 
     if camera_position:
         plotter.camera_position = camera_position
@@ -113,6 +179,12 @@ def render_all_3d(snapshot_dir, output_dir, nx, ny, nz, dx=1.0,
 
         out_path = out_dir / f"frame_{i:06d}.png"
 
+        # Load disclination lines if available (same stem, .json extension).
+        disc_path = snap.with_suffix(".json").parent / f"disclinations_{snap.stem.split('_')[1]}.json"
+        disc_lines = None
+        if disc_path.exists():
+            disc_lines = load_disclination_lines(disc_path)
+
         # Camera orbit: rotate around the z-axis.
         cam_pos = None
         if orbit:
@@ -124,8 +196,9 @@ def render_all_3d(snapshot_dir, output_dir, nx, ny, nz, dx=1.0,
                 (0, 0, 1),
             ]
 
-        render_isosurface(grid, s, threshold, out_path,
-                          camera_position=cam_pos, window_size=window_size)
+        render_frame_3d(grid, s, threshold, out_path,
+                        disclination_lines=disc_lines,
+                        camera_position=cam_pos, window_size=window_size)
         frame_paths.append(out_path)
 
         if (i + 1) % 5 == 0 or i == n_frames - 1:
