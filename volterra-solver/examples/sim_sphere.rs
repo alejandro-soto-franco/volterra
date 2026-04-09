@@ -21,8 +21,8 @@ use volterra_dec::DecDomain;
 
 fn main() {
     let refinement = 5; // 10242 vertices, 20480 faces
-    let n_steps = 30000;
-    let snap_every = 150;
+    let n_steps = 50000;
+    let snap_every = 250;
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let out_dir = format!("{home}/.volterra-bench/viz/sphere");
@@ -53,13 +53,21 @@ fn main() {
     let mut params = ActiveNematicParams::default_test();
     // Parameters tuned from sweep: zeta=0.5, eta=0.1, K=0.01 gives ~7% S fluctuation.
     // Low viscosity amplifies the active flow instability.
-    params.dt = 0.0001;
-    params.zeta_eff = 0.5;
+    // Pe ~ 1-5: exactly 4 tetrahedral defects oscillating.
+    // Pe = zeta * R^2 / K ~ zeta / K. With K = 0.1: Pe = 10 * zeta.
+    // zeta = 0.1 gives Pe ~ 1 (gentle oscillation).
+    // zeta = 0.5 gives Pe ~ 5 (stronger oscillation, still 4 defects).
+    // Low-activity regime for 4 tetrahedral defects.
+    // K = 0.01, zeta = 0.05 => Pe = zeta/K = 5 (oscillating defects).
+    // Defect core size: l_c = sqrt(K/|a_eff|) ~ sqrt(0.01/0.65) ~ 0.12 (~5 edges).
+    // S_eq = 2*sqrt(|a_eff|/(4c)) = 2*sqrt(0.65/18) ~ 0.38.
+    params.dt = 0.0005;
+    params.zeta_eff = 0.05;
     params.k_r = 0.01;
     params.gamma_r = 1.0;
     params.eta = 0.1;
-    params.a_landau = -0.4;
-    params.c_landau = 2.0;
+    params.a_landau = -0.5;
+    params.c_landau = 4.5;
     params.lambda = 0.7;
 
     // Extract vertex coordinates (needed by Stokes, advection, and connection Laplacian).

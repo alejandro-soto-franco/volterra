@@ -141,7 +141,7 @@ def defect_charge_density(q1, q2, tris, verts):
 
 
 def trace_streamline(start_idx, verts, normals, e1, e2, q1, q2, tris,
-                     n_steps=30, step_size=None, vertex_adjacency=None):
+                     n_steps=30, step_size=None, direction=1.0):
     """Trace a director streamline starting from a vertex, projecting
     onto the surface at each step.
 
@@ -174,7 +174,7 @@ def trace_streamline(start_idx, verts, normals, e1, e2, q1, q2, tris,
         dx = np.cos(theta) * e1[nearest] + np.sin(theta) * e2[nearest]
 
         # Step along the director (project back to surface).
-        pos = pos + step_size * dx
+        pos = pos + direction * step_size * dx
         # Project onto surface: move toward nearest vertex's normal plane.
         n = normals[nearest]
         pos = pos - np.dot(pos - verts[nearest], n) * n
@@ -220,9 +220,10 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
                          "position_x": 0.35,
                      })
 
-    # Director streamlines: trace from random seed vertices.
+    # Dense director streamlines for a LIC-like texture.
+    # Many short overlapping lines create the "fingerprint" pattern.
     nv = len(verts)
-    rng = np.random.RandomState(42)
+    rng = np.random.RandomState(42 + hash(str(frame_path)) % 10000)
     seeds = rng.choice(nv, size=min(streamline_seeds, nv), replace=False)
 
     all_points = []
@@ -230,17 +231,26 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
     offset = 0
 
     for seed in seeds:
-        if s[seed] < 0.1:
-            continue  # skip defect cores
-        pts = trace_streamline(seed, verts, normals, e1, e2, q1, q2, tris,
-                               n_steps=streamline_steps)
-        if len(pts) < 2:
+        if s[seed] < 0.05:
+            continue
+        # Trace both forward and backward along the director.
+        pts_fwd = trace_streamline(seed, verts, normals, e1, e2, q1, q2, tris,
+                                   n_steps=streamline_steps, direction=1.0)
+        pts_bwd = trace_streamline(seed, verts, normals, e1, e2, q1, q2, tris,
+                                   n_steps=streamline_steps, direction=-1.0)
+
+        # Combine backward (reversed) + forward into one continuous line.
+        if len(pts_bwd) > 1:
+            pts = np.vstack([pts_bwd[::-1], pts_fwd[1:]])
+        else:
+            pts = pts_fwd
+        if len(pts) < 3:
             continue
 
         n_pts = len(pts)
-        # Offset points slightly above the surface.
-        nearest_normals = np.array([normals[np.argmin(np.linalg.norm(verts - p, axis=1))] for p in pts])
-        pts_offset = pts + 0.003 * nearest_normals
+        # Offset slightly above surface.
+        nearest_idx = np.array([np.argmin(np.linalg.norm(verts - p, axis=1)) for p in pts])
+        pts_offset = pts + 0.002 * normals[nearest_idx]
 
         all_points.append(pts_offset)
         line = np.zeros(n_pts + 1, dtype=np.int64)
@@ -253,7 +263,7 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
         all_pts = np.vstack(all_points)
         all_ln = np.concatenate(all_lines)
         streamlines = pv.PolyData(all_pts, lines=all_ln)
-        plotter.add_mesh(streamlines, color="white", line_width=1.2, opacity=0.7)
+        plotter.add_mesh(streamlines, color="white", line_width=0.8, opacity=0.6)
 
     if camera_position:
         plotter.camera_position = camera_position
