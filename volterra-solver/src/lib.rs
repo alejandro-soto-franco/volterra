@@ -90,6 +90,9 @@ pub use runner_3d::{run_dry_active_nematic_3d, run_bech_3d, SnapStats3D, BechSta
 pub mod gauss_bonnet_3d;
 pub use gauss_bonnet_3d::gauss_bonnet_chi;
 
+pub mod runner_dec;
+pub use runner_dec::{run_dry_active_nematic_dec, SnapStatsDec};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────

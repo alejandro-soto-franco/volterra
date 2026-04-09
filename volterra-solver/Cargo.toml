@@ -11,7 +11,10 @@ categories.workspace = true
 
 [dependencies]
 volterra-core    = { path = "../volterra-core",   version = "0.2.0" }
+volterra-dec     = { path = "../volterra-dec",    version = "0.2.0" }
 volterra-fields  = { path = "../volterra-fields", version = "0.2.0" }
+cartan-core      = { workspace = true }
+cartan-dec       = { workspace = true }
 cartan-manifolds = { workspace = true }
 cartan-geo       = { workspace = true }
 nalgebra         = { workspace = true }
