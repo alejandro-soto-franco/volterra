@@ -15,6 +15,7 @@
 
 pub mod curvature_correction;
 pub mod domain;
+pub mod poisson;
 pub mod helfrich;
 pub mod molecular_field_dec;
 pub mod qfield_dec;
