@@ -15,8 +15,10 @@
 
 pub mod domain;
 pub mod helfrich;
+pub mod molecular_field_dec;
 pub mod qfield_dec;
 pub mod variational;
 
 pub use domain::DecDomain;
+pub use molecular_field_dec::molecular_field_dec;
 pub use qfield_dec::QFieldDec;

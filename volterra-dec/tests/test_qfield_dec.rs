@@ -1,4 +1,8 @@
-use volterra_dec::QFieldDec;
+use cartan_dec::mesh::FlatMesh;
+use cartan_dec::Operators;
+use cartan_manifolds::euclidean::Euclidean;
+use volterra_core::ActiveNematicParams;
+use volterra_dec::{molecular_field_dec, QFieldDec};
 
 #[test]
 fn zeros_has_zero_order() {
@@ -67,5 +71,57 @@ fn trace_q_squared_value() {
         (tr[0] - expected).abs() < 1e-14,
         "expected {expected}, got {}",
         tr[0]
+    );
+}
+
+// ── Molecular field tests ────────────────────────────────────────────────────
+
+#[test]
+fn molecular_field_zero_at_zero_q() {
+    let mesh = FlatMesh::unit_square_grid(8);
+    let manifold = Euclidean::<2>;
+    let ops = Operators::from_mesh(&mesh, &manifold);
+    let params = ActiveNematicParams::default_test();
+    let q = QFieldDec::zeros(mesh.n_vertices());
+
+    let h = molecular_field_dec(&q, &params, &ops, None);
+    let h_norm: f64 = h.q1.iter().chain(&h.q2).map(|x| x.abs()).sum();
+    assert!(h_norm < 1e-12, "H(Q=0) should vanish, got norm = {h_norm}");
+}
+
+#[test]
+fn molecular_field_uniform_q_no_laplacian() {
+    // For a uniform Q on a flat mesh, the Laplacian vanishes.
+    // H should be purely the bulk term: (-a_eff - 2c Tr(Q^2)) Q
+    let mesh = FlatMesh::unit_square_grid(16);
+    let manifold = Euclidean::<2>;
+    let ops = Operators::from_mesh(&mesh, &manifold);
+    let params = ActiveNematicParams::default_test();
+    let a_eff = params.a_eff();
+    let _c = params.c_landau;
+
+    let q0 = 0.001;
+    let q = QFieldDec::uniform(mesh.n_vertices(), q0, 0.0);
+    let h = molecular_field_dec(&q, &params, &ops, None);
+
+    // At small Q, cubic term is negligible:
+    // H_q1 approx -a_eff * q0 = (zeta_eff/2 - a_landau) * q0
+    let expected = -a_eff * q0;
+    // Check a few interior vertices (boundary may have stencil edge effects)
+    let nv = mesh.n_vertices();
+    let n_side = 17; // unit_square_grid(16) has 17 vertices per side
+    let mut max_err = 0.0_f64;
+    for i in 2..(n_side - 2) {
+        for j in 2..(n_side - 2) {
+            let idx = j * n_side + i;
+            if idx < nv {
+                let err = (h.q1[idx] - expected).abs();
+                max_err = max_err.max(err);
+            }
+        }
+    }
+    assert!(
+        max_err < 0.01 * expected.abs(),
+        "interior H_q1 should be close to {expected}, max_err = {max_err}"
     );
 }
