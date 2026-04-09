@@ -14,6 +14,7 @@
 //! | [`variational`] | BAOAB splitting integrator for membrane dynamics |
 
 pub mod boundary_conditions;
+pub mod connection_laplacian;
 pub mod mesh_gen;
 pub mod snapshot;
 pub mod curvature_correction;
