@@ -15,6 +15,8 @@
 
 pub mod domain;
 pub mod helfrich;
+pub mod qfield_dec;
 pub mod variational;
 
 pub use domain::DecDomain;
+pub use qfield_dec::QFieldDec;
