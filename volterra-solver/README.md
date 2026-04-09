@@ -24,11 +24,11 @@ Topological disclination lines (charge +1/2 and -1/2) are detected by computing 
 ## Example
 
 ```rust,no_run
-use volterra_solver::run_mars_component1;
-use volterra_core::MarsParams;
+use volterra_solver::run_dry_active_nematic;
+use volterra_core::ActiveNematicParams;
 
-let params = MarsParams { ..Default::default() };
-let snapshots = run_mars_component1(&params, 10_000)?;
+let params = ActiveNematicParams { ..Default::default() };
+let snapshots = run_dry_active_nematic(&params, 10_000)?;
 ```
 
 ## License
