@@ -54,7 +54,7 @@ impl VelocityFieldDec {
 
 /// Extract vertex coordinates from a generic mesh by formatting via Debug.
 /// All cartan manifold Point types are SVector<f64, N>.
-fn extract_coords<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
+pub fn extract_coords<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
     mesh.vertices.iter().map(|v| {
         let s = format!("{:?}", v);
         let nums: Vec<f64> = s
@@ -128,7 +128,7 @@ impl StokesSolverDec {
 }
 
 /// Compute the vorticity source from active stress curl(div(-zeta Q)).
-fn compute_vorticity_source<M: Manifold>(
+pub fn compute_vorticity_source<M: Manifold>(
     q: &QFieldDec,
     zeta: f64,
     eta: f64,

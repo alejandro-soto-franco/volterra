@@ -10,11 +10,15 @@
 //!
 //! ## Parameters
 //!
-//! - [`ActiveNematicParams`] -- all physical and numerical parameters for the active nematic + concentration field system
+//! - [`ActiveNematicParams`] -- dimensional parameters for the Cartesian solver
+//! - [`NematicParams`] -- dimensionless parameters for the manifold engine
 //!
 //! ## Error type
 //!
 //! - [`VError`] -- unified error type for all volterra crates
+
+pub mod nematic_params;
+pub use nematic_params::NematicParams;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
