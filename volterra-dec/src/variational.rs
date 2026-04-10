@@ -10,7 +10,7 @@
 //!
 //! - Leimkuhler, Matthews. "Rational Construction of Stochastic Numerical
 //!   Methods for Molecular Sampling." AMM, 2012.
-//! - Zhu, Lee, Rangamani. "Mem3DG." Biophysical Reports, 2022.
+//! - Mem3DG. Biophysical Reports, 2022.
 
 use cartan_core::Manifold;
 

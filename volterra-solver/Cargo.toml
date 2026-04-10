@@ -1,6 +1,6 @@
 [package]
 name = "volterra-solver"
-description = "Active nematic solvers: Zhu-Saintillan-Chern operator splitting, Beris-Edwards, Stokes (stream-function + Killing), and defect tracking on Cartesian grids and Riemannian manifolds"
+description = "Active nematic solvers: operator splitting, Beris-Edwards, Stokes (stream-function + Killing), and defect tracking on Cartesian grids and Riemannian manifolds"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

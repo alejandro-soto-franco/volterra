@@ -57,13 +57,13 @@ volterra depends on [cartan](https://github.com/alejandro-soto-franco/cartan) fo
 
 ## Status
 
-The Cartesian-grid solver, DEC manifold solver, and the new `ActiveNematicEngine` (implementing Zhu, Saintillan, Chern 2024, Algorithm 1) are all implemented. Active turbulence with defect dynamics has been demonstrated on flat periodic domains (128x128, full Stokes coupling) and on S^2 (icosphere, 10242 vertices). The new engine supports both intrinsic (complex line bundle) and extrinsic (Killing operator) discretisation paths, with switchable Stokes backends and implicit diffusion (no diffusive CFL).
+The Cartesian-grid solver, DEC manifold solver, and the `ActiveNematicEngine` (operator-split active nematohydrodynamics on Riemannian 2-manifolds) are all implemented. Active turbulence with defect dynamics has been demonstrated on flat periodic domains (128x128, full Stokes coupling) and on S^2 (icosphere, 10242 vertices). The engine supports both intrinsic (complex line bundle) and extrinsic (Killing operator) discretisation paths, with switchable Stokes backends and implicit diffusion (no diffusive CFL).
 
 | Crate | Status |
 |-------|--------|
 | volterra-core | `ActiveNematicParams`, `NematicParams` (dimensionless Pe/Er/La/Lc), `VError`, `Integrator` |
 | volterra-fields | `QField2D`, `QField3D`, `VelocityField2D/3D`, `ScalarField2D/3D` |
-| volterra-solver | Beris-Edwards (Cartesian + DEC), Stokes (FFT + DEC stream-function), Cahn-Hilliard (ETD), disclination detection, `NematicEngine`, `ActiveNematicEngine` (Zhu et al. operator splitting), `NematicField2D` (complex Section\<2\>), `StokesSolver` trait (stream-function + Killing backends) |
+| volterra-solver | Beris-Edwards (Cartesian + DEC), Stokes (FFT + DEC stream-function), Cahn-Hilliard (ETD), disclination detection, `NematicEngine`, `ActiveNematicEngine` (operator splitting), `NematicField2D` (complex Section\<2\>), `StokesSolver` trait (stream-function + Killing backends) |
 | volterra-dec | `DecDomain<M>`, `QFieldDec`, `ConnectionLaplacian` (spin-2), `CurvedStokesSolver` (biharmonic), `SemiLagrangian` (BVH + RK4 + deformation gradient pullback), epitrochoid/icosphere/torus mesh, `.npy` snapshot export |
 | volterra-mars | MARS experimental system presets and dimensionless groups |
 | volterra-py | PyO3 bindings for all 2D/3D types and runners |

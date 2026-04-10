@@ -1,17 +1,11 @@
 //! Semi-Lagrangian advection for nematic fields on triangle meshes.
 //!
-//! Implements Algorithm 2 from Zhu et al. (2024):
 //! 1. RK4 backward trace in R^3 with closest-point projection
 //! 2. BVH-accelerated triangle location (O(log n) per query)
 //! 3. Barycentric interpolation of Q at departure point
 //! 4. Deformation gradient F from edge vectors
 //! 5. Pullback: Q_new = F^{-1} Q F^{-T}
 //! 6. Polar decomposition for tumbling (lambda < 1)
-//!
-//! ## References
-//!
-//! - Zhu, Saintillan, Chern (2024). "Active nematic fluids on Riemannian
-//!   2-manifolds." arXiv:2405.06044. Section 3.2, Algorithm 2.
 
 use crate::stokes_dec::VelocityFieldDec;
 use crate::QFieldDec;

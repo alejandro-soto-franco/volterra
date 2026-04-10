@@ -19,9 +19,6 @@
 //! (1/Er) Delta_1 u = -dp + Pe div(V(z))
 //! ```
 //!
-//! ## References
-//!
-//! Zhu, Saintillan & Chern. arXiv:2405.06044.
 
 /// Dimensionless parameters for the active nematic engine.
 ///

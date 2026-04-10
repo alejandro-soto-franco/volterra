@@ -1,15 +1,10 @@
-//! Active nematic engine implementing Zhu et al. (2024) Algorithm 1.
+//! Active nematic engine on Riemannian 2-manifolds.
 //!
 //! Operator splitting per timestep:
 //! 1. STOKES:    u, p = stokes.solve(div_nabla(zeta * Q))
 //! 2. ADVECTION: z_adv = semi_lagrangian.advect(z, u, dt, lambda)
 //! 3. DIFFUSION: z_new = implicit_euler(z_adv, (1/Pe) * Delta_L, dt)
 //! 4. NORMALISE: z_new = z_new / |z_new|
-//!
-//! ## References
-//!
-//! - Zhu, Saintillan, Chern (2024). "Active nematic fluids on Riemannian
-//!   2-manifolds." arXiv:2405.06044.
 
 use num_complex::Complex;
 use nalgebra::SVector;
@@ -68,7 +63,7 @@ pub struct StepDiagnostics {
 
 /// Active nematic engine on a 2-manifold.
 ///
-/// Implements the full operator-split algorithm from Zhu et al. (2024).
+/// Implements the operator-split algorithm for active nematics on 2-manifolds.
 #[allow(dead_code)]
 pub struct ActiveNematicEngine {
     /// Nondimensionalised parameters.
