@@ -1,4 +1,4 @@
-use volterra_dec::nematic_field_2d::NematicField2D;
+use volterra_solver::nematic_field_2d::NematicField2D;
 use volterra_dec::QFieldDec;
 
 #[test]

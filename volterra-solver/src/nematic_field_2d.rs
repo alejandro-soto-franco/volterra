@@ -7,7 +7,7 @@
 use num_complex::Complex;
 use cartan_dec::line_bundle::Section;
 
-use crate::qfield_dec::QFieldDec;
+use volterra_dec::QFieldDec;
 
 /// Complex nematic field on a 2-manifold.
 ///
