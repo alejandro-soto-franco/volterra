@@ -45,7 +45,7 @@ pub struct VariationalConfig {
 ///
 /// Uses the exponential map for position updates, preserving the manifold
 /// constraint exactly.
-pub fn baoab_ba_step<M: Manifold>(
+pub fn baoab_ba_step<M: Manifold<Point = nalgebra::SVector<f64, 3>, Tangent = nalgebra::SVector<f64, 3>>>(
     manifold: &M,
     positions: &mut [M::Point],
     momenta: &mut [M::Tangent],
