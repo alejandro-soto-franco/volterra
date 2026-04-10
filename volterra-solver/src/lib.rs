@@ -99,6 +99,12 @@ pub use runner_dec_wet::run_wet_active_nematic_dec;
 pub mod engine;
 pub use engine::{NematicEngine, EngineStats};
 
+pub mod nematic_field_2d;
+pub use nematic_field_2d::NematicField2D;
+
+pub mod stokes_trait;
+pub use stokes_trait::{StokesSolver, StokesBackend, FlowField, KillingOperatorSolver, StreamFunctionStokes};
+
 pub mod active_nematic_engine;
 pub use active_nematic_engine::{ActiveNematicEngine, EngineParams, StepDiagnostics};
 

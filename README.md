@@ -63,8 +63,8 @@ The Cartesian-grid solver, DEC manifold solver, and the new `ActiveNematicEngine
 |-------|--------|
 | volterra-core | `ActiveNematicParams`, `NematicParams` (dimensionless Pe/Er/La/Lc), `VError`, `Integrator` |
 | volterra-fields | `QField2D`, `QField3D`, `VelocityField2D/3D`, `ScalarField2D/3D` |
-| volterra-solver | Beris-Edwards (Cartesian + DEC), Stokes (FFT + DEC stream-function), Cahn-Hilliard (ETD), disclination detection, `NematicEngine`, `ActiveNematicEngine` (Zhu et al. operator splitting) |
-| volterra-dec | `DecDomain<M>`, `QFieldDec`, `NematicField2D` (complex Section\<2\>), `ConnectionLaplacian` (spin-2), `CurvedStokesSolver` (biharmonic), `StokesSolver` trait (stream-function + Killing backends), `SemiLagrangian` (BVH + RK4 + deformation gradient pullback), epitrochoid/icosphere/torus mesh, `.npy` snapshot export |
+| volterra-solver | Beris-Edwards (Cartesian + DEC), Stokes (FFT + DEC stream-function), Cahn-Hilliard (ETD), disclination detection, `NematicEngine`, `ActiveNematicEngine` (Zhu et al. operator splitting), `NematicField2D` (complex Section\<2\>), `StokesSolver` trait (stream-function + Killing backends) |
+| volterra-dec | `DecDomain<M>`, `QFieldDec`, `ConnectionLaplacian` (spin-2), `CurvedStokesSolver` (biharmonic), `SemiLagrangian` (BVH + RK4 + deformation gradient pullback), epitrochoid/icosphere/torus mesh, `.npy` snapshot export |
 | volterra-mars | MARS experimental system presets and dimensionless groups |
 | volterra-py | PyO3 bindings for all 2D/3D types and runners |
 

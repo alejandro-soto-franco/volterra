@@ -16,15 +16,15 @@ use nalgebra::SVector;
 use sprs::{CsMat, TriMat};
 
 use cartan_core::Manifold;
-use cartan_dec::line_bundle::{Section, ConnectionAngles, BochnerLaplacian, defect_charges};
+use cartan_dec::line_bundle::{ConnectionAngles, BochnerLaplacian};
 use cartan_dec::mesh::Mesh;
 use cartan_dec::hodge::HodgeStar;
 
-use volterra_dec::nematic_field_2d::NematicField2D;
-use volterra_dec::stokes_trait::{StokesSolver, FlowField};
+use crate::nematic_field_2d::NematicField2D;
+use crate::stokes_trait::StokesSolver;
 use volterra_dec::semi_lagrangian::SemiLagrangian;
 use volterra_dec::stokes_dec::VelocityFieldDec;
-use volterra_dec::QFieldDec;
+
 
 /// Nondimensionalised parameters for the active nematic engine.
 #[derive(Debug, Clone)]
@@ -69,10 +69,11 @@ pub struct StepDiagnostics {
 /// Active nematic engine on a 2-manifold.
 ///
 /// Implements the full operator-split algorithm from Zhu et al. (2024).
+#[allow(dead_code)]
 pub struct ActiveNematicEngine {
     /// Nondimensionalised parameters.
     params: EngineParams,
-    /// Bochner Laplacian on L_2 (nematic bundle).
+    /// Bochner Laplacian on L_2 (nematic bundle). Used for defect detection.
     bochner: BochnerLaplacian<2>,
     /// Semi-Lagrangian advector.
     semi_lag: SemiLagrangian,
