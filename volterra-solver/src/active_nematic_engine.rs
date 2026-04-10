@@ -281,7 +281,7 @@ impl ActiveNematicEngine {
             n_vertices: self.n_vertices,
         };
 
-        let q_adv = self.semi_lag.advect(&qfield, &vel, dt);
+        let q_adv = self.semi_lag.advect_with_params(&qfield, &vel, dt, self.params.lambda);
         (q_adv.q1, q_adv.q2)
     }
 
