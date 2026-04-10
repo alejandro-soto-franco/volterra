@@ -2,7 +2,7 @@
 
 //! # volterra-fields
 //!
-//! Tensor field types for a 2D active nematic on a regular Cartesian grid.
+//! Tensor field types for 2D and 3D active nematics on regular Cartesian grids.
 //!
 //! ## Coordinate conventions
 //!

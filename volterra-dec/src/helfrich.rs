@@ -13,6 +13,7 @@
 //! - Zhu, Lee, Rangamani. "Mem3DG." Biophysical Reports, 2022.
 
 use cartan_core::Manifold;
+use nalgebra::SVector;
 
 use crate::domain::DecDomain;
 
@@ -51,23 +52,34 @@ pub fn helfrich_energy<M: Manifold>(domain: &DecDomain<M>, params: &HelfrichPara
 
 /// Compute the Helfrich force per vertex (negative gradient of the energy).
 ///
-/// For a discrete membrane, the force on vertex v is:
+/// The normal component of the shape derivative gives:
 ///
-///   F_v = -dE/dx_v
+///   F_v = -kb * A_v * (Delta_s(H) + 2(H - H0)(H^2 - K)) * n_v
 ///
-/// The discrete gradient involves the shape operator and Laplace-Beltrami.
-/// The current implementation returns zero forces as a placeholder; the full
-/// analytical gradient (which requires differentiating the discrete mean
-/// curvature with respect to vertex positions) will be added as a follow-up.
+/// where Delta_s(H) is the Laplacian of mean curvature (precomputed in
+/// `domain.laplacian_mean_curvatures`), and n_v is the vertex normal.
 ///
-/// Returns one tangent vector per vertex.
-pub fn helfrich_forces<M: Manifold>(
+/// Requires `domain.vertex_normals` and `domain.laplacian_mean_curvatures`
+/// to be filled before calling. Returns one tangent vector per vertex.
+pub fn helfrich_forces<M: Manifold<Point = SVector<f64, 3>, Tangent = SVector<f64, 3>>>(
     domain: &DecDomain<M>,
     params: &HelfrichParams,
 ) -> Vec<M::Tangent> {
-    let _ = params; // will be used by the analytical gradient
     let nv = domain.n_vertices();
+    let h = &domain.mean_curvatures;
+    let k = &domain.gaussian_curvatures;
+    let normals = &domain.vertex_normals;
+    let lap_h = &domain.laplacian_mean_curvatures;
+
     (0..nv)
-        .map(|v| domain.manifold.zero_tangent(&domain.mesh.vertices[v]))
+        .map(|v| {
+            let h0_v = params.h0[v];
+            let dh = h[v] - h0_v;
+            // Shape equation: f_n = -kb * A_v * (lap_H + 2 * (H - H0) * (H^2 - K))
+            let f_scalar = -params.kb * domain.dual_areas[v]
+                * (lap_h[v] + 2.0 * dh * (h[v] * h[v] - k[v]));
+            let n = normals[v];
+            SVector::<f64, 3>::new(f_scalar * n[0], f_scalar * n[1], f_scalar * n[2])
+        })
         .collect()
 }
