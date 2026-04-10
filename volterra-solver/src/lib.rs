@@ -10,7 +10,7 @@
 //!
 //! | Symbol | Function |
 //! |--------|----------|
-//! | [`ActiveNematicEngine`] | Zhu et al. (2024) operator-split engine on 2-manifolds |
+//! | [`ActiveNematicEngine`] | Operator-split active nematic engine on 2-manifolds |
 //! | [`NematicField2D`] | Complex nematic field (Section\<2\> wrapper) |
 //! | [`StokesSolver`] | Trait with stream-function and Killing backends |
 //! | [`molecular_field`] | Landau-de Gennes H = -δF/δQ |
