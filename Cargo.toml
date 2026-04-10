@@ -23,11 +23,11 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.2"
-cartan-manifolds = "0.2"
-cartan-geo       = "0.2"
-cartan-dec       = "0.2"
-cartan-remesh    = "0.2"
+cartan-core      = "0.3"
+cartan-manifolds = "0.3"
+cartan-geo       = "0.3"
+cartan-dec       = "0.3"
+cartan-remesh    = "0.3"
 
 nalgebra         = { version = "0.33", features = ["std"] }
 rayon            = "1"
@@ -41,9 +41,9 @@ pyo3             = { version = "0.25", features = ["extension-module", "abi3-py3
 numpy            = "0.25"
 
 # Uncomment to use in-tree cartan changes without pushing first.
-[patch.crates-io]
-cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
-cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
+# [patch.crates-io]
+# cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
+# cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
 # cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
-cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }
-cartan-remesh    = { path = "/home/alejandrosotofranco/cartan/cartan-remesh" }
+# cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }
+# cartan-remesh    = { path = "/home/alejandrosotofranco/cartan/cartan-remesh" }
