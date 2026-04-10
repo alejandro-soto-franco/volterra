@@ -131,7 +131,7 @@ impl StreamFunctionStokes {
     /// Build from mesh and precomputed operators.
     ///
     /// `er` is the Ericksen number (ratio of viscous to elastic stress).
-    /// For the nondimensionalised system in Zhu et al. (2024), Er = 1.
+    /// For the standard nondimensionalisation, Er = 1.
     pub fn new<M: Manifold>(
         ops: &Operators<M, 3, 2>,
         mesh: &Mesh<M, 3, 2>,
