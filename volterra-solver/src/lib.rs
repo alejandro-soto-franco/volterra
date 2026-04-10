@@ -3,12 +3,16 @@
 
 //! # volterra-solver
 //!
-//! Beris-Edwards nematohydrodynamics for 2D active nematics on a regular grid.
+//! Nematohydrodynamics solvers for active nematics on Cartesian grids and
+//! Riemannian 2-manifolds.
 //!
 //! ## Modules
 //!
 //! | Symbol | Function |
 //! |--------|----------|
+//! | [`ActiveNematicEngine`] | Zhu et al. (2024) operator-split engine on 2-manifolds |
+//! | [`NematicField2D`] | Complex nematic field (Section\<2\> wrapper) |
+//! | [`StokesSolver`] | Trait with stream-function and Killing backends |
 //! | [`molecular_field`] | Landau-de Gennes H = -δF/δQ |
 //! | [`beris_edwards_rhs`] | Full ∂_t Q RHS (dry active model) |
 //! | [`EulerIntegrator`] | First-order Euler time step |

@@ -1,6 +1,6 @@
 [package]
 name = "volterra-dec"
-description = "Discrete exterior calculus layer: simplicial complexes, Hodge operators, and covariant differential operators on Riemannian manifolds"
+description = "DEC physics layer: Q-tensor fields, Stokes solvers, BVH semi-Lagrangian advection, Helfrich energy, and variational integrators on triangle meshes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
