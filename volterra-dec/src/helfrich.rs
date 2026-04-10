@@ -10,7 +10,7 @@
 //! ## References
 //!
 //! - Helfrich, W. "Elastic properties of lipid bilayers." Z. Naturforsch C, 1973.
-//! - Zhu, Lee, Rangamani. "Mem3DG." Biophysical Reports, 2022.
+//! - Mem3DG. Biophysical Reports, 2022.
 
 use cartan_core::Manifold;
 use nalgebra::SVector;

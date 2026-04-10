@@ -15,8 +15,6 @@
 //!
 //! - Knoppel et al. "Globally Optimal Direction Fields." ACM TOG 2013.
 //! - Crane et al. "Trivial Connections on Discrete Surfaces." SGP 2010.
-//! - Zhu, Saintillan & Chern. "Active nematic fluids on Riemannian
-//!   2-manifolds." arXiv:2405.06044, 2024.
 
 use cartan_core::Manifold;
 use cartan_dec::Mesh;
