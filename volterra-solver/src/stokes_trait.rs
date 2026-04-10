@@ -57,6 +57,19 @@ impl KillingOperatorSolver {
         let inner = StokesSolverAL::new(mesh, penalty, tolerance, 100, 1000);
         Self { inner, n_vertices: nv }
     }
+
+    /// Create with custom iteration limits.
+    pub fn new_with_iters<M: Manifold<Point = SVector<f64, 3>>>(
+        mesh: &Mesh<M, 3, 2>,
+        penalty: f64,
+        tolerance: f64,
+        max_al: usize,
+        max_cg: usize,
+    ) -> Self {
+        let nv = mesh.n_vertices();
+        let inner = StokesSolverAL::new(mesh, penalty, tolerance, max_al, max_cg);
+        Self { inner, n_vertices: nv }
+    }
 }
 
 impl StokesSolver for KillingOperatorSolver {
