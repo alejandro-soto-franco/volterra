@@ -1,7 +1,9 @@
 //! Integration tests for the volterra-dec crate.
 
 use cartan_dec::FlatMesh;
+use cartan_dec::mesh_gen::icosphere;
 use cartan_manifolds::euclidean::Euclidean;
+use cartan_manifolds::sphere::Sphere;
 use nalgebra::SVector;
 
 use volterra_dec::helfrich::{helfrich_energy, HelfrichParams};
@@ -76,8 +78,9 @@ fn helfrich_energy_with_spontaneous_curvature() {
 
 #[test]
 fn baoab_step_preserves_vertex_count() {
-    let manifold = Euclidean::<2>;
-    let mesh = FlatMesh::unit_square_grid(3);
+    // BAOAB + Helfrich forces require a surface in R^3.
+    let manifold = Sphere::<3>;
+    let mesh = icosphere(&manifold, 1, false);
     let domain = DecDomain::new(mesh, manifold).unwrap();
     let nv = domain.n_vertices();
 
@@ -88,7 +91,7 @@ fn baoab_step_preserves_vertex_count() {
     };
 
     let mut positions = domain.mesh.vertices.clone();
-    let mut momenta: Vec<SVector<f64, 2>> = vec![SVector::zeros(); nv];
+    let mut momenta: Vec<SVector<f64, 3>> = vec![SVector::zeros(); nv];
     let masses = domain.dual_areas.clone();
 
     baoab_ba_step(

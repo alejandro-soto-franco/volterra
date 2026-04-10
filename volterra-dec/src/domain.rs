@@ -27,6 +27,11 @@ pub struct DecDomain<M: Manifold> {
     pub mean_curvatures: Vec<f64>,
     /// Gaussian curvature at each vertex (initially zero, filled by caller).
     pub gaussian_curvatures: Vec<f64>,
+    /// Vertex normals (area-weighted average of incident face normals).
+    /// Initially zero; filled by `compute_vertex_normals` or the caller.
+    pub vertex_normals: Vec<[f64; 3]>,
+    /// Laplacian of mean curvature at each vertex (initially zero, filled by caller).
+    pub laplacian_mean_curvatures: Vec<f64>,
 }
 
 impl<M: Manifold> DecDomain<M> {
@@ -58,6 +63,8 @@ impl<M: Manifold> DecDomain<M> {
             edge_lengths,
             mean_curvatures: vec![0.0; nv],
             gaussian_curvatures: vec![0.0; nv],
+            vertex_normals: vec![[0.0; 3]; nv],
+            laplacian_mean_curvatures: vec![0.0; nv],
         })
     }
 

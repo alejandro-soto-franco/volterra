@@ -32,6 +32,7 @@ use crate::QFieldDec;
 /// - Modified Poisson: -(Delta + K) phi = rhs
 ///
 /// And cached geometry data for velocity extraction.
+#[allow(dead_code)]
 pub struct CurvedStokesSolver {
     /// Standard Poisson solver (-Delta).
     poisson_standard: PoissonSolver,
@@ -41,11 +42,18 @@ pub struct CurvedStokesSolver {
     n_vertices: usize,
     /// Vertex coordinates in R^3.
     coords: Vec<[f64; 3]>,
-    /// Dual cell areas (star_0), used by velocity extraction.
-    #[allow(dead_code)]
+    /// Dual cell areas (star_0).
     dual_areas: Vec<f64>,
     /// Per-vertex Gaussian curvature.
     gaussian_curvature: Vec<f64>,
+    /// Mesh edge endpoints.
+    boundaries: Vec<[usize; 2]>,
+    /// Per-vertex list of incident edge indices.
+    vertex_boundaries: Vec<Vec<usize>>,
+    /// Mesh simplices (triangles), for face normal computation.
+    simplices: Vec<[usize; 3]>,
+    /// Per-edge list of incident face indices.
+    boundary_simplices: Vec<Vec<usize>>,
 }
 
 /// Solver for -(Delta + K) phi = rhs, where K is per-vertex Gaussian curvature.
@@ -162,6 +170,10 @@ impl CurvedStokesSolver {
             coords,
             dual_areas,
             gaussian_curvature: gaussian_k.to_vec(),
+            boundaries: mesh.boundaries.clone(),
+            vertex_boundaries: mesh.vertex_boundaries.clone(),
+            simplices: mesh.simplices.clone(),
+            boundary_simplices: mesh.boundary_simplices.clone(),
         })
     }
 
@@ -170,6 +182,8 @@ impl CurvedStokesSolver {
     /// `source` is the vorticity source: Pe * curl(div(V(z))).
     /// Returns the velocity field u = curl(psi).
     pub fn solve(&self, source: &DVector<f64>, er: f64) -> (DVector<f64>, VelocityFieldDec) {
+        use crate::stokes_dec::{sub3, cross3, norm3, scale3, add3};
+
         // Step 1: (Delta + K) phi = Er * source
         //    => -(Delta + K) phi = -Er * source
         let scaled_source = source * (-er);
@@ -180,12 +194,61 @@ impl CurvedStokesSolver {
         let neg_phi = -&phi;
         let psi = self.poisson_standard.solve(&neg_phi);
 
-        // Velocity extraction (reuse the standard curl formula).
-        let vel = VelocityFieldDec::zeros(self.n_vertices);
-        // TODO: wire up the proper velocity extraction from stokes_dec.
-        // For now, return psi + placeholder velocity.
+        // Step 3: Extract velocity u = *d(psi) via DEC curl.
+        // For each edge, the velocity flux is dpsi * (n x e_hat) / |e|,
+        // distributed to both endpoints and averaged by vertex valence.
+        let nv = self.n_vertices;
+        let ne = self.boundaries.len();
+        let mut vel = vec![[0.0_f64; 3]; nv];
 
-        (psi, vel)
+        for e in 0..ne {
+            let [v0, v1] = self.boundaries[e];
+            let dpsi = psi[v1] - psi[v0];
+
+            let edge = sub3(self.coords[v1], self.coords[v0]);
+            let edge_len = norm3(edge);
+            if edge_len < 1e-30 {
+                continue;
+            }
+            let edge_hat = scale3(edge, 1.0 / edge_len);
+
+            // Average face normal for this edge.
+            let fn_hat = self.average_edge_normal(e);
+
+            // Dual edge direction: face_normal x edge_hat.
+            let dual_dir = cross3(fn_hat, edge_hat);
+
+            let vel_magnitude = dpsi / edge_len;
+            let u_contrib = scale3(dual_dir, vel_magnitude);
+
+            vel[v0] = add3(vel[v0], scale3(u_contrib, 0.5));
+            vel[v1] = add3(vel[v1], scale3(u_contrib, 0.5));
+        }
+
+        // Normalise by vertex valence.
+        for (v, edges) in vel.iter_mut().zip(&self.vertex_boundaries) {
+            let valence = edges.len() as f64;
+            if valence > 0.0 {
+                *v = scale3(*v, 1.0 / valence);
+            }
+        }
+
+        (psi, VelocityFieldDec { v: vel, n_vertices: nv })
+    }
+
+    /// Average face normal for an edge, computed from incident triangles.
+    fn average_edge_normal(&self, edge_idx: usize) -> [f64; 3] {
+        use crate::stokes_dec::{sub3, cross3, norm3, scale3, add3};
+        let mut n = [0.0_f64; 3];
+        for &fi in &self.boundary_simplices[edge_idx] {
+            let [i0, i1, i2] = self.simplices[fi];
+            let e01 = sub3(self.coords[i1], self.coords[i0]);
+            let e02 = sub3(self.coords[i2], self.coords[i0]);
+            let cr = cross3(e01, e02);
+            n = add3(n, cr);
+        }
+        let len = norm3(n);
+        if len > 1e-14 { scale3(n, 1.0 / len) } else { [0.0, 0.0, 1.0] }
     }
 
     /// Access the precomputed vertex coordinates.
