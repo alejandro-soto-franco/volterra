@@ -99,6 +99,9 @@ pub use runner_dec_wet::run_wet_active_nematic_dec;
 pub mod engine;
 pub use engine::{NematicEngine, EngineStats};
 
+pub mod active_nematic_engine;
+pub use active_nematic_engine::{ActiveNematicEngine, EngineParams, StepDiagnostics};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
