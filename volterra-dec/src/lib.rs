@@ -26,9 +26,13 @@ pub mod poisson;
 pub mod stokes_dec;
 pub mod helfrich;
 pub mod molecular_field_dec;
+pub mod nematic_field_2d;
 pub mod qfield_dec;
+pub mod stokes_trait;
 pub mod variational;
 
 pub use domain::DecDomain;
 pub use molecular_field_dec::molecular_field_dec;
+pub use nematic_field_2d::NematicField2D;
 pub use qfield_dec::QFieldDec;
+pub use stokes_trait::{StokesSolver, StokesBackend, FlowField};
