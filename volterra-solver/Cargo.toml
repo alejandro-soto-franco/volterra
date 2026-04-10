@@ -24,6 +24,8 @@ rustfft          = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
 serde_json       = { workspace = true }
+num-complex      = "0.4"
+sprs             = "0.11"
 
 [dev-dependencies]
 approx           = { workspace = true }
