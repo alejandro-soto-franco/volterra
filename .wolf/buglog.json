@@ -1,0 +1,8 @@
+[
+  {
+    "error_message": "S^2 active nematic field stays frozen / <S> grows to 1.52 instead of equilibrium",
+    "root_cause": "Two bugs: (1) compute_vorticity_source in stokes_dec.rs used global (x,y) components for active force instead of covariant 3D tensor divergence with vertex tangent frames, producing near-zero force on curved surfaces. (2) molecular_field_conn and molecular_field_dec had wrong sign on elastic term: +K*lap instead of -K*lap. DEC Laplacian is positive-semidefinite (positive at maxima), so the elastic smoothing term must enter with a minus sign.",
+    "fix": "stokes_dec.rs: rewrote compute_vorticity_source to expand Q into 3D ambient tensor using vertex tangent frames (e1, e2), compute covariant div(Q) via FEM, use full 3D circulation. Added vertex normals/frames to StokesSolverDec. connection_laplacian.rs + molecular_field_dec.rs: flipped sign of elastic term from +K*lap to -K*lap. Added advect_q_covariant with parallel transport. Updated sim_sphere.rs to use covariant advection.",
+    "tags": ["physics", "sign-error", "DEC", "stokes", "molecular-field", "curvature"]
+  }
+]

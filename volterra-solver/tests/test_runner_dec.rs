@@ -10,12 +10,16 @@ use volterra_solver::run_dry_active_nematic_dec;
 #[test]
 fn dec_dry_nematic_order_grows() {
     // On a flat torus in the active turbulent phase (a_eff < 0),
-    // a small random Q perturbation should grow.
+    // a small random Q perturbation should eventually grow.
+    //
+    // The elastic term -K*lap(Q) damps high-frequency spatial noise quickly,
+    // while the bulk term (-a_eff)*Q grows the uniform mode at rate |a_eff|.
+    // We use a larger grid and enough steps for the uniform mode to dominate.
     //
     // CFL constraint: gamma_r * k_r * dt / dx^2 < 1.
-    // unit_square_grid(4) has dx = 0.25, so max stable dt ~ dx^2 / (gamma_r * k_r) = 0.0625.
+    // unit_square_grid(8) has dx = 0.125, so max stable dt ~ dx^2 / (gamma_r * k_r) = 0.0156.
     // We use dt = 0.005 for a comfortable margin.
-    let mesh = FlatMesh::unit_square_grid(4);
+    let mesh = FlatMesh::unit_square_grid(8);
     let manifold = Euclidean::<2>;
     let ops = Operators::from_mesh(&mesh, &manifold);
 
@@ -23,7 +27,7 @@ fn dec_dry_nematic_order_grows() {
     params.dt = 0.005;
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.001, 42);
+    let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
     let s_before = q0.mean_order_param();
 
     assert!(
@@ -32,14 +36,15 @@ fn dec_dry_nematic_order_grows() {
         params.a_eff()
     );
 
-    let (q_fin, stats) = run_dry_active_nematic_dec(&q0, &params, &ops, None, 200, 100);
+    // Run 2000 steps (t=10.0) so the uniform mode grows by e^(|a_eff|*t) = e^15 >> 1.
+    let (q_fin, stats) = run_dry_active_nematic_dec(&q0, &params, &ops, None, 2000, 1000);
 
     let s_after = q_fin.mean_order_param();
     assert!(
         s_after > s_before,
         "order should grow in active phase: s_before={s_before}, s_after={s_after}"
     );
-    assert_eq!(stats.len(), 3, "expected snapshots at steps 0, 100, 200");
+    assert_eq!(stats.len(), 3, "expected snapshots at steps 0, 1000, 2000");
     assert!(stats[0].time < 1e-10, "first snapshot should be at t=0");
 }
 
