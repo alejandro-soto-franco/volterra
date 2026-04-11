@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Render DEC surface snapshots with director streamlines and defect colouring.
+Render DEC surface snapshots with two panels:
 
-Director field rendered as connected streamlines (not disconnected rods).
-Surface coloured by defect charge density:
-  - Red: +1/2 defect regions (high winding, low S)
-  - Blue: -1/2 defect regions (high winding, low S, opposite sense)
-  - White/neutral: ordered nematic regions
+1. **Director field**: surface coloured by S/S_0 (dark green = 0, white = 1),
+   director streamlines overlaid in dark grey.
+
+2. **Vorticity field**: surface coloured by omega (blue = negative, green = 0,
+   red = positive) using a diverging rainbow scheme.
 
 Usage:
     python render_surface_pv.py ~/.volterra-bench/viz/sphere --video out.mp4 --orbit
@@ -20,9 +20,33 @@ from pathlib import Path
 
 import numpy as np
 import pyvista as pv
+from matplotlib.colors import LinearSegmentedColormap
 
 pv.OFF_SCREEN = True
 
+
+# ─── Custom colourmaps ───────────────────────────────────────────────────────
+
+def _make_s_cmap():
+    """Dark green (S=0) to white (S=1)."""
+    return LinearSegmentedColormap.from_list(
+        "nematic_order",
+        [(0.0, "#0b3d0b"), (0.4, "#1a6e1a"), (0.7, "#6fbf6f"), (1.0, "#ffffff")],
+    )
+
+def _make_omega_cmap():
+    """Blue (negative) -> green (zero) -> red (positive)."""
+    return LinearSegmentedColormap.from_list(
+        "vorticity_rainbow",
+        [(0.0, "#0000cc"), (0.25, "#0088ff"), (0.5, "#00cc00"),
+         (0.75, "#ff8800"), (1.0, "#cc0000")],
+    )
+
+S_CMAP = _make_s_cmap()
+OMEGA_CMAP = _make_omega_cmap()
+
+
+# ─── I/O ─────────────────────────────────────────────────────────────────────
 
 def load_mesh(mesh_path):
     with open(mesh_path) as f:
@@ -46,6 +70,18 @@ def load_q(path, nv):
             return flat[0::2], flat[1::2]
         raise ValueError(f"unexpected shape {data.shape} for nv={nv}")
 
+
+def load_velocity(path, nv):
+    """Load a velocity snapshot (n_vertices, 3) -> array of [vx, vy, vz]."""
+    data = np.load(path)
+    if data.shape == (nv, 3):
+        return data
+    elif data.ndim == 1 and data.shape[0] == 3 * nv:
+        return data.reshape(nv, 3)
+    raise ValueError(f"unexpected velocity shape {data.shape} for nv={nv}")
+
+
+# ─── Geometry ────────────────────────────────────────────────────────────────
 
 def compute_vertex_normals(verts, tris):
     normals = np.zeros_like(verts)
@@ -78,110 +114,76 @@ def compute_tangent_frame(verts, normals):
     return e1, e2
 
 
-def defect_charge_density(q1, q2, tris, verts):
-    """Compute per-vertex defect charge density from the winding of the director
-    angle around each vertex's 1-ring.
+def compute_vorticity(vel, verts, tris, normals):
+    """Compute per-vertex vorticity (scalar on surface) from velocity field.
 
-    Returns an array of values in [-1, 1] where:
-      +0.5 at a +1/2 defect core
-      -0.5 at a -1/2 defect core
-      ~0 in ordered regions
+    omega = (curl v) . n, computed via discrete Stokes theorem on the 1-ring.
     """
     nv = len(verts)
-    theta = 0.5 * np.arctan2(q2, q1)
-
-    # Build vertex adjacency (ordered 1-ring neighbours).
-    # Use a simpler approach: accumulate angle jumps from incident triangles.
-    winding = np.zeros(nv)
-    count = np.zeros(nv)
+    omega = np.zeros(nv)
+    area = np.zeros(nv)
 
     for tri in tris:
         i0, i1, i2 = tri
-        # Angle differences around the triangle (mod pi for nematic).
-        for (a, b, c) in [(i0, i1, i2), (i1, i2, i0), (i2, i0, i1)]:
-            dtheta = theta[b] - theta[a]
-            # Wrap to [-pi/2, pi/2] (nematic: director is headless).
-            while dtheta > np.pi / 2:
-                dtheta -= np.pi
-            while dtheta < -np.pi / 2:
-                dtheta += np.pi
-            winding[a] += dtheta
-            count[a] += 1
+        p0, p1, p2 = verts[i0], verts[i1], verts[i2]
+        e01 = p1 - p0
+        e12 = p2 - p1
+        e20 = p0 - p2
 
-    # Normalise: total winding around a vertex = sum of angle jumps.
-    # For a +1/2 defect: winding ~ pi. For -1/2: winding ~ -pi.
-    # Charge = winding / (2*pi) for a full loop, but we have partial
-    # coverage, so normalise by the expected full-loop contribution.
-    charge = np.zeros(nv)
-    for i in range(nv):
-        if count[i] > 0:
-            # The winding is accumulated from all incident triangles.
-            # Divide by 2*pi to get the topological charge.
-            charge[i] = winding[i] / np.pi
+        fn = np.cross(e01, p2 - p0)
+        face_area = 0.5 * np.linalg.norm(fn)
+        if face_area < 1e-30:
+            continue
 
-    # Smooth the charge field: average over 1-ring neighbours (Laplacian smoothing).
-    # Repeat a few times to remove mesh-scale noise.
-    adj = [[] for _ in range(nv)]
-    for tri in tris:
-        for a, b in [(0,1), (1,2), (2,0)]:
-            adj[tri[a]].append(tri[b])
-            adj[tri[b]].append(tri[a])
+        # Circulation of velocity around the triangle.
+        v0, v1, v2 = vel[i0], vel[i1], vel[i2]
+        circ = (np.dot(0.5 * (v0 + v1), e01)
+              + np.dot(0.5 * (v1 + v2), e12)
+              + np.dot(0.5 * (v2 + v0), e20))
 
-    for _ in range(3):  # 3 smoothing passes
-        smoothed = np.zeros(nv)
-        for i in range(nv):
-            if len(adj[i]) > 0:
-                neighbour_avg = np.mean([charge[j] for j in adj[i]])
-                smoothed[i] = 0.5 * charge[i] + 0.5 * neighbour_avg
-            else:
-                smoothed[i] = charge[i]
-        charge = smoothed
+        # Distribute to vertices (1/3 each).
+        third_area = face_area / 3.0
+        for idx in [i0, i1, i2]:
+            omega[idx] += circ / 3.0
+            area[idx] += third_area
 
-    return charge
+    # Normalise by dual area.
+    mask = area > 1e-30
+    omega[mask] /= area[mask]
+    return omega
 
+
+# ─── Streamlines ─────────────────────────────────────────────────────────────
 
 def trace_streamline(start_idx, verts, normals, e1, e2, q1, q2, tris,
                      n_steps=30, step_size=None, direction=1.0):
-    """Trace a director streamline starting from a vertex, projecting
-    onto the surface at each step.
-
-    Returns an array of 3D points along the streamline.
-    """
+    """Trace a director streamline from a vertex, projecting onto the surface."""
     if step_size is None:
-        # Auto: half the mean edge length.
         edge_lens = []
-        for tri in tris[:100]:  # sample
-            for a, b in [(0,1), (1,2), (2,0)]:
+        for tri in tris[:100]:
+            for a, b in [(0, 1), (1, 2), (2, 0)]:
                 edge_lens.append(np.linalg.norm(verts[tri[a]] - verts[tri[b]]))
         step_size = 0.5 * np.mean(edge_lens)
 
-    nv = len(verts)
     pos = verts[start_idx].copy()
     points = [pos.copy()]
 
     for _ in range(n_steps):
-        # Find nearest vertex to current position.
         dists = np.linalg.norm(verts - pos, axis=1)
         nearest = np.argmin(dists)
 
-        # Director at nearest vertex.
         theta = 0.5 * np.arctan2(q2[nearest], q1[nearest])
         s = 2.0 * np.sqrt(q1[nearest]**2 + q2[nearest]**2)
         if s < 0.01:
-            break  # inside defect core, stop
+            break
 
-        # Director in 3D.
         dx = np.cos(theta) * e1[nearest] + np.sin(theta) * e2[nearest]
-
-        # Step along the director (project back to surface).
         pos = pos + direction * step_size * dx
-        # Project onto surface: move toward nearest vertex's normal plane.
         n = normals[nearest]
         pos = pos - np.dot(pos - verts[nearest], n) * n
 
-        # For sphere: re-normalise to unit sphere.
         r = np.linalg.norm(pos)
-        if r > 0.5:  # only for sphere-like meshes
+        if r > 0.5:
             pos = pos / r
 
         points.append(pos.copy())
@@ -189,42 +191,12 @@ def trace_streamline(start_idx, verts, normals, e1, e2, q1, q2, tris,
     return np.array(points)
 
 
-def render_frame(verts, faces, tris, q1, q2, frame_path,
-                 normals, e1, e2,
-                 streamline_seeds=500, streamline_steps=25,
-                 camera_position=None, window_size=(1920, 1080)):
-    """Render a frame with defect-coloured surface and director streamlines."""
-    s = 2.0 * np.sqrt(q1**2 + q2**2)
-    charge = defect_charge_density(q1, q2, tris, verts)
-
-    # Colour field: red (+1/2), blue (-1/2), white (ordered).
-    # Map charge to a diverging colourmap.
-    surf = pv.PolyData(verts, faces)
-    surf.point_data["charge"] = charge
-    surf.point_data["S"] = s
-
-    plotter = pv.Plotter(off_screen=True, window_size=window_size)
-    plotter.set_background("#0d1117")
-
-    # Surface coloured by defect charge density.
-    plotter.add_mesh(surf, scalars="charge", cmap="RdBu_r",
-                     clim=[-0.6, 0.6],
-                     smooth_shading=True, specular=0.3, opacity=0.9,
-                     show_scalar_bar=True,
-                     scalar_bar_args={
-                         "title": "Defect charge",
-                         "color": "white",
-                         "title_font_size": 14,
-                         "label_font_size": 11,
-                         "width": 0.3,
-                         "position_x": 0.35,
-                     })
-
-    # Dense director streamlines for a LIC-like texture.
-    # Many short overlapping lines create the "fingerprint" pattern.
+def build_streamlines_polydata(verts, normals, e1, e2, q1, q2, tris,
+                               s, n_seeds=500, n_steps=25):
+    """Build a single PolyData with all director streamlines."""
     nv = len(verts)
-    rng = np.random.RandomState(42 + hash(str(frame_path)) % 10000)
-    seeds = rng.choice(nv, size=min(streamline_seeds, nv), replace=False)
+    rng = np.random.RandomState(42)
+    seeds = rng.choice(nv, size=min(n_seeds, nv), replace=False)
 
     all_points = []
     all_lines = []
@@ -233,13 +205,11 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
     for seed in seeds:
         if s[seed] < 0.05:
             continue
-        # Trace both forward and backward along the director.
         pts_fwd = trace_streamline(seed, verts, normals, e1, e2, q1, q2, tris,
-                                   n_steps=streamline_steps, direction=1.0)
+                                   n_steps=n_steps, direction=1.0)
         pts_bwd = trace_streamline(seed, verts, normals, e1, e2, q1, q2, tris,
-                                   n_steps=streamline_steps, direction=-1.0)
+                                   n_steps=n_steps, direction=-1.0)
 
-        # Combine backward (reversed) + forward into one continuous line.
         if len(pts_bwd) > 1:
             pts = np.vstack([pts_bwd[::-1], pts_fwd[1:]])
         else:
@@ -248,9 +218,8 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
             continue
 
         n_pts = len(pts)
-        # Offset slightly above surface.
         nearest_idx = np.array([np.argmin(np.linalg.norm(verts - p, axis=1)) for p in pts])
-        pts_offset = pts + 0.002 * normals[nearest_idx]
+        pts_offset = pts + 0.003 * normals[nearest_idx]
 
         all_points.append(pts_offset)
         line = np.zeros(n_pts + 1, dtype=np.int64)
@@ -259,11 +228,51 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
         all_lines.append(line)
         offset += n_pts
 
-    if all_points:
-        all_pts = np.vstack(all_points)
-        all_ln = np.concatenate(all_lines)
-        streamlines = pv.PolyData(all_pts, lines=all_ln)
-        plotter.add_mesh(streamlines, color="white", line_width=0.8, opacity=0.6)
+    if not all_points:
+        return None
+    return pv.PolyData(np.vstack(all_points), lines=np.concatenate(all_lines))
+
+
+# ─── Rendering ───────────────────────────────────────────────────────────────
+
+def render_frame(verts, faces, tris, q1, q2, vel, frame_path,
+                 normals, e1, e2, s_ref,
+                 streamline_seeds=500, streamline_steps=25,
+                 camera_position=None, window_size=(1920, 1080)):
+    """Render a dual-panel frame: director (left) + vorticity (right)."""
+    s = 2.0 * np.sqrt(q1**2 + q2**2)
+    s_norm = np.clip(s / max(s_ref, 1e-6), 0.0, 1.0)
+
+    # ── Left panel: director field with S colouring ──
+    plotter = pv.Plotter(off_screen=True, window_size=window_size,
+                         shape=(1, 2), border=False)
+    plotter.subplot(0, 0)
+    plotter.set_background("#0a0a0a")
+
+    surf_s = pv.PolyData(verts, faces)
+    surf_s.point_data["S_norm"] = s_norm
+
+    plotter.add_mesh(surf_s, scalars="S_norm", cmap=S_CMAP,
+                     clim=[0.0, 1.0],
+                     smooth_shading=True, specular=0.2, opacity=1.0,
+                     show_scalar_bar=True,
+                     scalar_bar_args={
+                         "title": "S / S\u2080",
+                         "color": "white",
+                         "title_font_size": 14,
+                         "label_font_size": 11,
+                         "width": 0.25,
+                         "position_x": 0.05,
+                         "position_y": 0.05,
+                         "vertical": True,
+                     })
+
+    streamlines = build_streamlines_polydata(
+        verts, normals, e1, e2, q1, q2, tris, s,
+        n_seeds=streamline_seeds, n_steps=streamline_steps,
+    )
+    if streamlines is not None:
+        plotter.add_mesh(streamlines, color="#333333", line_width=0.8, opacity=0.7)
 
     if camera_position:
         plotter.camera_position = camera_position
@@ -271,12 +280,54 @@ def render_frame(verts, faces, tris, q1, q2, frame_path,
         plotter.camera_position = "iso"
         plotter.camera.zoom(1.3)
 
+    plotter.add_text("Director field", position="upper_left",
+                     font_size=10, color="white")
+
+    # ── Right panel: vorticity field ──
+    plotter.subplot(0, 1)
+    plotter.set_background("#0a0a0a")
+
+    if vel is not None:
+        omega = compute_vorticity(vel, verts, tris, normals)
+        omega_max = max(np.percentile(np.abs(omega), 98), 1e-10)
+    else:
+        omega = np.zeros(len(verts))
+        omega_max = 1.0
+
+    surf_w = pv.PolyData(verts, faces)
+    surf_w.point_data["omega"] = omega
+
+    plotter.add_mesh(surf_w, scalars="omega", cmap=OMEGA_CMAP,
+                     clim=[-omega_max, omega_max],
+                     smooth_shading=True, specular=0.2, opacity=1.0,
+                     show_scalar_bar=True,
+                     scalar_bar_args={
+                         "title": "\u03c9",
+                         "color": "white",
+                         "title_font_size": 14,
+                         "label_font_size": 11,
+                         "width": 0.25,
+                         "position_x": 0.05,
+                         "position_y": 0.05,
+                         "vertical": True,
+                     })
+
+    if camera_position:
+        plotter.camera_position = camera_position
+    else:
+        plotter.camera_position = "iso"
+        plotter.camera.zoom(1.3)
+
+    plotter.add_text("Vorticity \u03c9", position="upper_left",
+                     font_size=10, color="white")
+
     plotter.screenshot(str(frame_path))
     plotter.close()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Render surface nematic with streamlines and defects")
+    parser = argparse.ArgumentParser(
+        description="Render surface nematic: director (S colourmap) + vorticity")
     parser.add_argument("snapshot_dir", help="Directory with q_*.npy + mesh.json")
     parser.add_argument("--output", "-o", default=None)
     parser.add_argument("--width", type=int, default=1920)
@@ -287,6 +338,8 @@ def main():
     parser.add_argument("--streamline-steps", type=int, default=25)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--video", default=None)
+    parser.add_argument("--s-ref", type=float, default=None,
+                        help="Reference S for normalisation (auto-detected if omitted)")
     args = parser.parse_args()
 
     snap_dir = Path(args.snapshot_dir)
@@ -306,10 +359,26 @@ def main():
         print(f"No q_*.npy in {snap_dir}")
         return
 
+    # Check for velocity snapshots.
+    vel_snaps = sorted(snap_dir.glob("vel_*.npy"))
+    has_vel = len(vel_snaps) == len(snaps)
+    if not has_vel:
+        print(f"  No velocity snapshots (vel_*.npy); vorticity panel will be blank.")
+
+    # Auto-detect S reference from last snapshot.
+    s_ref = args.s_ref
+    if s_ref is None:
+        q1_last, q2_last = load_q(snaps[-1], nv)
+        s_last = 2.0 * np.sqrt(q1_last**2 + q2_last**2)
+        s_ref = np.percentile(s_last, 95)
+        if s_ref < 0.01:
+            s_ref = 1.0
+        print(f"  Auto S_ref = {s_ref:.4f}")
+
     out_dir = Path(args.output) if args.output else snap_dir / "frames"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Rendering {len(snaps)} frames ({nv} vertices, {args.streamline_seeds} streamlines)...")
+    print(f"Rendering {len(snaps)} frames ({nv} vertices)...")
     n = len(snaps)
     window_size = (args.width, args.height)
 
@@ -318,6 +387,7 @@ def main():
 
     for i, snap in enumerate(snaps):
         q1, q2 = load_q(snap, nv)
+        vel = load_velocity(vel_snaps[i], nv) if has_vel else None
         out_path = out_dir / f"frame_{i:06d}.png"
 
         cam_pos = None
@@ -332,8 +402,8 @@ def main():
                 (0, 0, 1),
             ]
 
-        render_frame(verts, faces, tris, q1, q2, out_path,
-                     normals, e1, e2,
+        render_frame(verts, faces, tris, q1, q2, vel, out_path,
+                     normals, e1, e2, s_ref,
                      streamline_seeds=args.streamline_seeds,
                      streamline_steps=args.streamline_steps,
                      camera_position=cam_pos, window_size=window_size)
