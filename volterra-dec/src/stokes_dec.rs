@@ -144,6 +144,7 @@ impl StokesSolverDec {
 /// correctly handles curved surfaces where the tangent frames differ between
 /// vertices (the previous version used only global (x,y) components, which
 /// fails away from the equator on a sphere).
+#[allow(clippy::too_many_arguments)]
 pub fn compute_vorticity_source<M: Manifold>(
     q: &QFieldDec,
     zeta: f64,
