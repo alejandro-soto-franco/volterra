@@ -14,7 +14,7 @@ use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
-use volterra_dec::snapshot::write_snapshot;
+use volterra_dec::snapshot::{write_snapshot, write_velocity_snapshot};
 use volterra_dec::stokes_dec::{StokesSolverDec, advect_q_covariant};
 use volterra_dec::QFieldDec;
 use volterra_dec::DecDomain;
@@ -128,6 +128,12 @@ fn main() {
         if step < n_steps {
             // 1. Stokes solve: get 3D tangent velocity from active stress.
             let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
+
+            // Write velocity snapshot alongside Q snapshot.
+            if step % snap_every == 0 {
+                write_velocity_snapshot(&vel.v, &out.join(format!("vel_{step:06}.npy")))
+                    .expect("failed to write velocity snapshot");
+            }
 
             // 2. RK4 step on Q: molecular field + proper directional advection.
             let coords = &stokes_coords;

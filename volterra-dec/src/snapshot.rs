@@ -53,6 +53,42 @@ pub fn write_snapshot(q: &QFieldDec, path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Write a velocity field snapshot as a `.npy` file.
+///
+/// The output array has shape (n_vertices, 3) with columns [vx, vy, vz],
+/// stored as float64 in C-contiguous (row-major) order.
+pub fn write_velocity_snapshot(vel: &[[f64; 3]], path: &Path) -> std::io::Result<()> {
+    let nv = vel.len();
+    let shape_str = format!("({}, 3)", nv);
+
+    let dict = format!(
+        "{{'descr': '<f8', 'fortran_order': False, 'shape': {}, }}",
+        shape_str
+    );
+    let header_content_len = dict.len() + 1;
+    let total_prefix = 10 + header_content_len;
+    let padding = (64 - (total_prefix % 64)) % 64;
+    let header_len = (header_content_len + padding) as u16;
+
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(&[0x93, b'N', b'U', b'M', b'P', b'Y'])?;
+    file.write_all(&[1, 0])?;
+    file.write_all(&header_len.to_le_bytes())?;
+    file.write_all(dict.as_bytes())?;
+    for _ in 0..padding {
+        file.write_all(b" ")?;
+    }
+    file.write_all(b"\n")?;
+
+    for v in vel {
+        file.write_all(&v[0].to_le_bytes())?;
+        file.write_all(&v[1].to_le_bytes())?;
+        file.write_all(&v[2].to_le_bytes())?;
+    }
+
+    Ok(())
+}
+
 /// Write simulation metadata as a JSON file.
 pub fn write_meta(path: &Path, meta: &serde_json::Value) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(meta)
