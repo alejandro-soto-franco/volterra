@@ -10,5 +10,5 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-volterra-core   = { path = "../volterra-core", version = "0.2.0" }
-volterra-solver = { path = "../volterra-solver", version = "0.2.0" }
+volterra-core   = { path = "../volterra-core", version = "0.3.0" }
+volterra-solver = { path = "../volterra-solver", version = "0.3.0" }
