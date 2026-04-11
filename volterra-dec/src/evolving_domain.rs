@@ -288,6 +288,160 @@ where
         (dq1, dq2)
     }
 
+    /// Compute the active stress normal component: -zeta * Q : b at each vertex.
+    ///
+    /// Q : b = sum_ij Q_ij * b_ij where b is the shape operator (Weingarten map).
+    /// On a sphere (b = H*I), this vanishes because Q is traceless.
+    /// On non-spherical surfaces, the deviatoric part of b couples with Q.
+    ///
+    /// Computed per face using FEM gradient of vertex normals, then averaged
+    /// to vertices. The Q-tensor is interpolated barycentrically (no frame
+    /// transport, which is an approximation valid for small triangles).
+    pub fn active_stress_normal(
+        &self,
+        zeta: f64,
+        q1: &[f64],
+        q2: &[f64],
+    ) -> Vec<f64> {
+        let nv = self.domain.n_vertices();
+        let verts = &self.domain.mesh.vertices;
+        let tris = &self.domain.mesh.simplices;
+        let normals = &self.domain.vertex_normals;
+
+        let mut stress_sum = vec![0.0_f64; nv];
+        let mut area_sum = vec![0.0_f64; nv];
+
+        for tri in tris {
+            let [i0, i1, i2] = *tri;
+            let p0 = verts[i0];
+            let p1 = verts[i1];
+            let p2 = verts[i2];
+
+            let e01 = p1 - p0;
+            let e02 = p2 - p0;
+            let fn_vec = [
+                e01[1] * e02[2] - e01[2] * e02[1],
+                e01[2] * e02[0] - e01[0] * e02[2],
+                e01[0] * e02[1] - e01[1] * e02[0],
+            ];
+            let area2 = (fn_vec[0] * fn_vec[0] + fn_vec[1] * fn_vec[1] + fn_vec[2] * fn_vec[2]).sqrt();
+            if area2 < 1e-30 { continue; }
+            let face_area = area2 / 2.0;
+            let fn_hat = [fn_vec[0] / area2, fn_vec[1] / area2, fn_vec[2] / area2];
+
+            // Face tangent frame.
+            let e01_len = (e01[0] * e01[0] + e01[1] * e01[1] + e01[2] * e01[2]).sqrt();
+            if e01_len < 1e-30 { continue; }
+            let t1 = [e01[0] / e01_len, e01[1] / e01_len, e01[2] / e01_len];
+            let t2 = [
+                fn_hat[1] * t1[2] - fn_hat[2] * t1[1],
+                fn_hat[2] * t1[0] - fn_hat[0] * t1[2],
+                fn_hat[0] * t1[1] - fn_hat[1] * t1[0],
+            ];
+
+            // FEM gradients (3D vectors).
+            let inv_2a = 1.0 / area2;
+            let e12 = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+            let e20 = [p0[0] - p2[0], p0[1] - p2[1], p0[2] - p2[2]];
+            let grad_phi = [
+                [
+                    inv_2a * (fn_hat[1] * e12[2] - fn_hat[2] * e12[1]),
+                    inv_2a * (fn_hat[2] * e12[0] - fn_hat[0] * e12[2]),
+                    inv_2a * (fn_hat[0] * e12[1] - fn_hat[1] * e12[0]),
+                ],
+                [
+                    inv_2a * (fn_hat[1] * e20[2] - fn_hat[2] * e20[1]),
+                    inv_2a * (fn_hat[2] * e20[0] - fn_hat[0] * e20[2]),
+                    inv_2a * (fn_hat[0] * e20[1] - fn_hat[1] * e20[0]),
+                ],
+                [
+                    inv_2a * (fn_hat[1] * e01[2] - fn_hat[2] * e01[1]),
+                    inv_2a * (fn_hat[2] * e01[0] - fn_hat[0] * e01[2]),
+                    inv_2a * (fn_hat[0] * e01[1] - fn_hat[1] * e01[0]),
+                ],
+            ];
+
+            // Shape operator b in face frame: b_ij = -sum_a (grad_phi_a . n_a) projected.
+            // dn = sum_a n_a * grad_phi_a (3x3 outer product sum, then project to tangent).
+            let verts_local = [i0, i1, i2];
+            let mut b11 = 0.0_f64;
+            let mut b12 = 0.0_f64;
+            let mut b22 = 0.0_f64;
+
+            for local in 0..3 {
+                let vi = verts_local[local];
+                let n = normals[vi];
+                let gp = grad_phi[local];
+                // dn_j = sum_a n_a * grad_phi_a[j] (gradient of normal in j-th direction)
+                // b_ij = -(dn_i . e_j) in tangent frame:
+                // Contribution from vertex a to b_ij:
+                //   -(n_a . t_i) * (grad_phi_a . t_j) gives one component
+                // Actually: b = -dn, and dn = sum_a n_a (x) grad_phi_a.
+                // b_ij = -sum_k sum_a n_a[k] * grad_phi_a . t_j * delta(k matches t_i)
+                // Simpler: dn(t_j) = sum_a (grad_phi_a . t_j) * n_a (3D vector)
+                // b_ij = -(dn(t_j)) . t_i
+                let gp_dot_t1 = gp[0] * t1[0] + gp[1] * t1[1] + gp[2] * t1[2];
+                let gp_dot_t2 = gp[0] * t2[0] + gp[1] * t2[1] + gp[2] * t2[2];
+                let n_dot_t1 = n[0] * t1[0] + n[1] * t1[1] + n[2] * t1[2];
+                let n_dot_t2 = n[0] * t2[0] + n[1] * t2[1] + n[2] * t2[2];
+
+                // b contribution: -n_a . t_i * grad_phi_a . t_j
+                b11 -= n_dot_t1 * gp_dot_t1;
+                b12 -= n_dot_t1 * gp_dot_t2;
+                b22 -= n_dot_t2 * gp_dot_t2;
+            }
+
+            // Interpolate Q at face center (barycentric average).
+            let q1_face = (q1[i0] + q1[i1] + q1[i2]) / 3.0;
+            let q2_face = (q2[i0] + q2[i1] + q2[i2]) / 3.0;
+
+            // Q : b in the face frame.
+            // Q = [[q1, q2], [q2, -q1]], b = [[b11, b12], [b12, b22]]
+            // Q:b = q1*b11 + q2*b12 + q2*b12 + (-q1)*b22
+            //     = q1*(b11 - b22) + 2*q2*b12
+            let q_dot_b = q1_face * (b11 - b22) + 2.0 * q2_face * b12;
+
+            // Active normal stress = -zeta * Q:b, distributed to vertices.
+            let third_area = face_area / 3.0;
+            let stress_val = -zeta * q_dot_b;
+            for &vi in &verts_local {
+                stress_sum[vi] += stress_val * third_area;
+                area_sum[vi] += third_area;
+            }
+        }
+
+        // Average to vertices.
+        let mut result = vec![0.0; nv];
+        for v in 0..nv {
+            if area_sum[v] > 1e-30 {
+                result[v] = stress_sum[v] / area_sum[v];
+            }
+        }
+        result
+    }
+
+    /// Compute the full shape velocity including active nematic stress.
+    ///
+    /// v_n = (1/eta_s) * (-kb * (lap_H + 2(H-H0)(H^2-K)) + tension * H + sigma^a_nn)
+    pub fn shape_velocity_active(
+        &self,
+        kb: f64,
+        h0: &[f64],
+        tension: f64,
+        eta_surface: f64,
+        zeta: f64,
+        q1: &[f64],
+        q2: &[f64],
+    ) -> Vec<f64> {
+        let nv = self.domain.n_vertices();
+        let passive_vn = self.shape_velocity(kb, h0, tension, eta_surface);
+        let active_nn = self.active_stress_normal(zeta, q1, q2);
+
+        (0..nv)
+            .map(|v| passive_vn[v] + active_nn[v] / eta_surface)
+            .collect()
+    }
+
     /// Convenience: number of vertices.
     pub fn n_vertices(&self) -> usize {
         self.domain.n_vertices()
