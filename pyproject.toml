@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "volterra-nematic"
-version = "0.1.0"
+version = "0.3.0"
 description = "Python bindings for the volterra active nematics simulation library"
 readme = "README.md"
 license = { text = "MIT" }
