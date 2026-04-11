@@ -118,6 +118,15 @@ impl ConnectionLaplacian {
         }
     }
 
+    /// Per-edge spin-2 phase angles (2 * connection_angle) in mesh boundary order.
+    ///
+    /// Edge `e` in this slice corresponds to `mesh.boundaries[e]`. The phase
+    /// encodes the parallel transport rotation for a spin-2 field (Q-tensor):
+    /// transporting from v0 to v1 rotates z by `exp(i * phase)`.
+    pub fn edge_phases(&self) -> Vec<f64> {
+        self.edges.iter().map(|e| e.phase_2x).collect()
+    }
+
     /// Apply the connection Laplacian to a Q-tensor field.
     ///
     /// Returns Delta_conn Q, where the parallel transport is built into
@@ -181,7 +190,11 @@ impl ConnectionLaplacian {
 
 /// Compute the molecular field using the connection Laplacian.
 ///
-/// H = K * Delta_conn Q + (-a_eff) * Q - 2c * Tr(Q^2) * Q
+/// H = -K * Delta_conn(Q) + (-a_eff) * Q - 2c * Tr(Q^2) * Q
+///
+/// The DEC connection Laplacian is positive-semidefinite (positive at maxima),
+/// so the elastic smoothing term enters with a minus sign: -K * lap(Q) damps
+/// spatial variations.
 pub fn molecular_field_conn(
     q: &QFieldDec,
     k_frank: f64,
@@ -197,8 +210,8 @@ pub fn molecular_field_conn(
     let mut h = QFieldDec::zeros(nv);
     for (i, &tr) in tr_q2.iter().enumerate() {
         let bulk = bulk_linear - 2.0 * c_landau * tr;
-        h.q1[i] = k_frank * lap.q1[i] + bulk * q.q1[i];
-        h.q2[i] = k_frank * lap.q2[i] + bulk * q.q2[i];
+        h.q1[i] = -k_frank * lap.q1[i] + bulk * q.q1[i];
+        h.q2[i] = -k_frank * lap.q2[i] + bulk * q.q2[i];
     }
     h
 }

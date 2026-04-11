@@ -6,12 +6,14 @@
 //! ## Molecular field
 //!
 //! ```text
-//! H = K_frank * Delta_L Q  +  (zeta_eff/2 - a_landau) Q  -  2 c_landau Tr(Q^2) Q
+//! H = -K_frank * Delta_L Q  +  (zeta_eff/2 - a_landau) Q  -  2 c_landau Tr(Q^2) Q
 //! ```
 //!
-//! where Delta_L is the Lichnerowicz Laplacian (connection Laplacian on
-//! symmetric 2-tensors). On flat meshes (K = 0), Delta_L reduces to the
-//! component-wise scalar Laplace-Beltrami.
+//! The DEC Laplacian Delta_L is positive-semidefinite (positive at maxima),
+//! so the elastic smoothing term enters with a minus sign.
+//!
+//! On flat meshes (K = 0), Delta_L reduces to the component-wise scalar
+//! Laplace-Beltrami.
 
 use cartan_core::Manifold;
 use cartan_dec::Operators;
@@ -36,22 +38,22 @@ pub fn molecular_field_dec<M: Manifold>(
     let a_eff = params.a_eff(); // a_landau - zeta_eff/2
     let c = params.c_landau;
 
-    // Elastic term: K_frank * Delta_L Q
+    // Elastic term: -K_frank * Delta_L Q (DEC Laplacian is positive-semidefinite).
     let q_layout = q.to_lichnerowicz_layout();
     let lap_q = ops.apply_lichnerowicz_laplacian(&q_layout, curvature_correction);
     let lap_field = QFieldDec::from_lichnerowicz_layout(&lap_q);
 
     // Bulk LdG terms.
-    // H = K * lap(Q) - a_eff * Q - 2c * Tr(Q^2) * Q
-    //   = K * lap(Q) + (zeta_eff/2 - a_landau) * Q - 2c * Tr(Q^2) * Q
+    // H = -K * lap(Q) - a_eff * Q - 2c * Tr(Q^2) * Q
+    //   = -K * lap(Q) + (zeta_eff/2 - a_landau) * Q - 2c * Tr(Q^2) * Q
     let tr_q2 = q.trace_q_squared();
 
     let bulk_linear = -a_eff;
     let mut h = QFieldDec::zeros(nv);
     for (i, &tr) in tr_q2.iter().enumerate() {
         let bulk = bulk_linear - 2.0 * c * tr;
-        h.q1[i] = k_frank * lap_field.q1[i] + bulk * q.q1[i];
-        h.q2[i] = k_frank * lap_field.q2[i] + bulk * q.q2[i];
+        h.q1[i] = -k_frank * lap_field.q1[i] + bulk * q.q1[i];
+        h.q2[i] = -k_frank * lap_field.q2[i] + bulk * q.q2[i];
     }
 
     h
