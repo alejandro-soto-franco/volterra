@@ -4,7 +4,7 @@ Render 2D active nematic simulation snapshots as publication-quality frames.
 
 Reads Q-tensor .npy snapshots from a simulation output directory and
 produces .png frames showing:
-  - Scalar order parameter S as a colourmap (blue = low, red = high)
+  - Scalar order parameter S as a colourmap (dark green = 0, white = 1)
   - Director field as headless line segments
   - Defect positions marked with triangles (+1/2) and pentagons (-1/2)
 
@@ -28,7 +28,29 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
+
+
+# ─── Custom colourmaps ───────────────────────────────────────────────────────
+
+def _make_s_cmap():
+    """Dark green (S=0) to white (S=1)."""
+    return LinearSegmentedColormap.from_list(
+        "nematic_order",
+        [(0.0, "#0b3d0b"), (0.4, "#1a6e1a"), (0.7, "#6fbf6f"), (1.0, "#ffffff")],
+    )
+
+def _make_omega_cmap():
+    """Blue (negative) -> green (zero) -> red (positive)."""
+    return LinearSegmentedColormap.from_list(
+        "vorticity_rainbow",
+        [(0.0, "#0000cc"), (0.25, "#0088ff"), (0.5, "#00cc00"),
+         (0.75, "#ff8800"), (1.0, "#cc0000")],
+    )
+
+S_CMAP = _make_s_cmap()
+OMEGA_CMAP = _make_omega_cmap()
 
 
 def load_snapshot(path, nx, ny):
@@ -112,10 +134,11 @@ def render_frame(q1, q2, dx, frame_idx, output_path, title=None,
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 6))
 
-    # Scalar order colourmap
+    # Scalar order colourmap: dark green (S=0) to white (S=1)
     extent = [0, ny * dx, 0, nx * dx]
-    im = ax.imshow(s, origin="lower", extent=extent, cmap="RdBu_r",
-                   vmin=s_range[0], vmax=s_range[1], interpolation="bilinear")
+    s_norm = np.clip(s / max(s_range[1], 1e-6), 0.0, 1.0)
+    im = ax.imshow(s_norm, origin="lower", extent=extent, cmap=S_CMAP,
+                   vmin=0.0, vmax=1.0, interpolation="bilinear")
 
     # Director field: headless line segments with length proportional to S.
     stride = director_stride
@@ -132,7 +155,7 @@ def render_frame(q1, q2, dx, frame_idx, output_path, title=None,
     ax.quiver(x_pos, y_pos, dx_dir, dy_dir,
               headaxislength=0, headlength=0, headwidth=0,
               pivot="middle", scale_units="xy", scale=1,
-              color="white", alpha=0.8, linewidth=0.6)
+              color="#333333", alpha=0.8, linewidth=0.6)
 
     # Defect markers
     defects = detect_defects_2d(q1, q2)
@@ -144,7 +167,7 @@ def render_frame(q1, q2, dx, frame_idx, output_path, title=None,
                 markeredgecolor="white", markeredgewidth=0.5)
 
     # Colourbar
-    cbar = fig.colorbar(im, ax=ax, shrink=0.8, label="Scalar order $S$")
+    cbar = fig.colorbar(im, ax=ax, shrink=0.8, label="$S / S_0$")
 
     if title:
         ax.set_title(title, fontsize=12)
