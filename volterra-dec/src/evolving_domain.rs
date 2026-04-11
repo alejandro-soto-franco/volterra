@@ -151,6 +151,7 @@ where
         let boundaries = &self.domain.mesh.boundaries;
 
         // 1. Vertex normals (area-weighted face normals).
+        #[allow(clippy::needless_range_loop)]
         let mut normals = vec![[0.0_f64; 3]; nv];
         for tri in tris {
             let p0 = verts[tri[0]];
@@ -164,7 +165,9 @@ where
                 e01[0] * e02[1] - e01[1] * e02[0],
             ];
             for &idx in tri {
-                for d in 0..3 { normals[idx][d] += fn_vec[d]; }
+                normals[idx][0] += fn_vec[0];
+                normals[idx][1] += fn_vec[1];
+                normals[idx][2] += fn_vec[2];
             }
         }
         for n in &mut normals {
@@ -196,11 +199,10 @@ where
                 }
             }
         }
-        for v in 0..nv {
-            let a = self.domain.dual_areas[v];
+        for (v, (&angle, &a)) in angle_sum.iter().zip(&self.domain.dual_areas).enumerate() {
             if a > 1e-30 {
                 self.domain.gaussian_curvatures[v] =
-                    (2.0 * std::f64::consts::PI - angle_sum[v]) / a;
+                    (2.0 * std::f64::consts::PI - angle) / a;
             }
         }
 
@@ -221,10 +223,9 @@ where
             h_sum[v0] += w * dot_v0;
             h_sum[v1] += w * dot_v1;
         }
-        for v in 0..nv {
-            let a = self.domain.dual_areas[v];
+        for (v, (&hs, &a)) in h_sum.iter().zip(&self.domain.dual_areas).enumerate() {
             if a > 1e-30 {
-                self.domain.mean_curvatures[v] = h_sum[v] / (2.0 * a);
+                self.domain.mean_curvatures[v] = hs / (2.0 * a);
             }
         }
 
@@ -423,6 +424,7 @@ where
     /// Compute the full shape velocity including active nematic stress.
     ///
     /// v_n = (1/eta_s) * (-kb * (lap_H + 2(H-H0)(H^2-K)) + tension * H + sigma^a_nn)
+    #[allow(clippy::too_many_arguments)]
     pub fn shape_velocity_active(
         &self,
         kb: f64,

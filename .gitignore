@@ -2,7 +2,10 @@
 Cargo.lock
 .worktrees/
 .venv/
+.wolf/
 docs/
 docs/superpowers/
 output/
 literature/
+examples/
+tools/viz/

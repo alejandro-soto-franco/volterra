@@ -61,14 +61,13 @@ pub fn baoab_ba_step<M: Manifold<Point = nalgebra::SVector<f64, 3>, Tangent = na
 
     // B step (first quarter): p += (dt/4) * force
     for v in 0..nv {
-        let scaled = forces[v].clone() * (dt / 4.0);
-        momenta[v] = momenta[v].clone() + scaled;
+        momenta[v] += forces[v] * (dt / 4.0);
     }
 
     // A step (first half): x = exp_x(p * dt / (2*mass))
     for v in 0..nv {
         let m = masses[v].max(1e-30);
-        let vel = momenta[v].clone() * (dt / (2.0 * m));
+        let vel = momenta[v] * (dt / (2.0 * m));
         positions[v] = manifold.exp(&positions[v], &vel);
     }
 
@@ -77,7 +76,7 @@ pub fn baoab_ba_step<M: Manifold<Point = nalgebra::SVector<f64, 3>, Tangent = na
     // A step (second half): x = exp_x(p * dt / (2*mass))
     for v in 0..nv {
         let m = masses[v].max(1e-30);
-        let vel = momenta[v].clone() * (dt / (2.0 * m));
+        let vel = momenta[v] * (dt / (2.0 * m));
         positions[v] = manifold.exp(&positions[v], &vel);
     }
 
@@ -85,8 +84,7 @@ pub fn baoab_ba_step<M: Manifold<Point = nalgebra::SVector<f64, 3>, Tangent = na
     // Explicit scheme: reuse forces from old positions. First-order in B,
     // second-order overall in configuration space.
     for v in 0..nv {
-        let scaled = forces[v].clone() * (dt / 4.0);
-        momenta[v] = momenta[v].clone() + scaled;
+        momenta[v] += forces[v] * (dt / 4.0);
     }
 }
 
