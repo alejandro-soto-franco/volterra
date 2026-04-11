@@ -62,7 +62,7 @@ def render_polyscope(verts, tris, q1, q2, frame_path,
 
     mesh = ps.register_surface_mesh("nematic", verts, tris)
     mesh.add_scalar_quantity("S", s, defined_on="vertices",
-                            cmap="coolwarm", vminmax=(0, s.max() * 1.1),
+                            cmap="greens", vminmax=(0, s.max() * 1.1),
                             enabled=True)
 
     # Director field as tangent vectors (2D projection onto surface).
