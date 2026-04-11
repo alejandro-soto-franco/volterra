@@ -68,21 +68,25 @@ fn wet_dec_zero_activity_matches_dry() {
 #[test]
 fn wet_dec_order_grows_with_activity() {
     // With activity, the order parameter should grow from a small perturbation.
+    // Use K_r = 0.01 so elastic damping doesn't dominate the bulk growth.
+    // CFL: gamma_r * k_r * dt / dx^2 = 1 * 0.01 * 0.001 / 0.0625 = 0.00016. Safe.
     let mesh = FlatMesh::unit_square_grid(4);
     let manifold = Euclidean::<2>;
     let ops = Operators::from_mesh(&mesh, &manifold);
 
     let mut params = ActiveNematicParams::default_test();
-    params.dt = 0.00005; // very small dt for CFL stability with real 3D flow
+    params.k_r = 0.01;
+    params.dt = 0.001;
 
     assert!(params.a_eff() < 0.0, "need active regime");
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.001, 42);
+    let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
     let s_before = q0.mean_order_param();
 
+    // Run 2000 steps (t=2.0) so the uniform mode grows by e^(|a_eff|*t) = e^3 ~ 20x.
     let (q_fin, _) = run_wet_active_nematic_dec(
-        &q0, &params, &ops, &mesh, None, 100, 100,
+        &q0, &params, &ops, &mesh, None, 2000, 2000,
     ).unwrap();
 
     let s_after = q_fin.mean_order_param();
