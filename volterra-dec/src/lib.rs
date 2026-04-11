@@ -34,6 +34,7 @@ pub mod snapshot;
 pub mod curvature_correction;
 pub mod domain;
 pub mod epitrochoid;
+pub mod evolving_domain;
 pub mod poisson;
 pub mod stokes_dec;
 pub mod helfrich;
@@ -42,5 +43,6 @@ pub mod qfield_dec;
 pub mod variational;
 
 pub use domain::DecDomain;
+pub use evolving_domain::EvolvingDomain;
 pub use molecular_field_dec::molecular_field_dec;
 pub use qfield_dec::QFieldDec;
