@@ -4,7 +4,6 @@ use cartan_manifolds::sphere::Sphere;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::EvolvingDomain;
 
-use cartan_core::bundle::CovLaplacian;
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
 
 #[test]
@@ -145,5 +144,115 @@ fn evolving_domain_multiple_deformations() {
     // Verify edge lengths are positive.
     for (e, &l) in ed.domain.edge_lengths.iter().enumerate() {
         assert!(l > 0.0, "edge_length[{e}] = {l} should be positive");
+    }
+}
+
+// ─── Curvature and shape equation tests ─────────────────────────────────────
+
+#[test]
+fn curvature_unit_sphere() {
+    // On a unit sphere: H = 1.0, K = 1.0.
+    let mesh = icosphere(3); // 642 vertices for better accuracy
+    let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
+    ed.recompute_curvatures();
+
+    let mean_h: f64 = ed.domain.mean_curvatures.iter().sum::<f64>()
+        / ed.n_vertices() as f64;
+    let mean_k: f64 = ed.domain.gaussian_curvatures.iter().sum::<f64>()
+        / ed.n_vertices() as f64;
+
+    // Gaussian curvature should be 1.0 on unit sphere.
+    assert!(
+        (mean_k - 1.0).abs() < 0.15,
+        "mean Gaussian curvature should be ~1.0, got {mean_k}"
+    );
+
+    // Mean curvature should be ~1.0 on unit sphere.
+    assert!(
+        (mean_h.abs() - 1.0).abs() < 0.3,
+        "mean |H| should be ~1.0, got {mean_h}"
+    );
+}
+
+#[test]
+fn gaussian_curvature_integrates_to_4pi() {
+    // Gauss-Bonnet: integral of K over S^2 = 4*pi.
+    let mesh = icosphere(3);
+    let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
+    ed.recompute_curvatures();
+
+    let integral_k: f64 = ed.domain.gaussian_curvatures.iter()
+        .zip(&ed.domain.dual_areas)
+        .map(|(&k, &a)| k * a)
+        .sum();
+
+    let expected = 4.0 * std::f64::consts::PI;
+    assert!(
+        (integral_k - expected).abs() < 0.1,
+        "integral of K should be 4*pi = {expected:.4}, got {integral_k:.4}"
+    );
+}
+
+#[test]
+fn shape_velocity_sphere_with_tension() {
+    // A sphere with surface tension and no bending rigidity: v_n = tension * H / eta.
+    // On a unit sphere, H ~ 1, so v_n ~ tension / eta.
+    let mesh = icosphere(3);
+    let nv = mesh.n_vertices();
+    let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
+    ed.recompute_curvatures();
+
+    let h0 = vec![0.0; nv];
+    let tension = 1.0;
+    let eta = 1.0;
+    let v_n = ed.shape_velocity(0.0, &h0, tension, eta); // kb=0, tension only
+
+    let mean_vn: f64 = v_n.iter().map(|v| v.abs()).sum::<f64>() / nv as f64;
+    // |v_n| ~ |tension * H / eta| ~ 1.0 (since |H| ~ 1 on unit sphere).
+    assert!(
+        mean_vn > 0.5,
+        "tension-driven |v_n| should be ~1.0, got mean = {mean_vn}"
+    );
+}
+
+#[test]
+fn vn_correction_zero_for_zero_velocity() {
+    let mesh = icosphere(2);
+    let nv = mesh.n_vertices();
+    let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
+    ed.recompute_curvatures();
+
+    let v_n = vec![0.0; nv];
+    let q1 = vec![0.3; nv];
+    let q2 = vec![0.4; nv];
+    let (dq1, dq2) = ed.vn_correction(&v_n, &q1, &q2);
+
+    for v in 0..nv {
+        assert!(dq1[v].abs() < 1e-14);
+        assert!(dq2[v].abs() < 1e-14);
+    }
+}
+
+#[test]
+fn vn_correction_proportional_to_mean_curvature() {
+    let mesh = icosphere(2);
+    let nv = mesh.n_vertices();
+    let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
+    ed.recompute_curvatures();
+
+    let v_n = vec![1.0; nv]; // uniform normal velocity
+    let q1 = vec![1.0; nv]; // unit q1
+    let q2 = vec![0.0; nv];
+    let (dq1, _dq2) = ed.vn_correction(&v_n, &q1, &q2);
+
+    // correction = v_n * 2H * q1 = 2H for v_n=1, q1=1.
+    for v in 0..nv {
+        let expected = 2.0 * ed.domain.mean_curvatures[v];
+        assert!(
+            (dq1[v] - expected).abs() < 1e-12,
+            "dq1[{v}] = {}, expected {}",
+            dq1[v],
+            expected
+        );
     }
 }
