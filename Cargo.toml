@@ -11,7 +11,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -23,11 +23,11 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.3"
-cartan-manifolds = "0.3"
-cartan-geo       = "0.3"
-cartan-dec       = "0.3"
-cartan-remesh    = "0.3"
+cartan-core      = "0.4"
+cartan-manifolds = "0.4"
+cartan-geo       = "0.4"
+cartan-dec       = "0.4"
+cartan-remesh    = "0.4"
 
 nalgebra         = { version = "0.33", features = ["std"] }
 rayon            = "1"
