@@ -15,7 +15,7 @@ use volterra_core::ActiveNematicParams;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
+use volterra_dec::stokes_dec::{StokesSolverDec, advect_q_covariant};
 use volterra_dec::QFieldDec;
 use volterra_dec::DecDomain;
 
@@ -88,6 +88,9 @@ fn main() {
     let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh)
         .expect("Stokes solver factorisation failed");
 
+    // Extract per-edge connection phases for covariant advection.
+    let edge_phases = conn_lap.edge_phases();
+
     let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
 
     // Write metadata.
@@ -134,12 +137,13 @@ fn main() {
                 );
                 let mut dq = h.scale(params.gamma_r);
 
-                // Advection: -(u · grad Q) using directional edge derivatives.
-                let adv = advect_q(
+                // Advection: -(u . grad Q) with covariant transport.
+                let adv = advect_q_covariant(
                     qq, &vel,
                     &domain.mesh.boundaries,
                     &domain.mesh.vertex_boundaries,
                     coords,
+                    &edge_phases,
                 );
                 let nv = qq.n_vertices;
                 for i in 0..nv {
