@@ -140,6 +140,154 @@ where
         self.deform(&new_positions)
     }
 
+    /// Recompute vertex normals, mean curvature, Gaussian curvature,
+    /// and Laplacian of mean curvature from current mesh geometry.
+    ///
+    /// Call after `deform()` if you need curvature data for the shape equation.
+    pub fn recompute_curvatures(&mut self) {
+        let nv = self.domain.n_vertices();
+        let verts = &self.domain.mesh.vertices;
+        let tris = &self.domain.mesh.simplices;
+        let boundaries = &self.domain.mesh.boundaries;
+
+        // 1. Vertex normals (area-weighted face normals).
+        let mut normals = vec![[0.0_f64; 3]; nv];
+        for tri in tris {
+            let p0 = verts[tri[0]];
+            let p1 = verts[tri[1]];
+            let p2 = verts[tri[2]];
+            let e01 = p1 - p0;
+            let e02 = p2 - p0;
+            let fn_vec = [
+                e01[1] * e02[2] - e01[2] * e02[1],
+                e01[2] * e02[0] - e01[0] * e02[2],
+                e01[0] * e02[1] - e01[1] * e02[0],
+            ];
+            for &idx in tri {
+                for d in 0..3 { normals[idx][d] += fn_vec[d]; }
+            }
+        }
+        for n in &mut normals {
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if len > 1e-14 {
+                n[0] /= len; n[1] /= len; n[2] /= len;
+            }
+        }
+        self.domain.vertex_normals = normals;
+
+        // 2. Gaussian curvature (angle defect / dual area).
+        let mut angle_sum = vec![0.0_f64; nv];
+        for tri in tris {
+            for local in 0..3 {
+                let vi = tri[local];
+                let vj = tri[(local + 1) % 3];
+                let vk = tri[(local + 2) % 3];
+                let pi = verts[vi];
+                let pj = verts[vj];
+                let pk = verts[vk];
+                let a = pj - pi;
+                let b = pk - pi;
+                let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                let na = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+                let nb = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
+                if na > 1e-30 && nb > 1e-30 {
+                    let cos_a = (dot / (na * nb)).clamp(-1.0, 1.0);
+                    angle_sum[vi] += cos_a.acos();
+                }
+            }
+        }
+        for v in 0..nv {
+            let a = self.domain.dual_areas[v];
+            if a > 1e-30 {
+                self.domain.gaussian_curvatures[v] =
+                    (2.0 * std::f64::consts::PI - angle_sum[v]) / a;
+            }
+        }
+
+        // 3. Mean curvature (cotangent formula: H = (1/2A) * sum_e w_e * (xj - xi) . n).
+        let star1 = self.domain.ops.hodge.star1();
+        let mut h_sum = vec![0.0_f64; nv];
+        for (e, &[v0, v1]) in boundaries.iter().enumerate() {
+            let w = star1[e];
+            let edge = verts[v1] - verts[v0];
+            // Mean curvature normal: contribution from this edge.
+            // H_v0 += w * (edge . n_v0) / (2 * A_v0)
+            let dot_v0 = edge[0] * self.domain.vertex_normals[v0][0]
+                + edge[1] * self.domain.vertex_normals[v0][1]
+                + edge[2] * self.domain.vertex_normals[v0][2];
+            let dot_v1 = -(edge[0] * self.domain.vertex_normals[v1][0]
+                + edge[1] * self.domain.vertex_normals[v1][1]
+                + edge[2] * self.domain.vertex_normals[v1][2]);
+            h_sum[v0] += w * dot_v0;
+            h_sum[v1] += w * dot_v1;
+        }
+        for v in 0..nv {
+            let a = self.domain.dual_areas[v];
+            if a > 1e-30 {
+                self.domain.mean_curvatures[v] = h_sum[v] / (2.0 * a);
+            }
+        }
+
+        // 4. Laplacian of mean curvature (apply scalar Laplace-Beltrami to H).
+        let h_vec = nalgebra::DVector::from_column_slice(&self.domain.mean_curvatures);
+        let lap_h = self.domain.ops.apply_laplace_beltrami(&h_vec);
+        for v in 0..nv {
+            self.domain.laplacian_mean_curvatures[v] = lap_h[v];
+        }
+    }
+
+    /// Compute the normal velocity from the shape equation.
+    ///
+    /// v_n = (1/eta_s) * (-kb * (lap_H + 2(H-H0)(H^2-K)) + tension * H)
+    ///
+    /// Requires `recompute_curvatures()` to have been called first.
+    pub fn shape_velocity(
+        &self,
+        kb: f64,
+        h0: &[f64],
+        tension: f64,
+        eta_surface: f64,
+    ) -> Vec<f64> {
+        let nv = self.domain.n_vertices();
+        let h = &self.domain.mean_curvatures;
+        let k = &self.domain.gaussian_curvatures;
+        let lap_h = &self.domain.laplacian_mean_curvatures;
+
+        (0..nv)
+            .map(|v| {
+                let dh = h[v] - h0[v];
+                let helfrich_force = -kb * (lap_h[v] + 2.0 * dh * (h[v] * h[v] - k[v]));
+                let tension_force = tension * h[v];
+                (helfrich_force + tension_force) / eta_surface
+            })
+            .collect()
+    }
+
+    /// Compute the v_n correction to the Q-tensor material derivative.
+    ///
+    /// For U1Spin2 on a 2-manifold: (bQ + Qb)_traceless = 2H * Q.
+    /// The correction to dQ/dt is: v_n * 2H * Q at each vertex.
+    ///
+    /// Returns delta_q1, delta_q2 to be added to the RHS of the Q evolution.
+    pub fn vn_correction(
+        &self,
+        v_n: &[f64],
+        q1: &[f64],
+        q2: &[f64],
+    ) -> (Vec<f64>, Vec<f64>) {
+        let nv = self.domain.n_vertices();
+        let h = &self.domain.mean_curvatures;
+
+        let dq1: Vec<f64> = (0..nv)
+            .map(|v| v_n[v] * 2.0 * h[v] * q1[v])
+            .collect();
+        let dq2: Vec<f64> = (0..nv)
+            .map(|v| v_n[v] * 2.0 * h[v] * q2[v])
+            .collect();
+
+        (dq1, dq2)
+    }
+
     /// Convenience: number of vertices.
     pub fn n_vertices(&self) -> usize {
         self.domain.n_vertices()
