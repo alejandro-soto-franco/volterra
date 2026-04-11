@@ -40,10 +40,10 @@ rustfft          = "6"
 pyo3             = { version = "0.25", features = ["extension-module", "abi3-py310"] }
 numpy            = "0.25"
 
-# Uncomment to use in-tree cartan changes without pushing first.
-# [patch.crates-io]
-# cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
-# cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
-# cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
-# cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }
-# cartan-remesh    = { path = "/home/alejandrosotofranco/cartan/cartan-remesh" }
+# Use in-tree cartan for fiber bundle development.
+[patch.crates-io]
+cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
+cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
+cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
+cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }
+cartan-remesh    = { path = "/home/alejandrosotofranco/cartan/cartan-remesh" }
