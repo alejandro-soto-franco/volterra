@@ -4,21 +4,28 @@ All notable changes to volterra are documented here.
 
 ---
 
-## [Unreleased]
+## [0.3.0] - 2026-04-11
 
 ### Breaking
 
 - Renamed `MarsParams` to `ActiveNematicParams`, `MarsParams3D` to `ActiveNematicParams3D`.
-- Renamed runner functions: `run_mars_component1` to `run_dry_active_nematic`,
-  `run_mars_component1_hydro` to `run_active_nematic_hydro`,
-  `run_mars_bech` to `run_bech`, `run_mars_3d` to `run_dry_active_nematic_3d`,
-  `run_mars_3d_full` to `run_bech_3d`.
-- Python API: all class and function names updated to match.
+- **Fixed elastic sign** in `molecular_field_conn` and `molecular_field_dec`: `+K*lap` -> `-K*lap`. The DEC Laplacian is positive-semidefinite; elastic smoothing requires the minus sign.
+- **Fixed active force** in `compute_vorticity_source`: flat (x,y) projection -> covariant 3D tensor divergence with per-vertex tangent frames.
 
 ### Added
 
-- New `volterra-mars` crate with MARS-specific parameter presets (`MarsPreset`)
-  and dimensionless group helpers (`MarsLnpDimensionless`).
+- **volterra-dec**: `EvolvingDomain<M>` with mesh deformation and automatic operator rebuild. Discrete Levi-Civita connection and `CovLaplacian` rebuilt on each `deform()`.
+- **volterra-dec**: curvature computation, shape equation (Helfrich + tension + active stress), `vn_correction()` for Q-tensor material derivative on evolving surfaces.
+- **volterra-dec**: `active_stress_normal()` (`-zeta * Q:b`), `advect_q_covariant()` with parallel transport, `write_velocity_snapshot()`.
+- **volterra-solver**: Zhu-parameterised S^2 simulation (`sim_sphere_zhu --pe N`).
+- **volterra-solver**: coupled shape + nematic examples (`sim_deforming_sphere`, `sim_active_deforming`).
+- **volterra-solver**: 3D Beris-Edwards via fiber bundle (`sim_3d_fiber_bundle`).
+- **volterra-mars**: MARS-specific parameter presets and dimensionless groups.
+- **tools/viz**: dark-green-to-white S colourmap, blue-green-red vorticity panel, barycentric streamline interpolation with Catmull-Rom smoothing.
+
+### Changed
+
+- Depends on cartan 0.4 (fiber bundle traits).
 
 ---
 
