@@ -22,6 +22,10 @@ pub struct StokesSolverDec {
     dual_areas: Vec<f64>,
     /// Hodge star on 1-forms: star_1[e] = |dual_edge| / |primal_edge|.
     star1: Vec<f64>,
+    /// Per-vertex unit normal.
+    normals: Vec<[f64; 3]>,
+    /// Per-vertex tangent frame e1 direction (e2 = n x e1).
+    e1_frames: Vec<[f64; 3]>,
 }
 
 /// Velocity field on a DEC mesh: 3D tangent vector per vertex.
@@ -89,7 +93,7 @@ fn compute_dual_areas(nv: usize, simplices: &[[usize; 3]], coords: &[[f64; 3]]) 
 }
 
 impl StokesSolverDec {
-    /// Build the Stokes solver, caching vertex coordinates and dual areas.
+    /// Build the Stokes solver, caching vertex coordinates, dual areas, and tangent frames.
     pub fn new<M: Manifold>(ops: &Operators<M, 3, 2>, mesh: &Mesh<M, 3, 2>) -> Result<Self, String> {
         let n_vertices = ops.laplace_beltrami.rows();
         let poisson = PoissonSolver::new(ops)?;
@@ -97,7 +101,9 @@ impl StokesSolverDec {
         let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
         let s1 = ops.hodge.star1();
         let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
-        Ok(Self { poisson, n_vertices, coords, dual_areas, star1 })
+        let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
+        let e1_frames = compute_tangent_frames_stokes(&normals);
+        Ok(Self { poisson, n_vertices, coords, dual_areas, star1, normals, e1_frames })
     }
 
     /// Solve Stokes for the active velocity field.
@@ -116,8 +122,11 @@ impl StokesSolverDec {
             return VelocityFieldDec::zeros(nv);
         }
 
-        // Compute vorticity source from active stress.
-        let omega = compute_vorticity_source(q, zeta, eta, mesh, &self.coords, &self.dual_areas);
+        // Compute vorticity source from active stress (covariant divergence).
+        let omega = compute_vorticity_source(
+            q, zeta, eta, mesh, &self.coords, &self.dual_areas,
+            &self.normals, &self.e1_frames,
+        );
 
         // Solve for stream function: -Delta psi = omega.
         let psi = self.poisson.solve(&omega);
@@ -128,6 +137,13 @@ impl StokesSolverDec {
 }
 
 /// Compute the vorticity source from active stress curl(div(-zeta Q)).
+///
+/// Uses the covariant tensor divergence: Q at each vertex is expanded into
+/// its 3D ambient representation using the vertex tangent frame (e1, e2),
+/// then FEM gradients give the surface divergence on each triangle. This
+/// correctly handles curved surfaces where the tangent frames differ between
+/// vertices (the previous version used only global (x,y) components, which
+/// fails away from the equator on a sphere).
 pub fn compute_vorticity_source<M: Manifold>(
     q: &QFieldDec,
     zeta: f64,
@@ -135,6 +151,8 @@ pub fn compute_vorticity_source<M: Manifold>(
     mesh: &Mesh<M, 3, 2>,
     coords: &[[f64; 3]],
     dual_areas: &[f64],
+    normals: &[[f64; 3]],
+    e1_frames: &[[f64; 3]],
 ) -> DVector<f64> {
     let nv = q.n_vertices;
     let mut omega = vec![0.0_f64; nv];
@@ -153,37 +171,48 @@ pub fn compute_vorticity_source<M: Manifold>(
         let fn_hat = scale3(fn_vec, 1.0 / area2);
         let inv_2a = 1.0 / area2;
 
-        // Rotated edges (n x e) for gradient computation.
-        let rot_e12 = cross3(fn_hat, e12);
-        let rot_e20 = cross3(fn_hat, e20);
-        let rot_e01 = cross3(fn_hat, e01);
+        // FEM gradient basis functions: grad(phi_a) = (n x e_opp) / (2*area).
+        let grad_phi = [
+            scale3(cross3(fn_hat, e12), inv_2a),
+            scale3(cross3(fn_hat, e20), inv_2a),
+            scale3(cross3(fn_hat, e01), inv_2a),
+        ];
 
-        // Gradient of q1 and q2 on this face.
-        let gq1 = scale3(
-            add3(add3(
-                scale3(rot_e12, q.q1[i0]),
-                scale3(rot_e20, q.q1[i1])),
-                scale3(rot_e01, q.q1[i2])),
-            inv_2a,
-        );
-        let gq2 = scale3(
-            add3(add3(
-                scale3(rot_e12, q.q2[i0]),
-                scale3(rot_e20, q.q2[i1])),
-                scale3(rot_e01, q.q2[i2])),
-            inv_2a,
-        );
+        let verts = [i0, i1, i2];
 
-        // Active force on this face: f = -zeta * div(Q)
-        // f_x = -zeta*(gq1_x + gq2_y), f_y = -zeta*(gq2_x - gq1_y)
-        // (using the local face tangent plane)
-        let fx = -zeta * (gq1[0] + gq2[1]);
-        let fy = -zeta * (gq2[0] - gq1[1]);
+        // Compute 3D active force f = -zeta * div(Q) on this face.
+        //
+        // Q at vertex a in 3D ambient:
+        //   Q_{kj} = q1_a*(e1_k*e1_j - e2_k*e2_j) + q2_a*(e1_k*e2_j + e2_k*e1_j)
+        //
+        // div(Q)_k = sum_a sum_j grad_phi_a[j] * Q_{kj}(a)
+        //          = sum_a [q1_a*(e1_k*g1 - e2_k*g2) + q2_a*(e1_k*g2 + e2_k*g1)]
+        //
+        // where g1 = dot(grad_phi_a, e1_a), g2 = dot(grad_phi_a, e2_a).
+        let mut f = [0.0_f64; 3];
+        for local in 0..3 {
+            let vi = verts[local];
+            let e1 = e1_frames[vi];
+            let e2 = cross3(normals[vi], e1);
 
-        // Circulation of f around the triangle edges, distributed to vertices.
-        let circ_01 = fx * e01[0] + fy * e01[1];
-        let circ_12 = fx * e12[0] + fy * e12[1];
-        let circ_20 = fx * e20[0] + fy * e20[1];
+            let g1 = dot3(grad_phi[local], e1);
+            let g2 = dot3(grad_phi[local], e2);
+
+            let q1_v = q.q1[vi];
+            let q2_v = q.q2[vi];
+
+            for k in 0..3 {
+                f[k] += -zeta * (
+                    q1_v * (e1[k] * g1 - e2[k] * g2)
+                  + q2_v * (e1[k] * g2 + e2[k] * g1)
+                );
+            }
+        }
+
+        // Circulation of the 3D force around the triangle edges.
+        let circ_01 = dot3(f, e01);
+        let circ_12 = dot3(f, e12);
+        let circ_20 = dot3(f, e20);
 
         omega[i0] += 0.5 * (circ_01 - circ_20);
         omega[i1] += 0.5 * (circ_12 - circ_01);
@@ -309,6 +338,65 @@ pub fn advect_q(
     QFieldDec { q1: adv_q1, q2: adv_q2, n_vertices: nv }
 }
 
+/// Covariant advection: computes (u . grad Q) with parallel transport.
+///
+/// Unlike [`advect_q`], this function parallel-transports Q along each edge
+/// before computing directional derivatives, correctly handling the
+/// frame-dependence of Q-tensor components on curved surfaces.
+///
+/// `edge_phases[e]` is the spin-2 connection phase for `mesh_boundaries[e]`,
+/// obtained from [`crate::connection_laplacian::ConnectionLaplacian::edge_phases`].
+pub fn advect_q_covariant(
+    q: &QFieldDec,
+    vel: &VelocityFieldDec,
+    mesh_boundaries: &[[usize; 2]],
+    vertex_boundaries: &[Vec<usize>],
+    coords: &[[f64; 3]],
+    edge_phases: &[f64],
+) -> QFieldDec {
+    let nv = q.n_vertices;
+    let mut adv_q1 = vec![0.0; nv];
+    let mut adv_q2 = vec![0.0; nv];
+
+    for (e, &[v0, v1]) in mesh_boundaries.iter().enumerate() {
+        let edge = sub3(coords[v1], coords[v0]);
+        let edge_len_sq = dot3(edge, edge);
+        if edge_len_sq < 1e-30 { continue; }
+
+        let u_mid = scale3(add3(vel.v[v0], vel.v[v1]), 0.5);
+        let u_dot_e = dot3(u_mid, edge) / edge_len_sq;
+
+        let phase = edge_phases[e];
+        let cos_p = phase.cos();
+        let sin_p = phase.sin();
+
+        // Transport Q from v1 to v0's frame, then difference.
+        let q1_v1_in_v0 =  cos_p * q.q1[v1] + sin_p * q.q2[v1];
+        let q2_v1_in_v0 = -sin_p * q.q1[v1] + cos_p * q.q2[v1];
+        let dq1_at_v0 = q1_v1_in_v0 - q.q1[v0];
+        let dq2_at_v0 = q2_v1_in_v0 - q.q2[v0];
+
+        let n_e0 = vertex_boundaries[v0].len().max(1) as f64;
+        adv_q1[v0] += u_dot_e * dq1_at_v0 / n_e0;
+        adv_q2[v0] += u_dot_e * dq2_at_v0 / n_e0;
+
+        // Transport Q from v0 to v1's frame, then difference.
+        let q1_v0_in_v1 = cos_p * q.q1[v0] - sin_p * q.q2[v0];
+        let q2_v0_in_v1 = sin_p * q.q1[v0] + cos_p * q.q2[v0];
+        let dq1_at_v1 = q.q1[v1] - q1_v0_in_v1;
+        let dq2_at_v1 = q.q2[v1] - q2_v0_in_v1;
+
+        // Reversed edge direction: u_dot_e_rev = -u_dot_e, dq_rev = -dq_at_v1_reversed
+        // But dq_at_v1 is already "Q_v1 - transported(Q_v0)", and the edge direction for v1
+        // is -e, so the sign of u_dot_e flips and the dq sign flips, giving the same product.
+        let n_e1 = vertex_boundaries[v1].len().max(1) as f64;
+        adv_q1[v1] += u_dot_e * dq1_at_v1 / n_e1;
+        adv_q2[v1] += u_dot_e * dq2_at_v1 / n_e1;
+    }
+
+    QFieldDec { q1: adv_q1, q2: adv_q2, n_vertices: nv }
+}
+
 fn average_edge_normal<M: Manifold>(
     edge_idx: usize,
     mesh: &Mesh<M, 3, 2>,
@@ -324,6 +412,45 @@ fn average_edge_normal<M: Manifold>(
     }
     let len = norm3(n);
     if len > 1e-14 { scale3(n, 1.0 / len) } else { [0.0, 0.0, 1.0] }
+}
+
+/// Compute area-weighted vertex normals from a triangle mesh.
+fn compute_vertex_normals_stokes(simplices: &[[usize; 3]], coords: &[[f64; 3]]) -> Vec<[f64; 3]> {
+    let nv = coords.len();
+    let mut normals = vec![[0.0_f64; 3]; nv];
+    for &[i0, i1, i2] in simplices {
+        let e01 = sub3(coords[i1], coords[i0]);
+        let e02 = sub3(coords[i2], coords[i0]);
+        let fn_vec = cross3(e01, e02);
+        normals[i0] = add3(normals[i0], fn_vec);
+        normals[i1] = add3(normals[i1], fn_vec);
+        normals[i2] = add3(normals[i2], fn_vec);
+    }
+    for n in &mut normals {
+        let len = norm3(*n);
+        if len > 1e-14 {
+            *n = scale3(*n, 1.0 / len);
+        }
+    }
+    normals
+}
+
+/// Compute per-vertex tangent frame e1 from normals (e2 = n x e1).
+///
+/// Uses the same algorithm as `ConnectionLaplacian` so that the frames are
+/// consistent with the covariant Laplacian used by the molecular field.
+fn compute_tangent_frames_stokes(normals: &[[f64; 3]]) -> Vec<[f64; 3]> {
+    normals.iter().map(|n| {
+        let ref_dir = if n[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let d = dot3(*n, ref_dir);
+        let t = [ref_dir[0] - d * n[0], ref_dir[1] - d * n[1], ref_dir[2] - d * n[2]];
+        let len = norm3(t);
+        if len > 1e-14 { scale3(t, 1.0 / len) } else { [1.0, 0.0, 0.0] }
+    }).collect()
 }
 
 // Vector helpers (pub(crate) for use by curved_stokes).
@@ -386,5 +513,32 @@ mod tests {
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
         let solver = StokesSolverDec::new(&ops, &mesh);
         assert!(solver.is_ok());
+    }
+
+    #[test]
+    fn stokes_nonzero_velocity_on_sphere() {
+        use crate::mesh_gen::icosphere;
+        use cartan_manifolds::sphere::Sphere;
+
+        let mesh = icosphere(3); // 642 vertices
+        let ops = Operators::from_mesh_generic(&mesh, &Sphere::<3>).unwrap();
+        let mut params = ActiveNematicParams::default_test();
+        params.zeta_eff = 2.0;
+        params.eta = 1.0;
+
+        let nv = mesh.n_vertices();
+        let q = QFieldDec::random_perturbation(nv, 0.3, 42);
+
+        let solver = StokesSolverDec::new(&ops, &mesh).unwrap();
+        let v = solver.solve(&q, &params, &ops, &mesh);
+
+        let v_rms: f64 = (v.v.iter()
+            .map(|[x, y, z]| x * x + y * y + z * z)
+            .sum::<f64>() / nv as f64)
+            .sqrt();
+        assert!(
+            v_rms > 1e-6,
+            "nonzero activity on sphere should give nonzero velocity, got v_rms = {v_rms:.3e}"
+        );
     }
 }
