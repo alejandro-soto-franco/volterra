@@ -122,8 +122,7 @@ fn main() {
     let (params, t_final, dt, snap_every) = zhu_params(pe);
     let n_steps = ((t_final / dt) as f64).ceil() as usize;
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let out_dir = format!("{home}/.volterra-bench/viz/sphere_pe{}", pe as u64);
+    let out_dir = format!("output/sphere_pe{}", pe as u64);
     let out = Path::new(&out_dir);
     std::fs::create_dir_all(out).expect("failed to create output directory");
 
