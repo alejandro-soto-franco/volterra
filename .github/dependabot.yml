@@ -3,9 +3,27 @@ updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: daily
+      interval: weekly
     open-pull-requests-limit: 5
     groups:
       cartan:
         patterns:
           - "cartan-*"
+      pyo3-stack:
+        patterns:
+          - "pyo3"
+          - "numpy"
+    ignore:
+      # Major-version bumps require manual code adaptation (breaking
+      # API changes, feature renames, MSRV shifts). Open an issue and
+      # do the bump intentionally when the upgrade earns its keep.
+      - dependency-name: "rand"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "nalgebra"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "pyo3"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "thiserror"
+        update-types: ["version-update:semver-major"]
