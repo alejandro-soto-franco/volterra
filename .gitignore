@@ -9,3 +9,7 @@ output/
 literature/
 examples/
 tools/viz/
+
+# AI tooling
+.wolf/
+docs/superpowers/
