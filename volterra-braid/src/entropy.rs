@@ -81,10 +81,107 @@ fn generator_matrix(n: usize, g: &Generator) -> DMatrix<f64> {
     b
 }
 
+/// The paper's reduced Burau matrix for a single generator, exactly as
+/// tabulated in arXiv:2503.10880 (SI.11 for B_3, SI.16 for B_4).
+///
+/// This reproduces the paper's representation verbatim so that the braid
+/// products beta_golden (SI.12) and beta_silver (SI.17) match the paper exactly,
+/// confirming volterra's topological entropy equals the paper's `h = log|b_max|`.
+///
+/// Note: the paper's B_3 (SI.11) and B_4 (SI.16) tabulations use mutually
+/// inconsistent sigma_1/sigma_2 labelings (SI.11 disagrees with both the general
+/// Burau formula and SI.16). We reproduce each as written, so the stated products
+/// SI.12 and SI.17 are matched verbatim; the dilatation `|b_max|` -- and hence the
+/// entropy -- is unaffected by the labeling. Tabulated for B_3 and B_4 only (the
+/// golden and silver braids); other strand counts use the unreduced-at-`t=-1`
+/// representation via [`burau_spectral_radius_minus1`].
+pub fn paper_burau_matrix(n_strands: usize, g: crate::braidword::Generator) -> DMatrix<f64> {
+    let i = g.index;
+    match n_strands {
+        3 => {
+            let m: [f64; 4] = match (i, g.inverse) {
+                (1, false) => [1., 1., 0., 1.],
+                (1, true) => [1., -1., 0., 1.],
+                (2, false) => [1., 0., -1., 1.],
+                (2, true) => [1., 0., 1., 1.],
+                _ => panic!("B_3 generator index {i} out of range"),
+            };
+            DMatrix::from_row_slice(2, 2, &m)
+        }
+        4 => {
+            let m: [f64; 9] = match (i, g.inverse) {
+                (1, false) => [1., 0., 0., -1., 1., 0., 0., 0., 1.],
+                (1, true) => [1., 0., 0., 1., 1., 0., 0., 0., 1.],
+                (2, false) => [1., 1., 0., 0., 1., 0., 0., -1., 1.],
+                (2, true) => [1., -1., 0., 0., 1., 0., 0., 1., 1.],
+                (3, false) => [1., 0., 0., 0., 1., 1., 0., 0., 1.],
+                (3, true) => [1., 0., 0., 0., 1., -1., 0., 0., 1.],
+                _ => panic!("B_4 generator index {i} out of range"),
+            };
+            DMatrix::from_row_slice(3, 3, &m)
+        }
+        _ => panic!("paper_burau_matrix is tabulated for B_3 and B_4 only"),
+    }
+}
+
+/// The braidword's image under the paper's reduced Burau representation
+/// (left-to-right product), as an `(n-1) x (n-1)` matrix.
+pub fn paper_burau_word(word: &BraidWord) -> DMatrix<f64> {
+    let mut m = DMatrix::<f64>::identity(word.n_strands - 1, word.n_strands - 1);
+    for g in &word.gens {
+        m *= paper_burau_matrix(word.n_strands, *g);
+    }
+    m
+}
+
+/// Spectral radius `|b_max|` of the paper's reduced Burau matrix of `word`.
+pub fn paper_burau_spectral_radius(word: &BraidWord) -> f64 {
+    paper_burau_word(word)
+        .complex_eigenvalues()
+        .iter()
+        .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+        .fold(0.0, f64::max)
+}
+
 #[cfg(test)]
 mod entropy_tests {
     use super::*;
     use crate::{GOLDEN_H, PHI, SILVER_H};
+
+    #[test]
+    fn paper_golden_matrix_matches_si12() {
+        // arXiv:2503.10880 SI.12: beta_golden = sigma_2^-1 sigma_1 = [[1,1],[1,2]].
+        let w = BraidWord::from_codes(3, &[-2, 1]);
+        let expected = DMatrix::from_row_slice(2, 2, &[1., 1., 1., 2.]);
+        assert_eq!(paper_burau_word(&w), expected);
+    }
+
+    #[test]
+    fn paper_silver_matrix_matches_si17() {
+        // arXiv:2503.10880 SI.17: beta_silver = [[2,-2,-1],[-2,3,2],[-1,2,2]].
+        let w = BraidWord::from_codes(4, &[3, 1, 2, -3, -1, -2]);
+        let expected = DMatrix::from_row_slice(3, 3, &[2., -2., -1., -2., 3., 2., -1., 2., 2.]);
+        assert_eq!(paper_burau_word(&w), expected);
+    }
+
+    #[test]
+    fn paper_burau_dilatations_match_metallic_ratios() {
+        // golden b_max = phi_0^2 = (3+sqrt5)/2; silver b_max = phi_1^2 = 3+2sqrt2.
+        let golden = paper_burau_spectral_radius(&BraidWord::from_codes(3, &[-2, 1]));
+        assert!((golden - (3.0 + 5.0_f64.sqrt()) / 2.0).abs() < 1e-9);
+        let silver = paper_burau_spectral_radius(&BraidWord::from_codes(4, &[3, 1, 2, -3, -1, -2]));
+        assert!((silver - (3.0 + 2.0 * 2.0_f64.sqrt())).abs() < 1e-9);
+    }
+
+    #[test]
+    fn paper_burau_entropy_agrees_with_unreduced() {
+        // The paper's reduced Burau and volterra's unreduced-at-t=-1 give the same h.
+        for (n, codes) in [(3usize, vec![-2, 1]), (4, vec![3, 1, 2, -3, -1, -2])] {
+            let w = BraidWord::from_codes(n, &codes);
+            let h_paper = paper_burau_spectral_radius(&w).ln();
+            assert!((h_paper - topological_entropy(&w)).abs() < 1e-9);
+        }
+    }
 
     #[test]
     fn golden_dilatation_is_phi_squared() {
