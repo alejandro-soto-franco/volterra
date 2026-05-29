@@ -17,3 +17,7 @@ docs/superpowers/
 # Python caches
 __pycache__/
 *.pyc
+
+# Keep volterra-braid demos (override the blanket examples/ ignore)
+!volterra-braid/examples/
+!volterra-braid/examples/**
