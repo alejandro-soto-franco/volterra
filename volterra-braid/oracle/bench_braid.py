@@ -31,14 +31,21 @@ except ImportError:
     sys.exit("ERROR: import volterra failed; run `maturin develop --release` first.")
 
 
-def build_grids(n_frames, lx):
-    """Render `n_frames` Q-grids of a 3-defect golden orbit at lx*lx resolution."""
+CONFIGS = [
+    ("golden", 3, [-2, 1]),
+    ("silver", 4, [3, 1, 2, -3, -1, -2]),
+]
+
+
+def build_grids(n, codes, n_frames, lx):
+    """Render `n_frames` Q-grids of an n-defect orbit at lx*lx resolution."""
     cc.LX = cc.LY = lx
     cc.RADIUS = lx // 2 - 1
     # Scale the orbit geometry to the grid so defects stay well inside.
     cc.GY_SPACING = {3: lx * 0.24, 4: lx * 0.2}
-    pts = cc.disk_orbit(3, [-2, 1], fpg=10, periods=max(1, n_frames // 20))
-    pts = pts[:n_frames]
+    period_len = max(1, len(codes))
+    periods = max(1, n_frames // (period_len * 10))
+    pts = cc.disk_orbit(n, codes, fpg=10, periods=periods)[:n_frames]
     grids = [cc.render_q(p) for p in pts]  # list of (qxx_flat, qxy_flat)
     mask = cc.circular_mask()
     return grids, mask
@@ -70,21 +77,18 @@ def time_python(grids, mask, lx):
     return t_det, t_word, codes
 
 
-def main():
-    n_frames = int(sys.argv[1]) if len(sys.argv) > 1 else 120
-    lx = int(sys.argv[2]) if len(sys.argv) > 2 else 100
-    print(f"Braid pipeline benchmark: {n_frames} frames at {lx}x{lx} ({lx*lx} sites/frame)\n")
+def bench_config(name, n, codes, n_frames, lx):
+    print(f"\n=== {name} ({n} defects) ===")
+    grids, mask = build_grids(n, codes, n_frames, lx)
 
-    grids, mask = build_grids(n_frames, lx)
-
-    # Warm-up (JIT-free, but warms caches / first-call allocation).
+    # Warm-up (warms caches / first-call allocation).
     time_volterra(grids[:5], mask, lx)
     time_python(grids[:5], mask, lx)
 
     v_det, v_word, v_codes = time_volterra(grids, mask, lx)
     p_det, p_word, p_codes = time_python(grids, mask, lx)
 
-    sites = n_frames * lx * lx
+    sites = len(grids) * lx * lx
     print(f"{'stage':<22}{'volterra (Rust)':>20}{'braid_tracker_v2 (Py)':>24}{'speedup':>10}")
     print("-" * 76)
     for label, vt, pt in (("detection (total)", v_det, p_det), ("track+word (total)", v_word, p_word)):
@@ -92,9 +96,17 @@ def main():
     v_tot, p_tot = v_det + v_word, p_det + p_word
     print(f"{'TOTAL':<22}{v_tot*1e3:>17.2f} ms{p_tot*1e3:>21.2f} ms{p_tot/max(v_tot,1e-12):>9.1f}x")
     print()
-    print(f"  volterra: {v_det/n_frames*1e6:8.2f} us/frame detection, {v_det/sites*1e9:6.2f} ns/site")
-    print(f"  python:   {p_det/n_frames*1e6:8.2f} us/frame detection, {p_det/sites*1e9:6.2f} ns/site")
-    print(f"\n  braid words match: {v_codes == p_codes}  (volterra {v_codes[:6]}...)")
+    print(f"  volterra: {v_det/len(grids)*1e6:8.2f} us/frame detection, {v_det/sites*1e9:6.2f} ns/site")
+    print(f"  python:   {p_det/len(grids)*1e6:8.2f} us/frame detection, {p_det/sites*1e9:6.2f} ns/site")
+    print(f"  braid words match: {v_codes == p_codes}  (volterra {v_codes[:6]}...)")
+
+
+def main():
+    n_frames = int(sys.argv[1]) if len(sys.argv) > 1 else 120
+    lx = int(sys.argv[2]) if len(sys.argv) > 2 else 100
+    print(f"Braid pipeline benchmark: {n_frames} frames at {lx}x{lx} ({lx*lx} sites/frame)")
+    for (name, n, codes) in CONFIGS:
+        bench_config(name, n, codes, n_frames, lx)
 
 
 if __name__ == "__main__":
