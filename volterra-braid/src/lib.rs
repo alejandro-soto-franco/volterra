@@ -35,7 +35,9 @@ pub mod track;
 
 pub use braidword::{BraidWord, Generator, extract_braidword};
 pub use defect::{Defect, detect_defects};
-pub use entropy::topological_entropy;
+pub use entropy::{
+    paper_burau_matrix, paper_burau_spectral_radius, paper_burau_word, topological_entropy,
+};
 pub use synthetic::{RealizeOpts, golden_orbit, realize_braid, silver_orbit};
 pub use track::{Worldline, track};
 
