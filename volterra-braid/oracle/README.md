@@ -16,6 +16,10 @@ Python reimplementation of the CGPO reference braid tracker.
   published `braid_tracker.py`. Renders Q-tensor grids for the golden/silver
   braiding configurations, runs the real script via uv, and checks volterra and
   the script extract the same braid word and topological entropy.
+- `bench_braid.py` — throughput benchmark: times volterra (PyO3) vs the Python
+  braid_tracker_v2 algorithm on identical Q grids. See BENCHMARKS.md section 9.
+  (`cargo run --release --example bench_braid -p volterra-braid` for the native
+  Rust numbers.)
 
 ## Running
 
