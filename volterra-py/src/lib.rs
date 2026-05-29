@@ -17,6 +17,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 mod bindings_3d;
+mod braid;
 
 use volterra_core::ActiveNematicParams;
 use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
@@ -584,5 +585,6 @@ fn volterra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(scan_defects_py, m)?)?;
     m.add_function(wrap_pyfunction!(ch_step_etd_py, m)?)?;
     bindings_3d::register(m)?;
+    braid::register(m)?;
     Ok(())
 }
