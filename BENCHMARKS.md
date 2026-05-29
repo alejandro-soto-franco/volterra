@@ -220,6 +220,51 @@ CUDA acceleration is not a priority for volterra. The crossover point where GPU 
 
 ---
 
+## 9. Braid Analysis Throughput (volterra vs CGPO braid_tracker.py)
+
+Throughput of the defect braid-analysis pipeline -- detection from Q-tensor
+grids, frame-to-frame tracking, and braid-word extraction -- on identical input
+(120 frames of a 3-defect golden orbit, 100x100 grid, 10,000 sites/frame,
+single-threaded). The reference is the published
+`Chaos-Generating-Periodic-Orbits/braid_tracker.py` algorithm, transcribed
+faithfully in `volterra-braid/oracle/braid_tracker_v2.py` (same per-cell `ss`
+Jacobian, flood-fill clustering, greedy tracking; plotting/IO stripped). All
+three paths extract the identical braid word.
+
+### Detection throughput (the dominant stage)
+
+| Path | ns/site | us/frame | vs Python |
+|------|---------|----------|-----------|
+| volterra, native Rust (`cargo run --example bench_braid`) | 4.0 | 40 | **145x** |
+| volterra via PyO3 (`braid_detect_defects`, incl. list marshalling) | 41 | 410 | 14x |
+| CGPO `braid_tracker.py` scheme (Python, `braid_tracker_v2.py`) | 582 | 5822 | 1x |
+
+### Full pipeline (120 frames)
+
+| Path | detection | track + word | total |
+|------|-----------|--------------|-------|
+| volterra native Rust | 4.8 ms | 0.013 ms | **4.8 ms** |
+| volterra via PyO3 | 49.2 ms | 0.04 ms | 49.2 ms |
+| CGPO Python | 698.7 ms | 0.34 ms | 699.0 ms |
+
+### Notes
+
+- **Native Rust is ~145x faster** than the published per-cell Python scheme;
+  even through the PyO3 boundary (which copies each 10k-element grid to a Python
+  list per call) volterra is ~14x faster. The order-of-magnitude gap between the
+  native and PyO3 paths is the FFI marshalling, not the algorithm.
+- The Python baseline is the algorithm **as published** (explicit per-cell
+  loops, `braid_tracker.py` lines 219-231). A vectorised numpy rewrite of the
+  `ss` computation would narrow the gap, but the published code is not vectorised
+  and this benchmark compares against it as written.
+- Tracking + word extraction is negligible in all paths (the braid algebra is
+  cheap; detection dominates).
+- Reproduce: `cargo run --release --example bench_braid -p volterra-braid`
+  (native) and `.venv/bin/python volterra-braid/oracle/bench_braid.py` (vs
+  Python; needs `maturin develop --release`).
+
+---
+
 ## Future Benchmarks (TODO)
 
 - [ ] Active nematic with flow: volterra (FFT Stokes) vs Ludwig (LBM)
