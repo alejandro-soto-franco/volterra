@@ -4,6 +4,24 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **volterra-braid**: new crate for braid-group analysis of defect trajectories,
+  decoupled from the PDE solver. `detect_defects` (Q grid -> defects), `track`
+  (greedy nearest-neighbour), `extract_braidword` (Artin generators from defect
+  worldlines), `topological_entropy` (Burau spectral radius at `t = -1`; exact
+  for the golden `2 log phi` and silver `log(3 + 2 sqrt 2)` braids), and
+  `realize_braid` / `golden_orbit` / `silver_orbit` synthetic orbits.
+- **volterra-py**: `BraidWord` class plus `braid_detect_defects`,
+  `braid_word_from_frames`, `braid_topological_entropy` functions; `.pyi` stubs.
+- **volterra-braid/oracle**: `braid_tracker_v2.py` (cleaned reimplementation of
+  the CGPO reference tracker) and `cross_check.py` (Rust-vs-Python differential
+  validation, run via uv).
+
+---
+
 ## [0.3.0] - 2026-04-11
 
 ### Breaking

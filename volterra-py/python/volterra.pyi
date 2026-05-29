@@ -230,3 +230,59 @@ def scan_defects(
     Returns a list of DefectInfo for each detected ±1/2 disclination.
     """
     ...
+
+# ---------------------------------------------------------------------------
+# Braid-group analysis (volterra-braid)
+# ---------------------------------------------------------------------------
+
+class BraidWord:
+    """A braid word in the Artin generators (+i = sigma_i, -i = sigma_i^-1)."""
+
+    n_strands: int
+    codes: list[int]
+
+    def __init__(self, n_strands: int, codes: Sequence[int]) -> None: ...
+
+    @staticmethod
+    def from_frames(
+        frames: Sequence[Sequence[tuple[float, float, int]]],
+    ) -> BraidWord:
+        """Track a defect-position time series (frames of (x, y, charge)) and
+        extract its braid word."""
+        ...
+
+    def entropy(self) -> float:
+        """Topological entropy: log of the dilatation (Burau at t = -1)."""
+        ...
+
+    def permutation(self) -> list[int]:
+        """perm[i] = final position of the strand that started at position i."""
+        ...
+
+    def exponent_sum(self) -> int: ...
+    def fundamental_period(self) -> list[int]: ...
+    def __len__(self) -> int: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
+
+def braid_detect_defects(
+    qxx: Sequence[float],
+    qxy: Sequence[float],
+    nx: int,
+    ny: int,
+    threshold: float,
+    mask: Sequence[bool],
+) -> list[tuple[float, float, int]]:
+    """Detect defects in a row-major nx*ny Q grid -> [(x, y, charge), ...]."""
+    ...
+
+def braid_word_from_frames(
+    frames: Sequence[Sequence[tuple[float, float, int]]],
+) -> tuple[int, list[int]]:
+    """Track + extract; returns (n_strands, codes)."""
+    ...
+
+def braid_topological_entropy(n_strands: int, codes: Sequence[int]) -> float:
+    """Topological entropy of the braid given by (n_strands, codes)."""
+    ...
