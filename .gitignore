@@ -21,3 +21,8 @@ __pycache__/
 # Keep volterra-braid demos (override the blanket examples/ ignore)
 !volterra-braid/examples/
 !volterra-braid/examples/**
+
+# Generated CGPO reference runner (regenerate via patch_flow_solver.py) + IC dumps
+volterra-braid/oracle/concurrence/flow_solver_run.py
+theta_ic_*.txt
+als_*_ncl_*/
