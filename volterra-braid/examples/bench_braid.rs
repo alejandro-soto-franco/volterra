@@ -43,33 +43,38 @@ fn interior_mask() -> Vec<bool> {
     m
 }
 
-fn main() {
-    let n_frames = 120usize;
+/// `n_defects` sliding along grid-y (spaced), each with a small grid-x wobble.
+/// Exact braid is irrelevant for timing; this just exercises detection +
+/// tracking + extraction with the right number of defects.
+fn make_grids(n_defects: usize, n_frames: usize) -> Vec<(Vec<f64>, Vec<f64>)> {
     let cx = (LX / 2 - 1) as f64;
-
-    // Three defects sliding along grid-y with a small grid-x wobble (enough to
-    // exercise detection + tracking); exact braid is irrelevant for timing.
+    let span = (LX as f64) * 0.44;
     let mut grids = Vec::with_capacity(n_frames);
     for f in 0..n_frames {
         let t = f as f64 / n_frames as f64;
-        let defects = [
-            (cx + 6.0 * (t * std::f64::consts::TAU).sin(), cx - 22.0),
-            (cx - 6.0 * (t * std::f64::consts::TAU).sin(), cx),
-            (cx + 6.0 * (t * std::f64::consts::TAU).cos(), cx + 22.0),
-        ];
+        let defects: Vec<(f64, f64)> = (0..n_defects)
+            .map(|k| {
+                let gy = cx + (k as f64 - (n_defects as f64 - 1.0) / 2.0) * span / n_defects as f64;
+                let phase = (k as f64) * 1.7 + t * std::f64::consts::TAU;
+                (cx + 6.0 * phase.sin(), gy)
+            })
+            .collect();
         grids.push(render(&defects));
     }
-    let mask = interior_mask();
+    grids
+}
 
-    // Warm-up.
+fn bench(label: &str, n_defects: usize, n_frames: usize, mask: &[bool]) {
+    let grids = make_grids(n_defects, n_frames);
+
     for (qxx, qxy) in grids.iter().take(5) {
-        let _ = detect_defects(qxx, qxy, LX, LX, THRESHOLD, &mask);
+        let _ = detect_defects(qxx, qxy, LX, LX, THRESHOLD, mask);
     }
 
     let t0 = Instant::now();
     let mut frames = Vec::with_capacity(n_frames);
     for (qxx, qxy) in &grids {
-        frames.push(detect_defects(qxx, qxy, LX, LX, THRESHOLD, &mask));
+        frames.push(detect_defects(qxx, qxy, LX, LX, THRESHOLD, mask));
     }
     let t_det = t0.elapsed();
 
@@ -79,12 +84,14 @@ fn main() {
 
     let sites = (n_frames * LX * LX) as f64;
     let det_s = t_det.as_secs_f64();
-    println!("Native braid pipeline: {n_frames} frames at {LX}x{LX}");
+    let counts: std::collections::BTreeSet<usize> = frames.iter().map(|f| f.len()).collect();
+    println!("\n=== {label} ({n_defects} defects) ===");
     println!(
-        "  detection:   {:8.2} ms total, {:7.2} us/frame, {:6.2} ns/site",
+        "  detection:   {:8.2} ms total, {:7.2} us/frame, {:6.2} ns/site  (defects/frame {:?})",
         det_s * 1e3,
         det_s / n_frames as f64 * 1e6,
         det_s / sites * 1e9,
+        counts,
     );
     println!(
         "  track+word:  {:8.3} ms total ({} generators over {} frames)",
@@ -92,4 +99,12 @@ fn main() {
         word.gens.len(),
         n_frames,
     );
+}
+
+fn main() {
+    let n_frames = 120usize;
+    let mask = interior_mask();
+    println!("Native braid pipeline: {n_frames} frames at {LX}x{LX}");
+    bench("golden", 3, n_frames, &mask);
+    bench("silver", 4, n_frames, &mask);
 }

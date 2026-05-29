@@ -224,32 +224,40 @@ CUDA acceleration is not a priority for volterra. The crossover point where GPU 
 
 Throughput of the defect braid-analysis pipeline -- detection from Q-tensor
 grids, frame-to-frame tracking, and braid-word extraction -- on identical input
-(120 frames of a 3-defect golden orbit, 100x100 grid, 10,000 sites/frame,
-single-threaded). The reference is the published
+(120 frames each of the golden 3-defect and silver 4-defect orbits, 100x100
+grid, 10,000 sites/frame, single-threaded). The reference is the published
 `Chaos-Generating-Periodic-Orbits/braid_tracker.py` algorithm, transcribed
 faithfully in `volterra-braid/oracle/braid_tracker_v2.py` (same per-cell `ss`
-Jacobian, flood-fill clustering, greedy tracking; plotting/IO stripped). All
-three paths extract the identical braid word.
+Jacobian, flood-fill clustering, greedy tracking; plotting/IO stripped). Every
+path extracts the correct braid word for both configurations (golden
+`{sigma_2^-1 sigma_1}`, silver `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1
+sigma_2^-1}`).
 
 ### Detection throughput (the dominant stage)
 
-| Path | ns/site | us/frame | vs Python |
-|------|---------|----------|-----------|
-| volterra, native Rust (`cargo run --example bench_braid`) | 4.0 | 40 | **145x** |
-| volterra via PyO3 (`braid_detect_defects`, incl. list marshalling) | 41 | 410 | 14x |
-| CGPO `braid_tracker.py` scheme (Python, `braid_tracker_v2.py`) | 582 | 5822 | 1x |
+Detection is a per-cell Jacobian + flood fill, so its cost is independent of the
+defect count -- golden (3 defects) and silver (4 defects) are within noise:
 
-### Full pipeline (120 frames)
+| Path | golden ns/site | silver ns/site | vs Python |
+|------|----------------|----------------|-----------|
+| volterra, native Rust (`cargo run --example bench_braid`) | 3.0 | 3.3 | **~180x** |
+| volterra via PyO3 (`braid_detect_defects`, incl. list marshalling) | 42 | 42 | ~14x |
+| CGPO `braid_tracker.py` scheme (Python, `braid_tracker_v2.py`) | 597 | 597 | 1x |
+
+### Full pipeline, 120 frames (golden / silver)
 
 | Path | detection | track + word | total |
 |------|-----------|--------------|-------|
-| volterra native Rust | 4.8 ms | 0.013 ms | **4.8 ms** |
-| volterra via PyO3 | 49.2 ms | 0.04 ms | 49.2 ms |
-| CGPO Python | 698.7 ms | 0.34 ms | 699.0 ms |
+| volterra native Rust | 3.6 / 3.9 ms | 0.009 / 0.013 ms | **3.6 / 3.9 ms** |
+| volterra via PyO3 | 50.7 / 50.4 ms | 0.04 / 0.05 ms | 50.7 / 50.5 ms |
+| CGPO Python | 716.8 / 716.8 ms | 0.34 / 0.46 ms | 717.2 / 717.3 ms |
 
 ### Notes
 
-- **Native Rust is ~145x faster** than the published per-cell Python scheme;
+- The silver (4-strand) configuration tracks the golden (3-strand) numbers:
+  detection throughput is set by the grid size, not the defect count, and the
+  braid-word extraction stays negligible even with the longer 6-generator word.
+- **Native Rust is ~150-180x faster** than the published per-cell Python scheme;
   even through the PyO3 boundary (which copies each 10k-element grid to a Python
   list per call) volterra is ~14x faster. The order-of-magnitude gap between the
   native and PyO3 paths is the FFI marshalling, not the algorithm.
