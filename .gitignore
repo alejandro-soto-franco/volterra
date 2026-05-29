@@ -13,3 +13,7 @@ tools/viz/
 # AI tooling
 .wolf/
 docs/superpowers/
+
+# Python caches
+__pycache__/
+*.pyc
