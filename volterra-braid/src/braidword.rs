@@ -1,6 +1,7 @@
 //! Braid words in the Artin generators and their extraction from worldlines.
 
-use crate::track::Worldline;
+use crate::defect::Defect;
+use crate::track::{Worldline, track};
 
 /// A signed Artin generator of the braid group `B_n`.
 ///
@@ -100,6 +101,19 @@ impl BraidWord {
             .sum()
     }
 
+    /// The braid word of a defect-position time series: track into worldlines,
+    /// then extract. The one-call entry point from raw frames.
+    ///
+    /// `frames` is a slice of frames, each a list of [`Defect`]s for that time.
+    pub fn from_frames(frames: &[Vec<Defect>]) -> Self {
+        extract_braidword(&track(frames))
+    }
+
+    /// The topological entropy of this braid (see [`crate::topological_entropy`]).
+    pub fn topological_entropy(&self) -> f64 {
+        crate::entropy::topological_entropy(self)
+    }
+
     /// If the word is an exact repetition of a shorter block, return the shortest
     /// such generating period; otherwise return the whole word.
     pub fn fundamental_period(&self) -> &[Generator] {
@@ -177,6 +191,28 @@ mod braidword_tests {
         );
         assert_eq!(BraidWord::from_codes(3, &[1, 1, 1]).exponent_sum(), 3);
         assert_eq!(BraidWord::from_codes(3, &[1, -2, 1]).exponent_sum(), 1);
+    }
+
+    #[test]
+    fn from_frames_equals_track_then_extract() {
+        let frames = crate::synthetic::golden_orbit(&crate::RealizeOpts {
+            frames_per_gen: 10,
+            periods: 1,
+        });
+        let direct = BraidWord::from_frames(&frames);
+        let manual = extract_braidword(&crate::track::track(&frames));
+        assert_eq!(direct, manual);
+        assert_eq!(direct.codes(), vec![-2, 1]);
+    }
+
+    #[test]
+    fn entropy_method_matches_free_function() {
+        let w = BraidWord::from_codes(3, &[-2, 1]);
+        assert_eq!(
+            w.topological_entropy(),
+            crate::entropy::topological_entropy(&w)
+        );
+        assert!((w.topological_entropy() - crate::GOLDEN_H).abs() < 1e-9);
     }
 
     #[test]
