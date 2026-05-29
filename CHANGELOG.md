@@ -21,9 +21,10 @@ All notable changes to volterra are documented here.
   validation), and `compare_cgpo.py` (comparison against the unmodified published
   `braid_tracker.py`, run via uv). volterra and the published script extract the
   identical braid word and entropy for the golden and silver configurations.
-- **BENCHMARKS.md**: braid-analysis throughput section -- volterra's defect
-  detection is ~145x faster (native) / ~14x (via PyO3) than the published CGPO
-  Python scheme. Native bench: `examples/bench_braid.rs`.
+- **BENCHMARKS.md**: braid-analysis throughput section (golden and silver
+  configs) -- volterra's defect detection is ~150-180x faster (native) / ~14x
+  (via PyO3) than the published CGPO Python scheme, independent of defect count.
+  Native bench: `examples/bench_braid.rs`; vs-Python: `oracle/bench_braid.py`.
 
 ---
 
