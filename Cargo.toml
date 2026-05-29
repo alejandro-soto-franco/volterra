@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "volterra",
+    "volterra-braid",
     "volterra-core",
     "volterra-dec",
     "volterra-fields",
