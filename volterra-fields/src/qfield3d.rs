@@ -13,7 +13,7 @@
 use nalgebra::SMatrix;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 /// 3D Q-tensor field.

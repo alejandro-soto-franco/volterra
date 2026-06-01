@@ -65,7 +65,7 @@
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rand::Rng;
+use rand::RngExt;
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::{Integrator, ActiveNematicParams};
 use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
