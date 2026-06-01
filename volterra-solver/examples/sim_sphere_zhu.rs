@@ -75,8 +75,8 @@ fn zhu_params(pe: f64) -> (ActiveNematicParams, f64, f64, usize) {
     // Simulation time: T = 30 (nondimensional, matching Zhu).
     // nondimensional time = t * |a_eff| * gamma_r (relaxation units)
     // Since gamma_r = 1 and |a_eff| = 1, physical t = T_nd.
-    let t_final = 30.0;
-    let _n_steps = ((t_final / dt) as f64).ceil() as usize;
+    let t_final: f64 = 30.0;
+    let _n_steps = (t_final / dt).ceil() as usize;
 
     // Snapshot every ~0.1 nondimensional time units.
     let snap_every = ((0.1_f64 / dt).round() as usize).max(1);
@@ -120,7 +120,7 @@ fn main() {
     }
 
     let (params, t_final, dt, snap_every) = zhu_params(pe);
-    let n_steps = ((t_final / dt) as f64).ceil() as usize;
+    let n_steps = (t_final / dt).ceil() as usize;
 
     let out_dir = format!("output/sphere_pe{}", pe as u64);
     let out = Path::new(&out_dir);
