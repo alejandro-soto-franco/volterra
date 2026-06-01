@@ -24,7 +24,7 @@ use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCha
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// All physical and numerical parameters for the 3D active nematic simulation.
-#[pyclass(name = "ActiveNematicParams3D")]
+#[pyclass(name = "ActiveNematicParams3D", from_py_object)]
 #[derive(Clone)]
 pub struct PyActiveNematicParams3D {
     inner: ActiveNematicParams3D,
@@ -170,7 +170,7 @@ impl PyActiveNematicParams3D {
 /// numpy conversions use a (nx*ny*nz, 5) f64 array; the `.q` property returns
 /// a (nx, ny, nz, 5) array. Scalar observables have shape (nx*ny*nz,); reshape
 /// in Python to (nx, ny, nz).
-#[pyclass(name = "QField3D")]
+#[pyclass(name = "QField3D", from_py_object)]
 #[derive(Clone)]
 pub struct PyQField3D {
     pub(crate) inner: QField3D,
@@ -282,7 +282,7 @@ impl PyQField3D {
 ///
 /// Internal layout: flat Vec<[f64;3]> with linear index k = (i*ny + j)*nz + l.
 /// The `.u` property returns a (nx, ny, nz, 3) array.
-#[pyclass(name = "VelocityField3D")]
+#[pyclass(name = "VelocityField3D", from_py_object)]
 #[derive(Clone)]
 pub struct PyVelocityField3D {
     pub(crate) inner: VelocityField3D,
@@ -350,7 +350,7 @@ impl PyVelocityField3D {
 /// Internal layout: flat Vec<f64> with linear index k = (i*ny + j)*nz + l.
 /// The `.phi` property returns a flat 1D array of length nx*ny*nz.
 /// Reshape in Python to (nx, ny, nz) as needed.
-#[pyclass(name = "ScalarField3D")]
+#[pyclass(name = "ScalarField3D", from_py_object)]
 #[derive(Clone)]
 pub struct PyScalarField3D {
     pub(crate) inner: ScalarField3D,
@@ -421,7 +421,7 @@ impl PyScalarField3D {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Per-snapshot statistics for the dry active nematic run (run_dry_active_nematic_3d).
-#[pyclass(name = "SnapStats3D")]
+#[pyclass(name = "SnapStats3D", from_py_object)]
 #[derive(Clone)]
 pub struct PySnapStats3D {
     inner: SnapStats3D,
@@ -458,7 +458,7 @@ impl PySnapStats3D {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Per-snapshot statistics for the full BECH run (run_bech_3d).
-#[pyclass(name = "BechStats3D")]
+#[pyclass(name = "BechStats3D", from_py_object)]
 #[derive(Clone)]
 pub struct PyBechStats3D {
     inner: BechStats3D,
@@ -500,7 +500,7 @@ impl PyBechStats3D {
 ///
 /// Wraps `cartan_geo::DisclinationLine`. Instances are produced by the runner
 /// (Task 17) and are read-only from Python.
-#[pyclass(name = "DisclinationLine")]
+#[pyclass(name = "DisclinationLine", from_py_object)]
 #[derive(Clone)]
 pub struct PyDisclinationLine {
     pub(crate) inner: DisclinationLine,
@@ -608,7 +608,7 @@ impl PyDisclinationLine {
 ///
 /// Wraps `cartan_geo::DisclinationEvent`. Instances are produced by the runner
 /// and are read-only from Python.
-#[pyclass(name = "DisclinationEvent")]
+#[pyclass(name = "DisclinationEvent", from_py_object)]
 #[derive(Clone)]
 pub struct PyDisclinationEvent {
     inner: DisclinationEvent,
