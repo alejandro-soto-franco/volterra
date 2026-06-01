@@ -48,7 +48,7 @@ fn make_braidword(n_strands: usize, codes: &[i32]) -> PyResult<BraidWord> {
 }
 
 /// A braid word in the Artin generators (`volterra.BraidWord`).
-#[pyclass(name = "BraidWord")]
+#[pyclass(name = "BraidWord", from_py_object)]
 #[derive(Clone)]
 pub struct PyBraidWord {
     inner: BraidWord,
