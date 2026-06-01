@@ -37,7 +37,7 @@ use volterra_solver::{
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// All physical and numerical parameters for the active nematic simulation.
-#[pyclass(name = "ActiveNematicParams")]
+#[pyclass(name = "ActiveNematicParams", from_py_object)]
 #[derive(Clone)]
 pub struct PyActiveNematicParams {
     inner: ActiveNematicParams,
@@ -146,7 +146,7 @@ impl PyActiveNematicParams {
 ///
 /// Internal layout: flat Vec<[f64;2]> in row-major order (i*ny + j).
 /// numpy conversions use a (nx*ny, 2) f64 array; reshape in Python to (nx, ny, 2).
-#[pyclass(name = "QField2D")]
+#[pyclass(name = "QField2D", from_py_object)]
 #[derive(Clone)]
 pub struct PyQField2D {
     inner: QField2D,
@@ -240,7 +240,7 @@ impl PyQField2D {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// 2D velocity field with numpy interop.
-#[pyclass(name = "VelocityField2D")]
+#[pyclass(name = "VelocityField2D", from_py_object)]
 #[derive(Clone)]
 pub struct PyVelocityField2D {
     inner: VelocityField2D,
@@ -273,7 +273,7 @@ impl PyVelocityField2D {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Per-snapshot statistics from a simulation run.
-#[pyclass(name = "SnapStats")]
+#[pyclass(name = "SnapStats", from_py_object)]
 #[derive(Clone)]
 pub struct PySnapStats {
     inner: SnapStats,
@@ -302,7 +302,7 @@ impl PySnapStats {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Detected topological disclination with plaquette location and charge.
-#[pyclass(name = "DefectInfo")]
+#[pyclass(name = "DefectInfo", from_py_object)]
 #[derive(Clone)]
 pub struct PyDefectInfo {
     inner: DefectInfo,
@@ -411,7 +411,7 @@ fn stokes_solve_py(q: &PyQField2D, params: &PyActiveNematicParams) -> PyVelocity
 ///
 /// Used for the lipid volume fraction in the BECH simulation.
 /// numpy conversions use a 1D array of length nx*ny; reshape in Python to (nx, ny).
-#[pyclass(name = "ScalarField2D")]
+#[pyclass(name = "ScalarField2D", from_py_object)]
 #[derive(Clone)]
 pub struct PyScalarField2D {
     inner: ScalarField2D,
@@ -474,7 +474,7 @@ impl PyScalarField2D {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Per-snapshot statistics from a BECH (full two-field) simulation run.
-#[pyclass(name = "BechStats")]
+#[pyclass(name = "BechStats", from_py_object)]
 #[derive(Clone)]
 pub struct PyBechStats {
     inner: BechStats,
