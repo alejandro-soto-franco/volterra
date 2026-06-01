@@ -38,3 +38,6 @@ dev = [
     "matplotlib >= 3.7",
     "scipy >= 1.10",
 ]
+
+[tool.pyrefly]
+# Enables full Pyrefly type checking; run with `uvc`. See ~/.claude/rules/pyrefly.md
