@@ -246,13 +246,11 @@ fn vn_correction_proportional_to_mean_curvature() {
     let (dq1, _dq2) = ed.vn_correction(&v_n, &q1, &q2);
 
     // correction = v_n * 2H * q1 = 2H for v_n=1, q1=1.
-    for v in 0..nv {
-        let expected = 2.0 * ed.domain.mean_curvatures[v];
+    for (v, (&dq1_v, &mh)) in dq1.iter().zip(&ed.domain.mean_curvatures).enumerate() {
+        let expected = 2.0 * mh;
         assert!(
-            (dq1[v] - expected).abs() < 1e-12,
-            "dq1[{v}] = {}, expected {}",
-            dq1[v],
-            expected
+            (dq1_v - expected).abs() < 1e-12,
+            "dq1[{v}] = {dq1_v}, expected {expected}"
         );
     }
 }

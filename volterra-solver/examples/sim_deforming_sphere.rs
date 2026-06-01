@@ -18,7 +18,6 @@ use std::time::Instant;
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
 use cartan_dec::Mesh;
 use cartan_manifolds::euclidean::Euclidean;
-use cartan_manifolds::sphere::Sphere;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
 use volterra_dec::QFieldDec;

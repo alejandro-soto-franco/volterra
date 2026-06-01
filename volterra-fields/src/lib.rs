@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn scalar_laplacian_of_constant_is_zero() {
-        let phi = ScalarField2D::uniform(8, 8, 1.0, 3.14);
+        let phi = ScalarField2D::uniform(8, 8, 1.0, 2.5);
         let lap = phi.laplacian();
         for &v in &lap.phi {
             assert_abs_diff_eq!(v, 0.0, epsilon = 1e-12);
