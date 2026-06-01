@@ -10,7 +10,7 @@
 
 use nalgebra::DVector;
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 
 /// Q-tensor field on a 2D DEC mesh.
 ///

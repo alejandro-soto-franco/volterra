@@ -22,7 +22,7 @@ use std::io::Write;
 use std::path::Path;
 
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use volterra_core::ActiveNematicParams3D;
