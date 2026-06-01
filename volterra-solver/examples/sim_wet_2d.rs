@@ -55,7 +55,7 @@ fn main() {
     println!("Running WET active nematic 2D: {nx}x{ny}, {n_steps} steps, zeta={}", params.zeta_eff);
     let t0 = Instant::now();
 
-    let (q_fin, stats) = run_active_nematic_hydro(&q0, &params, n_steps, snap_every);
+    let (_q_fin, stats) = run_active_nematic_hydro(&q0, &params, n_steps, snap_every);
 
     let elapsed = t0.elapsed().as_secs_f64();
     println!("Simulation done in {elapsed:.1}s, {} snapshots", stats.len());

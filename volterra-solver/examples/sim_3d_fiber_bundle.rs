@@ -14,8 +14,7 @@
 
 use std::time::Instant;
 
-use cartan_core::bundle::EdgeTransport3D;
-use cartan_core::fiber::{NematicFiber3D, Section, VecSection, FiberOps};
+use cartan_core::fiber::{NematicFiber3D, Section, VecSection};
 use cartan_dec::cartesian_connection::cartesian_3d_connection;
 
 fn main() {
@@ -46,12 +45,12 @@ fn main() {
     // Initial Q: random perturbation.
     let mut rng_seed = 42_u64;
     let mut data: Vec<[f64; 5]> = (0..n)
-        .map(|i| {
+        .map(|_| {
             // Simple PRNG for reproducibility without rand dependency.
             let mut v = [0.0_f64; 5];
-            for c in 0..5 {
+            for slot in v.iter_mut() {
                 rng_seed = rng_seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                v[c] = 0.01 * ((rng_seed >> 33) as f64 / (1u64 << 31) as f64 - 0.5);
+                *slot = 0.01 * ((rng_seed >> 33) as f64 / (1u64 << 31) as f64 - 0.5);
             }
             v
         })
@@ -85,18 +84,17 @@ fn main() {
 
             // Euler step: dQ/dt = gamma_r * (-K*lap + bulk*Q)
             let bulk_linear = -a_eff; // positive when a_eff < 0
-            for i in 0..n {
-                let q = &data[i];
-                let q33 = -q[0] - q[3];
-                let tr_q2 = q[0]*q[0] + q[3]*q[3] + q33*q33
-                    + 2.0*(q[1]*q[1] + q[2]*q[2] + q[4]*q[4]);
+            for (i, q_row) in data.iter_mut().enumerate() {
+                let q33 = -q_row[0] - q_row[3];
+                let tr_q2 = q_row[0]*q_row[0] + q_row[3]*q_row[3] + q33*q33
+                    + 2.0*(q_row[1]*q_row[1] + q_row[2]*q_row[2] + q_row[4]*q_row[4]);
                 let bulk = bulk_linear - 2.0 * c_landau * tr_q2;
 
                 let lap_v = lap.at(i);
                 for c in 0..5 {
                     // H = -K*lap + bulk*Q (DEC lap is positive-semidef, so -K*lap smooths)
-                    let h_c = -k_frank * lap_v[c] + bulk * data[i][c];
-                    data[i][c] += dt * gamma_r * h_c;
+                    let h_c = -k_frank * lap_v[c] + bulk * q_row[c];
+                    q_row[c] += dt * gamma_r * h_c;
                 }
             }
         }

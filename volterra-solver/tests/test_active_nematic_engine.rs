@@ -1,5 +1,3 @@
-use nalgebra::SVector;
-
 use cartan_dec::mesh_gen::icosphere;
 use cartan_dec::hodge::HodgeStar;
 use cartan_manifolds::sphere::Sphere;

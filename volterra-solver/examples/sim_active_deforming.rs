@@ -18,7 +18,6 @@ use std::time::Instant;
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
 use cartan_dec::Mesh;
 use cartan_manifolds::euclidean::Euclidean;
-use volterra_dec::connection_laplacian::ConnectionLaplacian;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
 use volterra_dec::stokes_dec::StokesSolverDec;

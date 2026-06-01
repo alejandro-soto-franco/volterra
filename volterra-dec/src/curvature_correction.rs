@@ -40,10 +40,8 @@ mod tests {
     fn constant_curvature_flat() {
         let cb = constant_curvature_2d(0.0);
         let m = cb(0);
-        for i in 0..3 {
-            for j in 0..3 {
-                assert!(m[i][j].abs() < 1e-15, "flat space correction should be zero");
-            }
+        for val in m.iter().flatten() {
+            assert!(val.abs() < 1e-15, "flat space correction should be zero");
         }
     }
 

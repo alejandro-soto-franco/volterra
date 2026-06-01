@@ -632,7 +632,6 @@ mod tests {
     #[test]
     fn advect_zero_velocity_identity() {
         use crate::mesh_gen::icosphere;
-        use cartan_manifolds::sphere::Sphere;
 
         let mesh = icosphere(2);
         let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
