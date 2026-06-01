@@ -24,13 +24,13 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.5"
-cartan-manifolds = "0.5"
-cartan-geo       = "0.5"
-cartan-dec       = "0.5"
-cartan-remesh    = "0.5"
+cartan-core      = "0.6"
+cartan-manifolds = "0.6"
+cartan-geo       = "0.6"
+cartan-dec       = "0.6"
+cartan-remesh    = "0.6"
 
-nalgebra         = { version = "0.33", features = ["std"] }
+nalgebra         = { version = "0.35", features = ["std"] }
 rayon            = "1"
 thiserror        = "2"
 serde            = { version = "1", features = ["derive"] }
