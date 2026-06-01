@@ -97,7 +97,7 @@ fn main() {
             // Langevin noise.
             if params.noise_amp > 0.0 {
                 use rand::rngs::SmallRng;
-                use rand::{Rng, SeedableRng};
+                use rand::{RngExt, SeedableRng};
                 let noise_scale = params.noise_amp * params.dt.sqrt();
                 let seed = (params.nx as u64).wrapping_mul(6364136223846793005)
                     ^ (params.ny as u64).wrapping_mul(1442695040888963407)
