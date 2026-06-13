@@ -9,6 +9,7 @@
 pub mod boundary;
 pub use boundary::{nephroid_boundary, Boundary};
 
+pub mod par_gate;
 pub mod ops;
 pub mod nematic;
 pub mod stokes;
@@ -56,8 +57,8 @@ pub struct Params {
     // Flow-alignment parameter  (Python: lambda)
     pub lambda: f64,
 
-    // Maximum pressure-Poisson iterations per step
-    pub max_p_iters: usize,
+    // Maximum pressure-Poisson iterations per step (negative = uncapped, code-truth default)
+    pub max_p_iters: i64,
 }
 
 impl Params {
@@ -80,19 +81,25 @@ impl Params {
     /// c_landau  = k_elastic / ncl^2
     /// a_landau  = -c_landau
     /// s0        = sqrt(2)
-    /// lambda    = 0   (placeholder; set via field if needed)
+    /// lambda    = flow-alignment (code-truth flow-solver.py / fsn.py: λ = 1)
     /// ```
-    pub fn new(lx: usize, als: usize, ncl: usize, dt: f64, max_p_iters: usize) -> Self {
+    ///
+    /// `als` and `ncl` are the active and nematic-coherence length scales in
+    /// lattice units (floats — the production sweep uses fractional values, e.g.
+    /// the silver braid at als=2.8, ncl=4.8). The map is the code-truth one:
+    /// `ζ = K/als²`, `C = K/ncl²`, `A = −C` (flow-solver.py:1478-1481).
+    pub fn new(lx: usize, als: f64, ncl: f64, lambda: f64, dt: f64, max_p_iters: i64) -> Self {
         let k_elastic = 2_f64.powi(14);
         let gamma = 100.0_f64;
         let eta = (10.0 * k_elastic).sqrt();
         let rho = 1.0_f64;
         let chi = 1.0_f64;
-        let zeta = k_elastic / (als as f64).powi(2);
-        let c_landau = k_elastic / (ncl as f64).powi(2);
+        let zeta = k_elastic / als.powi(2);
+        let c_landau = k_elastic / ncl.powi(2);
         let a_landau = -c_landau;
-        let s0 = 2.0_f64.sqrt();
-        let lambda = 0.0_f64;
+        // code-truth: S₀ = √(−A/C) (flow-solver.py / fsn.py). Since A=−C this is 1.
+        // (Sets only the IC amplitude; the field relaxes to the A,C equilibrium.)
+        let s0 = (-a_landau / c_landau).sqrt();
         let ly = lx; // square grid assumed (can override via field)
 
         Params {

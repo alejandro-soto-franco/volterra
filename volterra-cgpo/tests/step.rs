@@ -34,7 +34,7 @@ const A_LANDAU: f64 = -K_ELASTIC / 81.0;
 const C_LANDAU: f64 = K_ELASTIC / 81.0;
 const S0: f64 = std::f64::consts::SQRT_2;
 const DT: f64 = 1e-4;
-const MAX_P_ITERS: usize = 20;
+const MAX_P_ITERS: i64 = 20;
 const P_TARGET_REL_CHANGE: f64 = 1e-4;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
