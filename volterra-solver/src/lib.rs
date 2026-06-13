@@ -98,7 +98,7 @@ pub mod runner_dec;
 pub use runner_dec::{run_dry_active_nematic_dec, SnapStatsDec};
 
 pub mod runner_dec_wet;
-pub use runner_dec_wet::run_wet_active_nematic_dec;
+pub use runner_dec_wet::{run_wet_active_nematic_dec, run_wet_active_nematic_dec_confined};
 
 pub mod engine;
 pub use engine::{NematicEngine, EngineStats};
@@ -497,7 +497,6 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
     let n = nx * ny;
     let dx = q.dx;
     let eta = params.eta;
-    let ze = params.zeta_eff;
 
     let mut planner = FftPlanner::<f64>::new();
     let fft_x = planner.plan_fft_forward(nx);
@@ -570,12 +569,17 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
         buf.iter().map(|c| c.re / norm).collect()
     };
 
-    // Extract Q components into row-major flat arrays.
-    let q1_field: Vec<f64> = q.q.iter().map(|[q1, _]| *q1).collect();
-    let q2_field: Vec<f64> = q.q.iter().map(|[_, q2]| *q2).collect();
+    // Active stress components s = ζ(x) Q(x), built in real space so a spatial
+    // ζ field (params.zeta_field) is handled correctly: the FFT of the real-space
+    // product is the right Fourier source. A uniform ζ reproduces the scalar
+    // result exactly by linearity (s_hat = ζ q_hat).
+    let s1_field: Vec<f64> =
+        q.q.iter().enumerate().map(|(i, [q1, _])| params.zeta_at(i) * q1).collect();
+    let s2_field: Vec<f64> =
+        q.q.iter().enumerate().map(|(i, [_, q2])| params.zeta_at(i) * q2).collect();
 
-    let q1_hat = fft2_real(&q1_field);
-    let q2_hat = fft2_real(&q2_field);
+    let s1_hat = fft2_real(&s1_field);
+    let s2_hat = fft2_real(&s2_field);
 
     // Compute stream function ψ̂ and velocity components v̂_x, v̂_y in Fourier space.
     let mut vx_hat: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
@@ -596,8 +600,9 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
                 continue;
             }
             let k4 = k2 * k2;
-            // ψ̂ = ζ [(k_y² - k_x²) q̂₂ + 2 k_x k_y q̂₁] / (η k⁴)
-            let rhs = ze * ((ky * ky - kx * kx) * q2_hat[k] + 2.0 * kx * ky * q1_hat[k]);
+            // ψ̂ = [(k_y² - k_x²) ŝ₂ + 2 k_x k_y ŝ₁] / (η k⁴), with the active
+            // stress ŝ = (ζ Q)^ already carrying ζ (scalar or spatial).
+            let rhs = (ky * ky - kx * kx) * s2_hat[k] + 2.0 * kx * ky * s1_hat[k];
             let psi_hat = rhs / (eta * k4);
             // v̂_x = i k_y ψ̂, v̂_y = -i k_x ψ̂
             vx_hat[k] = i_unit * ky * psi_hat;
