@@ -32,7 +32,12 @@
 //! - `Π_S` initialised to `−λH − ζQ`, then Ericksen term subtracted, then `2Tr[QH]Q` added.
 //! - `Π_A = 2*(Q0*H1 − H0*Q1)` — one scalar.
 
-use crate::{ops::laplacian_vector, Boundary};
+use crate::{
+    ops::laplacian_vector,
+    par_gate::{rows_per_chunk, use_parallel},
+    Boundary,
+};
+use rayon::prelude::*;
 
 // ---------------------------------------------------------------------------
 // index helpers (module-local, matching ops.rs conventions)
@@ -89,47 +94,89 @@ pub fn h_s_from_q(
     // Step 1: H = K * ∇²Q
     laplacian_vector(q, h, bounds, k);
 
-    // Step 2: bulk LdG correction + co-rotation S
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    // Step 2: bulk LdG correction + co-rotation S.
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        h.par_chunks_mut(rpc * ly * 2)
+            .zip(s.par_chunks_mut(rpc * ly * 2))
+            .enumerate()
+            .for_each(|(chunk_idx, (h_chunk, s_chunk))| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, (h_row, s_row)) in h_chunk
+                    .chunks_mut(ly * 2)
+                    .zip(s_chunk.chunks_mut(ly * 2))
+                    .enumerate()
+                {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
 
+                        let q0 = q[vi(x, y, ly, 0)];
+                        let q1 = q[vi(x, y, ly, 1)];
+                        let trqsq = 2.0 * (q0 * q0 + q1 * q1);
+
+                        h_row[y * 2]     -= (a + c_coeff * trqsq) * q0;
+                        h_row[y * 2 + 1] -= (a + c_coeff * trqsq) * q1;
+
+                        let dxux = 0.5 * (u[vi(xup, y, ly, 0)] - u[vi(xdn, y, ly, 0)]);
+                        let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
+                        let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
+                        let dyuy = 0.5 * (u[vi(x, yup, ly, 1)] - u[vi(x, ydn, ly, 1)]);
+                        let _ = dyuy;
+
+                        let omega_xy = 0.5 * (dxuy - dyux);
+                        let lambda_s = lambda * (2.0 * trqsq).sqrt();
+                        let tr_qe = 2.0 * q0 * dxux + q1 * (dyux + dxuy);
+
+                        s_row[y * 2]     = lambda_s * dxux
+                            - 2.0 * omega_xy * q1
+                            - 2.0 * tr_qe * q0;
+                        s_row[y * 2 + 1] = lambda_s * 0.5 * (dxuy + dyux)
+                            + 2.0 * omega_xy * q0
+                            - 2.0 * tr_qe * q1;
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
 
-            let q0 = q[vi(x, y, ly, 0)];
-            let q1 = q[vi(x, y, ly, 1)];
+                let q0 = q[vi(x, y, ly, 0)];
+                let q1 = q[vi(x, y, ly, 1)];
+                let trqsq = 2.0 * (q0 * q0 + q1 * q1);
 
-            // trQsq = Tr(Q²) = 2*(Q_xx² + Q_xy²)  [2D traceless symmetric]
-            let trqsq = 2.0 * (q0 * q0 + q1 * q1);
+                h[vi(x, y, ly, 0)] -= (a + c_coeff * trqsq) * q0;
+                h[vi(x, y, ly, 1)] -= (a + c_coeff * trqsq) * q1;
 
-            // Subtract LdG bulk term from H
-            h[vi(x, y, ly, 0)] -= (a + c_coeff * trqsq) * q0;
-            h[vi(x, y, ly, 1)] -= (a + c_coeff * trqsq) * q1;
+                let dxux = 0.5 * (u[vi(xup, y, ly, 0)] - u[vi(xdn, y, ly, 0)]);
+                let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
+                let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
+                let dyuy = 0.5 * (u[vi(x, yup, ly, 1)] - u[vi(x, ydn, ly, 1)]);
+                let _ = dyuy;
 
-            // Velocity gradients (centred differences, matching Python xdn=(x-1) wrap)
-            let dxux = 0.5 * (u[vi(xup, y, ly, 0)] - u[vi(xdn, y, ly, 0)]);
-            let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
-            let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
-            let dyuy = 0.5 * (u[vi(x, yup, ly, 1)] - u[vi(x, ydn, ly, 1)]);
-            let _ = dyuy; // not used in S
+                let omega_xy = 0.5 * (dxuy - dyux);
+                let lambda_s = lambda * (2.0 * trqsq).sqrt();
+                let tr_qe = 2.0 * q0 * dxux + q1 * (dyux + dxuy);
 
-            let omega_xy = 0.5 * (dxuy - dyux);
-            let lambda_s = lambda * (2.0 * trqsq).sqrt();
-            let tr_qe = 2.0 * q0 * dxux + q1 * (dyux + dxuy);
-
-            // Co-rotation tensor S (2 independent components)
-            s[vi(x, y, ly, 0)] = lambda_s * dxux
-                - 2.0 * omega_xy * q1
-                - 2.0 * tr_qe * q0;
-            s[vi(x, y, ly, 1)] = lambda_s * 0.5 * (dxuy + dyux)
-                + 2.0 * omega_xy * q0
-                - 2.0 * tr_qe * q1;
+                s[vi(x, y, ly, 0)] = lambda_s * dxux
+                    - 2.0 * omega_xy * q1
+                    - 2.0 * tr_qe * q0;
+                s[vi(x, y, ly, 1)] = lambda_s * 0.5 * (dxuy + dyux)
+                    + 2.0 * omega_xy * q0
+                    - 2.0 * tr_qe * q1;
+            }
         }
     }
 }
@@ -150,26 +197,51 @@ pub fn get_ericksen_stress(q: &[f64], k: f64, pi_s: &mut [f64], bounds: &Boundar
     let lx = bounds.lx;
     let ly = bounds.ly;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        pi_s.par_chunks_mut(rpc * ly * 2)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly * 2).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
 
+                        let dxq0 = 0.5 * (q[vi(xup, y, ly, 0)] - q[vi(xdn, y, ly, 0)]);
+                        let dxq1 = 0.5 * (q[vi(xup, y, ly, 1)] - q[vi(xdn, y, ly, 1)]);
+                        let dyq0 = 0.5 * (q[vi(x, yup, ly, 0)] - q[vi(x, ydn, ly, 0)]);
+                        let dyq1 = 0.5 * (q[vi(x, yup, ly, 1)] - q[vi(x, ydn, ly, 1)]);
+
+                        row[y * 2]     -= k * (dxq0 * dxq0 + dxq1 * dxq1 - dyq0 * dyq0 - dyq1 * dyq1);
+                        row[y * 2 + 1] -= 2.0 * k * (dxq1 * dyq1 + dxq0 * dyq0);
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
 
-            // Centred differences of Q components
-            let dxq0 = 0.5 * (q[vi(xup, y, ly, 0)] - q[vi(xdn, y, ly, 0)]);
-            let dxq1 = 0.5 * (q[vi(xup, y, ly, 1)] - q[vi(xdn, y, ly, 1)]);
-            let dyq0 = 0.5 * (q[vi(x, yup, ly, 0)] - q[vi(x, ydn, ly, 0)]);
-            let dyq1 = 0.5 * (q[vi(x, yup, ly, 1)] - q[vi(x, ydn, ly, 1)]);
+                let dxq0 = 0.5 * (q[vi(xup, y, ly, 0)] - q[vi(xdn, y, ly, 0)]);
+                let dxq1 = 0.5 * (q[vi(xup, y, ly, 1)] - q[vi(xdn, y, ly, 1)]);
+                let dyq0 = 0.5 * (q[vi(x, yup, ly, 0)] - q[vi(x, ydn, ly, 0)]);
+                let dyq1 = 0.5 * (q[vi(x, yup, ly, 1)] - q[vi(x, ydn, ly, 1)]);
 
-            pi_s[vi(x, y, ly, 0)] -= k * (dxq0 * dxq0 + dxq1 * dxq1 - dyq0 * dyq0 - dyq1 * dyq1);
-            pi_s[vi(x, y, ly, 1)] -= 2.0 * k * (dxq1 * dyq1 + dxq0 * dyq0);
+                pi_s[vi(x, y, ly, 0)] -= k * (dxq0 * dxq0 + dxq1 * dxq1 - dyq0 * dyq0 - dyq1 * dyq1);
+                pi_s[vi(x, y, ly, 1)] -= 2.0 * k * (dxq1 * dyq1 + dxq0 * dyq0);
+            }
         }
     }
 }
@@ -187,15 +259,39 @@ pub fn get_ericksen_stress(q: &[f64], k: f64, pi_s: &mut [f64], bounds: &Boundar
 /// pi_s[x,y,1] += TrQH * Q1
 /// ```
 pub fn get_trqh_term(q: &[f64], h: &[f64], pi_s: &mut [f64], lx: usize, ly: usize) {
-    for x in 0..lx {
-        for y in 0..ly {
-            let q0 = q[vi(x, y, ly, 0)];
-            let q1 = q[vi(x, y, ly, 1)];
-            let h0 = h[vi(x, y, ly, 0)];
-            let h1 = h[vi(x, y, ly, 1)];
-            let trqh = 2.0 * (q0 * h0 + q1 * h1);
-            pi_s[vi(x, y, ly, 0)] += trqh * q0;
-            pi_s[vi(x, y, ly, 1)] += trqh * q1;
+    let n2 = lx * ly * 2;
+
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        pi_s[..n2].par_chunks_mut(rpc * ly * 2)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly * 2).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    for y in 0..ly {
+                        let q0 = q[vi(x, y, ly, 0)];
+                        let q1 = q[vi(x, y, ly, 1)];
+                        let h0 = h[vi(x, y, ly, 0)];
+                        let h1 = h[vi(x, y, ly, 1)];
+                        let trqh = 2.0 * (q0 * h0 + q1 * h1);
+                        row[y * 2]     += trqh * q0;
+                        row[y * 2 + 1] += trqh * q1;
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
+            for y in 0..ly {
+                let q0 = q[vi(x, y, ly, 0)];
+                let q1 = q[vi(x, y, ly, 1)];
+                let h0 = h[vi(x, y, ly, 0)];
+                let h1 = h[vi(x, y, ly, 1)];
+                let trqh = 2.0 * (q0 * h0 + q1 * h1);
+                pi_s[vi(x, y, ly, 0)] += trqh * q0;
+                pi_s[vi(x, y, ly, 1)] += trqh * q1;
+            }
         }
     }
 }
@@ -234,8 +330,17 @@ pub fn calculate_pi(
     let n2 = lx * ly * 2;
 
     // Step 1: Π_S = −λ*H − ζ*Q
-    for i in 0..n2 {
-        pi_s[i] = -lambda * h[i] - zeta * q[i];
+    if use_parallel(lx, ly) {
+        pi_s[..n2].par_iter_mut()
+            .zip(h[..n2].par_iter())
+            .zip(q[..n2].par_iter())
+            .for_each(|((ps, hi), qi)| {
+                *ps = -lambda * hi - zeta * qi;
+            });
+    } else {
+        for i in 0..n2 {
+            pi_s[i] = -lambda * h[i] - zeta * q[i];
+        }
     }
 
     // Step 2: add Ericksen stress (interior cells)
@@ -245,13 +350,33 @@ pub fn calculate_pi(
     get_trqh_term(q, h, pi_s, lx, ly);
 
     // Step 4: Π_A = 2*(Q0*H1 − H0*Q1)
-    for x in 0..lx {
-        for y in 0..ly {
-            let q0 = q[vi(x, y, ly, 0)];
-            let q1 = q[vi(x, y, ly, 1)];
-            let h0 = h[vi(x, y, ly, 0)];
-            let h1 = h[vi(x, y, ly, 1)];
-            pi_a[si(x, y, ly)] = 2.0 * (q0 * h1 - h0 * q1);
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        pi_a.par_chunks_mut(rpc * ly)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    for y in 0..ly {
+                        let q0 = q[vi(x, y, ly, 0)];
+                        let q1 = q[vi(x, y, ly, 1)];
+                        let h0 = h[vi(x, y, ly, 0)];
+                        let h1 = h[vi(x, y, ly, 1)];
+                        row[y] = 2.0 * (q0 * h1 - h0 * q1);
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
+            for y in 0..ly {
+                let q0 = q[vi(x, y, ly, 0)];
+                let q1 = q[vi(x, y, ly, 1)];
+                let h0 = h[vi(x, y, ly, 0)];
+                let h1 = h[vi(x, y, ly, 1)];
+                pi_a[si(x, y, ly)] = 2.0 * (q0 * h1 - h0 * q1);
+            }
         }
     }
 }

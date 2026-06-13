@@ -35,9 +35,11 @@ use crate::{
     },
     nematic::{calculate_pi, h_s_from_q},
     ops::upwind_advective_term,
+    par_gate::use_parallel,
     stokes::get_u_update,
     Boundary, Params,
 };
+use rayon::prelude::*;
 
 // ---------------------------------------------------------------------------
 // Q update
@@ -63,12 +65,23 @@ pub fn get_q_update(
     gamma: f64,
     bounds: &Boundary,
 ) {
-    let n2 = bounds.lx * bounds.ly * 2;
+    let lx = bounds.lx;
+    let ly = bounds.ly;
+    let n2 = lx * ly * 2;
     let inv_gamma = 1.0 / gamma;
 
-    // dQ = (1/γ)*H + S  (full array, matching Python's broadcast)
-    for i in 0..n2 {
-        dq[i] = inv_gamma * h[i] + s[i];
+    // dQ = (1/γ)*H + S
+    if use_parallel(lx, ly) {
+        dq[..n2].par_iter_mut()
+            .zip(h[..n2].par_iter())
+            .zip(s[..n2].par_iter())
+            .for_each(|((dqi, hi), si)| {
+                *dqi = inv_gamma * hi + si;
+            });
+    } else {
+        for i in 0..n2 {
+            dq[i] = inv_gamma * h[i] + s[i];
+        }
     }
 
     // subtract (u·∇)Q via upwind scheme (coeff=-1, accumulates)
@@ -222,13 +235,26 @@ pub fn update_step_inner(
     );
 
     // 7. Q += dt * dQ
-    for i in 0..n2 {
-        state.q[i] += params.dt * state.dq[i];
+    let dt = params.dt;
+    if use_parallel(lx, ly) {
+        state.q[..n2].par_iter_mut()
+            .zip(state.dq[..n2].par_iter())
+            .for_each(|(qi, dqi)| *qi += dt * dqi);
+    } else {
+        for i in 0..n2 {
+            state.q[i] += dt * state.dq[i];
+        }
     }
 
     // 8. u += dt * dudt
-    for i in 0..n2 {
-        state.u[i] += params.dt * state.dudt[i];
+    if use_parallel(lx, ly) {
+        state.u[..n2].par_iter_mut()
+            .zip(state.dudt[..n2].par_iter())
+            .for_each(|(ui, dudti)| *ui += dt * dudti);
+    } else {
+        for i in 0..n2 {
+            state.u[i] += dt * state.dudt[i];
+        }
     }
 
     // 9. Apply Q boundary conditions (Dirichlet anchoring)
@@ -260,13 +286,14 @@ fn relax_pressure_with_bc(
 
     let lx = params.lx;
     let ly = params.ly;
-    let _ = (lx, ly); // used via bnd internals
 
     // Step 1–2: rhs = (ρ/dt) · ∇·u
     div_vector(&state.u, &mut state.rhs, bnd);
     let scale = params.rho / params.dt;
-    for v in state.rhs.iter_mut() {
-        *v *= scale;
+    if use_parallel(lx, ly) {
+        state.rhs.par_iter_mut().for_each(|v| *v *= scale);
+    } else {
+        state.rhs.iter_mut().for_each(|v| *v *= scale);
     }
 
     // Step 3: accumulate ∇·F and −ρ·convective onto rhs
@@ -311,14 +338,22 @@ fn relax_pressure_with_bc(
         }
 
         // Convergence: rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)
-        // p_aux = old p, p = new p
-        let sum_diff: f64 = state
-            .p_aux
-            .iter()
-            .zip(state.p.iter())
-            .map(|(a, b)| (a - b).abs())
-            .sum();
-        let sum_old: f64 = state.p_aux.iter().sum();
+        // p_aux = old p, p = new p.
+        let (sum_diff, sum_old) = if use_parallel(lx, ly) {
+            let sd: f64 = state.p_aux.par_iter()
+                .zip(state.p.par_iter())
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+            let so: f64 = state.p_aux.par_iter().sum();
+            (sd, so)
+        } else {
+            let sd: f64 = state.p_aux.iter()
+                .zip(state.p.iter())
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+            let so: f64 = state.p_aux.iter().sum();
+            (sd, so)
+        };
         rel_change = sum_diff / (1e-7 + sum_old);
 
         p_iters += 1;
