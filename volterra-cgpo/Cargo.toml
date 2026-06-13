@@ -1,0 +1,20 @@
+[package]
+name = "volterra-cgpo"
+description = "Nephroid-confined CGPO finite-difference solver scaffold (Beris-Edwards + relaxation Stokes)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+ndarray    = { version = "0.16", features = ["rayon"] }
+rayon      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+rand       = { workspace = true }
+
+[dev-dependencies]
+approx = { workspace = true }
