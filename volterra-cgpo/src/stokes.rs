@@ -51,8 +51,10 @@
 
 use crate::{
     ops::{div_vector, laplacian_vector, upwind_advective_term},
+    par_gate::{rows_per_chunk, use_parallel},
     Boundary, Params,
 };
+use rayon::prelude::*;
 
 // ---------------------------------------------------------------------------
 // index helpers (matching ops.rs conventions)
@@ -95,48 +97,69 @@ pub fn calculate_pressure_terms(
     let lx = bounds.lx;
     let ly = bounds.ly;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        rhs.par_chunks_mut(rpc * ly)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
+
+                        let dudx = 0.5 * (u[vi(xup, y, ly, 0)] - u[vi(xdn, y, ly, 0)]);
+                        let dvdy = 0.5 * (u[vi(x, yup, ly, 1)] - u[vi(x, ydn, ly, 1)]);
+                        let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
+                        let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
+
+                        let div_f = (pi_s[vi(xup, y, ly, 0)]
+                            + pi_s[vi(xdn, y, ly, 0)]
+                            - pi_s[vi(x, yup, ly, 0)]
+                            - pi_s[vi(x, ydn, ly, 0)])
+                            + 0.5
+                                * (pi_s[vi(xup, yup, ly, 1)] - pi_s[vi(xup, ydn, ly, 1)]
+                                    - pi_s[vi(xdn, yup, ly, 1)]
+                                    + pi_s[vi(xdn, ydn, ly, 1)]);
+
+                        let conv = rho * (dudx * dudx + dvdy * dvdy + dyux * 2.0 * dxuy);
+                        row[y] += div_f - conv;
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
 
-            // Centred velocity gradients
-            let dudx = 0.5 * (u[vi(xup, y, ly, 0)] - u[vi(xdn, y, ly, 0)]);
-            let dvdy = 0.5 * (u[vi(x, yup, ly, 1)] - u[vi(x, ydn, ly, 1)]);
-            let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
-            let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
+                let dudx = 0.5 * (u[vi(xup, y, ly, 0)] - u[vi(xdn, y, ly, 0)]);
+                let dvdy = 0.5 * (u[vi(x, yup, ly, 1)] - u[vi(x, ydn, ly, 1)]);
+                let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
+                let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
 
-            // ∇·F = (∂x²−∂y²)Π_S_xx + 2·∂x·∂y·Π_S_xy
-            //   = (Π_S_xx[xup,y] + Π_S_xx[xdn,y] − Π_S_xx[x,yup] − Π_S_xx[x,ydn])
-            //   + 0.5·(Π_S_xy[xup,yup] − Π_S_xy[xup,ydn] − Π_S_xy[xdn,yup] + Π_S_xy[xdn,ydn])
-            let div_f = (pi_s[vi(xup, y, ly, 0)]
-                + pi_s[vi(xdn, y, ly, 0)]
-                - pi_s[vi(x, yup, ly, 0)]
-                - pi_s[vi(x, ydn, ly, 0)])
-                + 0.5
-                    * (pi_s[vi(xup, yup, ly, 1)] - pi_s[vi(xup, ydn, ly, 1)]
-                        - pi_s[vi(xdn, yup, ly, 1)]
-                        + pi_s[vi(xdn, ydn, ly, 1)]);
+                let div_f = (pi_s[vi(xup, y, ly, 0)]
+                    + pi_s[vi(xdn, y, ly, 0)]
+                    - pi_s[vi(x, yup, ly, 0)]
+                    - pi_s[vi(x, ydn, ly, 0)])
+                    + 0.5
+                        * (pi_s[vi(xup, yup, ly, 1)] - pi_s[vi(xup, ydn, ly, 1)]
+                            - pi_s[vi(xdn, yup, ly, 1)]
+                            + pi_s[vi(xdn, ydn, ly, 1)]);
 
-            // −ρ·(∂ᵢuⱼ ∂ⱼuᵢ) = −ρ·((∂x·ux)² + (∂y·uy)² + 2·(∂y·ux)·(∂x·uy))
-            // Note: cross term is (∂y·ux)*(∂x·uy) * 2, not *(∂x·uy + ∂y·ux)
-            // Python: dudx*dudx + dvdy*dvdy + 0.5*(dyux)*(dxuy+dxuy) wait —
-            // Python line exactly:
-            //   -ρ*(dudx*dudx + dvdy*dvdy + 0.5*(u[x,yup,0]-u[x,ydn,0])*(u[xup,y,1]-u[xdn,y,1]))
-            // The 0.5 factor comes from Python's centred differences being (f[+]-f[-]) without /2,
-            // then 0.5* the product = 0.5*(2*dyux)*(2*dxuy) = 2*dyux*dxuy — but actually:
-            // Python: u[x,yup,0]-u[x,ydn,0] = 2*dyux (since dyux = 0.5*(yup-ydn))
-            //         u[xup,y,1]-u[xdn,y,1] = 2*dxuy
-            // So 0.5*(2*dyux)*(2*dxuy) = 2*dyux*dxuy ✓  matches d_i u_j d_j u_i cross
-            let conv = rho * (dudx * dudx + dvdy * dvdy + dyux * 2.0 * dxuy);
-
-            rhs[idx] += div_f - conv;
+                let conv = rho * (dudx * dudx + dvdy * dvdy + dyux * 2.0 * dxuy);
+                rhs[idx] += div_f - conv;
+            }
         }
     }
 }
@@ -165,28 +188,59 @@ pub fn relax_pressure_inner_loop(
     let lx = bounds.lx;
     let ly = bounds.ly;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        // Jacobi: reads exclusively from p_aux (old), writes to p (new).
+        // No aliasing between p and p_aux — parallel over rows is safe.
+        p.par_chunks_mut(rpc * ly)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
+                        row[y] = 0.05
+                            * (-6.0 * rhs[idx]
+                                + 4.0
+                                    * (p_aux[si(xup, y, ly)]
+                                        + p_aux[si(x, yup, ly)]
+                                        + p_aux[si(x, ydn, ly)]
+                                        + p_aux[si(xdn, y, ly)])
+                                + p_aux[si(xup, yup, ly)]
+                                + p_aux[si(xup, ydn, ly)]
+                                + p_aux[si(xdn, yup, ly)]
+                                + p_aux[si(xdn, ydn, ly)]);
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
-
-            p[idx] = 0.05
-                * (-6.0 * rhs[idx]
-                    + 4.0
-                        * (p_aux[si(xup, y, ly)]
-                            + p_aux[si(x, yup, ly)]
-                            + p_aux[si(x, ydn, ly)]
-                            + p_aux[si(xdn, y, ly)])
-                    + p_aux[si(xup, yup, ly)]
-                    + p_aux[si(xup, ydn, ly)]
-                    + p_aux[si(xdn, yup, ly)]
-                    + p_aux[si(xdn, ydn, ly)]);
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
+                p[idx] = 0.05
+                    * (-6.0 * rhs[idx]
+                        + 4.0
+                            * (p_aux[si(xup, y, ly)]
+                                + p_aux[si(x, yup, ly)]
+                                + p_aux[si(x, ydn, ly)]
+                                + p_aux[si(xdn, y, ly)])
+                        + p_aux[si(xup, yup, ly)]
+                        + p_aux[si(xup, ydn, ly)]
+                        + p_aux[si(xdn, yup, ly)]
+                        + p_aux[si(xdn, ydn, ly)]);
+            }
         }
     }
 }
@@ -255,11 +309,16 @@ pub fn relax_pressure(
     bounds: &Boundary,
     max_p_iters: i64,
 ) -> usize {
+    let lx = bounds.lx;
+    let ly = bounds.ly;
+
     // Step 1–2: rhs = (ρ/dt) · ∇·u
     div_vector(u, rhs, bounds);
     let scale = rho / dt;
-    for v in rhs.iter_mut() {
-        *v *= scale;
+    if use_parallel(lx, ly) {
+        rhs.par_iter_mut().for_each(|v| *v *= scale);
+    } else {
+        rhs.iter_mut().for_each(|v| *v *= scale);
     }
 
     // Step 3: accumulate ∇·F and −ρ·convective onto rhs
@@ -289,9 +348,15 @@ pub fn relax_pressure(
         apply_p_boundary_conditions_stub(p, p_aux, bounds);
 
         // Convergence test: rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)
-        // p_aux = old p, p = new p
-        let sum_diff: f64 = p_aux.iter().zip(p.iter()).map(|(a, b)| (a - b).abs()).sum();
-        let sum_old: f64 = p_aux.iter().sum();
+        let (sum_diff, sum_old) = if use_parallel(lx, ly) {
+            let sd: f64 = p_aux.par_iter().zip(p.par_iter()).map(|(a, b)| (a - b).abs()).sum();
+            let so: f64 = p_aux.par_iter().sum();
+            (sd, so)
+        } else {
+            let sd: f64 = p_aux.iter().zip(p.iter()).map(|(a, b)| (a - b).abs()).sum();
+            let so: f64 = p_aux.iter().sum();
+            (sd, so)
+        };
         rel_change = sum_diff / (1e-7 + sum_old);
 
         p_iters += 1;
@@ -360,30 +425,59 @@ pub fn u_update_p_pi_terms(
     let ly = bounds.ly;
     let inv_rho = 0.5 / rho;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        dudt.par_chunks_mut(rpc * ly * 2)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly * 2).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
+
+                        row[y * 2] += inv_rho
+                            * (-(p[si(xup, y, ly)] - p[si(xdn, y, ly)])
+                                + (pi_s[vi(xup, y, ly, 0)] - pi_s[vi(xdn, y, ly, 0)])
+                                + ((pi_s[vi(x, yup, ly, 1)] + pi_a[si(x, yup, ly)])
+                                    - (pi_s[vi(x, ydn, ly, 1)] + pi_a[si(x, ydn, ly)])));
+
+                        row[y * 2 + 1] += inv_rho
+                            * (-(p[si(x, yup, ly)] - p[si(x, ydn, ly)])
+                                + ((pi_s[vi(xup, y, ly, 1)] - pi_a[si(xup, y, ly)])
+                                    - (pi_s[vi(xdn, y, ly, 1)] - pi_a[si(xdn, y, ly)]))
+                                - (pi_s[vi(x, yup, ly, 0)] - pi_s[vi(x, ydn, ly, 0)]));
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
 
-            // x-component
-            dudt[vi(x, y, ly, 0)] += inv_rho
-                * (-(p[si(xup, y, ly)] - p[si(xdn, y, ly)])
-                    + (pi_s[vi(xup, y, ly, 0)] - pi_s[vi(xdn, y, ly, 0)])
-                    + ((pi_s[vi(x, yup, ly, 1)] + pi_a[si(x, yup, ly)])
-                        - (pi_s[vi(x, ydn, ly, 1)] + pi_a[si(x, ydn, ly)])));
+                dudt[vi(x, y, ly, 0)] += inv_rho
+                    * (-(p[si(xup, y, ly)] - p[si(xdn, y, ly)])
+                        + (pi_s[vi(xup, y, ly, 0)] - pi_s[vi(xdn, y, ly, 0)])
+                        + ((pi_s[vi(x, yup, ly, 1)] + pi_a[si(x, yup, ly)])
+                            - (pi_s[vi(x, ydn, ly, 1)] + pi_a[si(x, ydn, ly)])));
 
-            // y-component
-            dudt[vi(x, y, ly, 1)] += inv_rho
-                * (-(p[si(x, yup, ly)] - p[si(x, ydn, ly)])
-                    + ((pi_s[vi(xup, y, ly, 1)] - pi_a[si(xup, y, ly)])
-                        - (pi_s[vi(xdn, y, ly, 1)] - pi_a[si(xdn, y, ly)]))
-                    - (pi_s[vi(x, yup, ly, 0)] - pi_s[vi(x, ydn, ly, 0)]));
+                dudt[vi(x, y, ly, 1)] += inv_rho
+                    * (-(p[si(x, yup, ly)] - p[si(x, ydn, ly)])
+                        + ((pi_s[vi(xup, y, ly, 1)] - pi_a[si(xup, y, ly)])
+                            - (pi_s[vi(xdn, y, ly, 1)] - pi_a[si(xdn, y, ly)]))
+                        - (pi_s[vi(x, yup, ly, 0)] - pi_s[vi(x, ydn, ly, 0)]));
+            }
         }
     }
 }
