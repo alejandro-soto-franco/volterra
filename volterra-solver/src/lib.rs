@@ -95,7 +95,7 @@ pub mod gauss_bonnet_3d;
 pub use gauss_bonnet_3d::gauss_bonnet_chi;
 
 pub mod runner_dec;
-pub use runner_dec::{run_dry_active_nematic_dec, SnapStatsDec};
+pub use runner_dec::{run_dry_active_nematic_dec, run_dry_active_nematic_dec_smoke, SnapStatsDec};
 
 pub mod runner_dec_wet;
 pub use runner_dec_wet::run_wet_active_nematic_dec;
