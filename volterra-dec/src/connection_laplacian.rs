@@ -16,6 +16,7 @@
 //! - Knoppel et al. "Globally Optimal Direction Fields." ACM TOG 2013.
 //! - Crane et al. "Trivial Connections on Discrete Surfaces." SGP 2010.
 
+use cartan_core::fiber::{Section, U1Spin2, VecSection};
 use cartan_core::Manifold;
 use cartan_dec::Mesh;
 
@@ -216,6 +217,23 @@ pub fn molecular_field_conn(
     h
 }
 
+/// View a structure-of-arrays `QFieldDec` as an array-of-structs section.
+fn qfield_to_section(q: &QFieldDec) -> VecSection<U1Spin2> {
+    VecSection::from_vec((0..q.n_vertices).map(|i| [q.q1[i], q.q2[i]]).collect())
+}
+
+/// Repack a `U1Spin2` section into a structure-of-arrays `QFieldDec`.
+fn section_to_qfield(sec: &VecSection<U1Spin2>, nv: usize) -> QFieldDec {
+    let mut q1 = vec![0.0_f64; nv];
+    let mut q2 = vec![0.0_f64; nv];
+    for i in 0..nv {
+        let e = sec.at(i);
+        q1[i] = e[0];
+        q2[i] = e[1];
+    }
+    QFieldDec { q1, q2, n_vertices: nv }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Geometry helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,5 +368,20 @@ mod tests {
             max_diff < 0.1,
             "on flat mesh, connection Laplacian should match scalar: max_diff = {max_diff}"
         );
+    }
+
+    #[test]
+    fn qfield_section_roundtrip() {
+        let q = QFieldDec {
+            q1: vec![0.1, 0.2, 0.3],
+            q2: vec![-0.4, 0.5, -0.6],
+            n_vertices: 3,
+        };
+        let sec = qfield_to_section(&q);
+        let back = section_to_qfield(&sec, 3);
+        for i in 0..3 {
+            assert!((back.q1[i] - q.q1[i]).abs() < 1e-15);
+            assert!((back.q2[i] - q.q2[i]).abs() < 1e-15);
+        }
     }
 }
