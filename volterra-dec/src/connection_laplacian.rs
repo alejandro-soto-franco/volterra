@@ -374,6 +374,28 @@ mod tests {
     }
 
     #[test]
+    fn rotor_apply_matches_legacy_on_torus() {
+        use crate::mesh_gen::torus_mesh;
+        use cartan_manifolds::euclidean::Euclidean;
+
+        let mesh = torus_mesh(3.0, 1.0, 12, 8);
+        let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
+        let manifold = Euclidean::<3>;
+        let ops = Operators::from_mesh_generic(&mesh, &manifold).unwrap();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
+        let q = QFieldDec::random_perturbation(mesh.n_vertices(), 0.1, 11);
+        let got = cl.apply(&q);
+        let want = legacy_apply(&cl, &q);
+        let mut maxd = 0.0_f64;
+        for i in 0..mesh.n_vertices() {
+            maxd = maxd.max((got.q1[i] - want.q1[i]).abs()).max((got.q2[i] - want.q2[i]).abs());
+        }
+        assert!(maxd < 1e-12, "torus rotor vs legacy max diff = {maxd}");
+    }
+
+    #[test]
     fn qfield_section_roundtrip() {
         let q = QFieldDec {
             q1: vec![0.1, 0.2, 0.3],

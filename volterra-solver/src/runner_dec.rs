@@ -14,7 +14,10 @@
 
 use cartan_core::Manifold;
 use cartan_dec::Operators;
+use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
+use volterra_dec::connection_laplacian::{molecular_field_conn, ConnectionLaplacian};
+use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::{molecular_field_dec, QFieldDec};
 
 /// Per-snapshot statistics from a DEC simulation.
@@ -112,4 +115,53 @@ pub fn run_dry_active_nematic_dec<M: Manifold>(
     }
 
     (q, stats)
+}
+
+/// Smoke helper: run a short rotor-backed connection Laplacian simulation on S^2.
+///
+/// Builds a `ConnectionLaplacian` from an icosphere at the given refinement level,
+/// initialises a random Q-tensor field, and advances it for `steps` RK4 steps
+/// using [`molecular_field_conn`]. Returns per-vertex `sqrt(q1^2 + q2^2)` after
+/// the run.
+///
+/// This function exists to make the rotor-backed connection path testable at the
+/// solver level without importing cartan types into the test binary.
+pub fn run_dry_active_nematic_dec_smoke(refinement: usize, steps: usize) -> Vec<f64> {
+    let mesh = icosphere(refinement);
+    let nv = mesh.n_vertices();
+    let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
+
+    let manifold = Sphere::<3>;
+    let ops = Operators::from_mesh_generic(&mesh, &manifold)
+        .expect("Operators::from_mesh_generic failed on icosphere");
+    let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
+    let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+    let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
+
+    let mut params = ActiveNematicParams::default_test();
+    // Small dt for CFL stability on the sphere (h ~ 1/sqrt(nv), so dt ~ h^2).
+    params.dt = 1e-3;
+
+    let mut q = QFieldDec::random_perturbation(nv, 0.1, 42);
+
+    for _ in 0..steps {
+        // RK4 using molecular_field_conn as the RHS.
+        let k1 = molecular_field_conn(&q, params.k_r, params.a_eff(), params.c_landau, &cl)
+            .scale(params.gamma_r);
+        let q2 = q.add(&k1.scale(0.5 * params.dt));
+        let k2 = molecular_field_conn(&q2, params.k_r, params.a_eff(), params.c_landau, &cl)
+            .scale(params.gamma_r);
+        let q3 = q.add(&k2.scale(0.5 * params.dt));
+        let k3 = molecular_field_conn(&q3, params.k_r, params.a_eff(), params.c_landau, &cl)
+            .scale(params.gamma_r);
+        let q4 = q.add(&k3.scale(params.dt));
+        let k4 = molecular_field_conn(&q4, params.k_r, params.a_eff(), params.c_landau, &cl)
+            .scale(params.gamma_r);
+        let rhs = k1.add(&k2.scale(2.0)).add(&k3.scale(2.0)).add(&k4);
+        q = q.add(&rhs.scale(params.dt / 6.0));
+    }
+
+    (0..nv)
+        .map(|i| (q.q1[i] * q.q1[i] + q.q2[i] * q.q2[i]).sqrt())
+        .collect()
 }
