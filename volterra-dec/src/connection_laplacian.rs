@@ -16,34 +16,27 @@
 //! - Knoppel et al. "Globally Optimal Direction Fields." ACM TOG 2013.
 //! - Crane et al. "Trivial Connections on Discrete Surfaces." SGP 2010.
 
+use cartan_core::bundle::{CovLaplacian, EdgeTransportRotor2D};
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
-use cartan_core::Manifold;
+use cartan_core::{Manifold, Rotor2};
 use cartan_dec::Mesh;
 
 use crate::QFieldDec;
 
-/// Precomputed connection data for the spin-2 Laplacian.
-///
-/// Stores the connection angle and cotangent weight for each edge,
-/// plus the dual cell area at each vertex. All quantities are computed
-/// once from the mesh geometry and reused at every time step.
+/// Spin-2 connection Laplacian, backed by the shared rotor transport layer.
 pub struct ConnectionLaplacian {
     /// Number of vertices.
     pub n_vertices: usize,
-    /// For each edge: (v0, v1, cot_weight, connection_angle_2x).
-    /// connection_angle_2x = 2 * alpha (spin-2 transport).
-    edges: Vec<EdgeData>,
-    /// Dual cell area (star_0) at each vertex.
+    /// Shared Laplacian stencil (cotangent weights + dual areas).
+    cov: CovLaplacian,
+    /// Rotor-valued connection (one Rotor2 per edge).
+    conn: EdgeTransportRotor2D,
+    /// Cotangent weight per edge (mirrors star1), kept for the oracle accessors.
+    cot_weights: Vec<f64>,
+    /// Dual area per vertex (mirrors star0).
     dual_areas: Vec<f64>,
-}
-
-struct EdgeData {
-    v0: usize,
-    v1: usize,
-    /// Cotangent weight: (cot alpha_ij + cot beta_ij) / 2.
-    cot_weight: f64,
-    /// Twice the connection angle (spin-2 transport phase).
-    phase_2x: f64,
+    /// Spin-2 phase (2*alpha) per edge, consumed by `edge_phases`.
+    phases_2x: Vec<f64>,
 }
 
 impl ConnectionLaplacian {
@@ -65,11 +58,12 @@ impl ConnectionLaplacian {
         let normals = compute_vertex_normals(&mesh.simplices, coords);
         let e1_frames = compute_tangent_frames(&normals);
 
-        // Compute per-edge connection angles. Use star_1 as cotangent weights
-        // (consistent with cartan-dec's scalar Laplacian).
-        let mut edges = Vec::with_capacity(ne);
-        for (e, &[v0, v1]) in mesh.boundaries.iter().enumerate() {
+        let mut edges: Vec<[usize; 2]> = Vec::with_capacity(ne);
+        let mut rotors: Vec<Rotor2> = Vec::with_capacity(ne);
+        let mut cot_weights: Vec<f64> = Vec::with_capacity(ne);
+        let mut phases_2x: Vec<f64> = Vec::with_capacity(ne);
 
+        for (e, &[v0, v1]) in mesh.boundaries.iter().enumerate() {
             // Connection angle: the rotation from v0's frame to v1's frame,
             // as measured by parallel-transporting e1 along the edge.
             //
@@ -101,21 +95,24 @@ impl ConnectionLaplacian {
                 0.0
             };
 
-            edges.push(EdgeData {
-                v0,
-                v1,
-                cot_weight: star1[e], // use cartan-dec's Hodge star
-                phase_2x: 2.0 * alpha,
-            });
+            edges.push([v0, v1]);
+            rotors.push(Rotor2::from_angle(alpha));
+            cot_weights.push(star1[e]);
+            phases_2x.push(2.0 * alpha);
         }
 
         // Use star_0 as dual areas (consistent with cartan-dec).
         let dual_areas = star0.to_vec();
+        let cov = CovLaplacian::new(nv, &edges, &cot_weights, &dual_areas);
+        let conn = EdgeTransportRotor2D { edges, rotors };
 
         ConnectionLaplacian {
             n_vertices: nv,
-            edges,
+            cov,
+            conn,
+            cot_weights,
             dual_areas,
+            phases_2x,
         }
     }
 
@@ -125,68 +122,25 @@ impl ConnectionLaplacian {
     /// encodes the parallel transport rotation for a spin-2 field (Q-tensor):
     /// transporting from v0 to v1 rotates z by `exp(i * phase)`.
     pub fn edge_phases(&self) -> Vec<f64> {
-        self.edges.iter().map(|e| e.phase_2x).collect()
+        self.phases_2x.clone()
     }
 
-    /// Apply the connection Laplacian to a Q-tensor field.
-    ///
-    /// Returns Delta_conn Q, where the parallel transport is built into
-    /// the stencil weights via the spin-2 phase rotation.
+    /// Apply the connection Laplacian to a Q-tensor field via the rotor layer.
     pub fn apply(&self, q: &QFieldDec) -> QFieldDec {
-        let nv = self.n_vertices;
-        let mut lap_q1 = vec![0.0_f64; nv];
-        let mut lap_q2 = vec![0.0_f64; nv];
-
-        for edge in &self.edges {
-            let v0 = edge.v0;
-            let v1 = edge.v1;
-            let w = edge.cot_weight;
-            let phase = edge.phase_2x;
-
-            // On a flat mesh, phase = 0, so transport is identity.
-            // On curved meshes, the phase encodes the Levi-Civita holonomy.
-            let cos_p = phase.cos();
-            let sin_p = phase.sin();
-
-            // Transport Q from v1 to v0's frame: rotate by -phase (undo the frame rotation).
-            let q1_v1 = q.q1[v1];
-            let q2_v1 = q.q2[v1];
-            let transported_q1 = cos_p * q1_v1 + sin_p * q2_v1;
-            let transported_q2 = -sin_p * q1_v1 + cos_p * q2_v1;
-
-            // DEC sign convention: d0[e,v0] = -1, d0[e,v1] = +1.
-            // The Laplacian entry for v0 from edge e is:
-            //   -star_1[e] * (Q_v1_transported - Q_v0) / star_0[v0]
-            // which equals star_1[e] * (Q_v0 - Q_v1_transported) / star_0[v0].
-            // We accumulate with the DEC sign (negative of naive difference).
-            lap_q1[v0] -= w * (transported_q1 - q.q1[v0]);
-            lap_q2[v0] -= w * (transported_q2 - q.q2[v0]);
-
-            // Transport Q from v0 to v1's frame: rotate by +phase.
-            let q1_v0 = q.q1[v0];
-            let q2_v0 = q.q2[v0];
-            let transported_q1_rev = cos_p * q1_v0 - sin_p * q2_v0;
-            let transported_q2_rev = sin_p * q1_v0 + cos_p * q2_v0;
-
-            lap_q1[v1] -= w * (transported_q1_rev - q.q1[v1]);
-            lap_q2[v1] -= w * (transported_q2_rev - q.q2[v1]);
-        }
-
-        // Divide by dual area to get the pointwise Laplacian.
-        for i in 0..nv {
-            if self.dual_areas[i] > 1e-30 {
-                let inv_a = 1.0 / self.dual_areas[i];
-                lap_q1[i] *= inv_a;
-                lap_q2[i] *= inv_a;
-            }
-        }
-
-        QFieldDec {
-            q1: lap_q1,
-            q2: lap_q2,
-            n_vertices: nv,
-        }
+        let sec = qfield_to_section(q);
+        let out = self.cov.apply_rotor::<U1Spin2, 2, _>(&sec, &self.conn);
+        section_to_qfield(&out, self.n_vertices)
     }
+
+    // Accessors used only by the test oracle.
+    #[doc(hidden)]
+    pub fn edges_ref(&self) -> &[[usize; 2]] { &self.conn.edges }
+    #[doc(hidden)]
+    pub fn cot_weight_ref(&self, e: usize) -> f64 { self.cot_weights[e] }
+    #[doc(hidden)]
+    pub fn phase_2x_ref(&self, e: usize) -> f64 { self.phases_2x[e] }
+    #[doc(hidden)]
+    pub fn dual_area_ref(&self, v: usize) -> f64 { self.dual_areas[v] }
 }
 
 /// Compute the molecular field using the connection Laplacian.
@@ -292,6 +246,55 @@ mod tests {
 
     fn extract_coords_sphere(mesh: &Mesh<Sphere<3>, 3, 2>) -> Vec<[f64; 3]> {
         mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect()
+    }
+
+    // Frozen copy of the pre-rotor per-edge Laplacian, kept as an oracle.
+    fn legacy_apply(cl: &ConnectionLaplacian, q: &QFieldDec) -> QFieldDec {
+        let nv = cl.n_vertices;
+        let mut lap_q1 = vec![0.0_f64; nv];
+        let mut lap_q2 = vec![0.0_f64; nv];
+        for (e, &[v0, v1]) in cl.edges_ref().iter().enumerate() {
+            let w = cl.cot_weight_ref(e);
+            let phase = cl.phase_2x_ref(e);
+            let (cos_p, sin_p) = (phase.cos(), phase.sin());
+            let (q1_v1, q2_v1) = (q.q1[v1], q.q2[v1]);
+            let tq1 = cos_p * q1_v1 + sin_p * q2_v1;
+            let tq2 = -sin_p * q1_v1 + cos_p * q2_v1;
+            lap_q1[v0] -= w * (tq1 - q.q1[v0]);
+            lap_q2[v0] -= w * (tq2 - q.q2[v0]);
+            let (q1_v0, q2_v0) = (q.q1[v0], q.q2[v0]);
+            let tq1r = cos_p * q1_v0 - sin_p * q2_v0;
+            let tq2r = sin_p * q1_v0 + cos_p * q2_v0;
+            lap_q1[v1] -= w * (tq1r - q.q1[v1]);
+            lap_q2[v1] -= w * (tq2r - q.q2[v1]);
+        }
+        for i in 0..nv {
+            if cl.dual_area_ref(i) > 1e-30 {
+                let inv_a = 1.0 / cl.dual_area_ref(i);
+                lap_q1[i] *= inv_a;
+                lap_q2[i] *= inv_a;
+            }
+        }
+        QFieldDec { q1: lap_q1, q2: lap_q2, n_vertices: nv }
+    }
+
+    #[test]
+    fn rotor_apply_matches_legacy_on_sphere() {
+        let mesh = icosphere(2);
+        let coords = extract_coords_sphere(&mesh);
+        let manifold = Sphere::<3>;
+        let ops = Operators::from_mesh_generic(&mesh, &manifold).unwrap();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
+        let q = QFieldDec::random_perturbation(mesh.n_vertices(), 0.1, 7);
+        let got = cl.apply(&q);
+        let want = legacy_apply(&cl, &q);
+        let mut maxd = 0.0_f64;
+        for i in 0..mesh.n_vertices() {
+            maxd = maxd.max((got.q1[i]-want.q1[i]).abs()).max((got.q2[i]-want.q2[i]).abs());
+        }
+        assert!(maxd < 1e-12, "rotor vs legacy max diff = {maxd}");
     }
 
     #[test]
