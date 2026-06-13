@@ -24,7 +24,7 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.6"
+cartan-core      = "0.6.1"
 cartan-manifolds = "0.6"
 cartan-geo       = "0.6"
 cartan-dec       = "0.6"
