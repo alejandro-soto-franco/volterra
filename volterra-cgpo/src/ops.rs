@@ -23,8 +23,19 @@
 //!
 //! **Operators only write to cells where `bounds.inside[idx]` is true** — the
 //! same set the Python calls `sim_points` / `bounds`.
+//!
+//! # Parallelism
+//!
+//! Each kernel checks [`crate::par_gate::use_parallel`] at call time.  Below
+//! the threshold (default 250 000 cells, roughly 500×500) the serial path runs
+//! identical loop bodies to the original pre-rayon code.  Above the threshold
+//! the rayon path uses coarse chunks of [`crate::par_gate::rows_per_chunk`]
+//! rows so spawn overhead is amortized.  Results are bit-identical regardless
+//! of path.
 
+use crate::par_gate::{rows_per_chunk, use_parallel};
 use crate::Boundary;
+use rayon::prelude::*;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -65,30 +76,61 @@ pub fn laplacian(arr: &[f64], out: &mut [f64], bounds: &Boundary, coeff: f64) {
     let ly = bounds.ly;
     let c = coeff / 6.0;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        out.par_chunks_mut(rpc * ly)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
+                        row[y] = c * (
+                            -20.0 * arr[si(x, y, ly)]
+                            + 4.0 * (
+                                arr[si(xup, y, ly)]
+                                + arr[si(xdn, y, ly)]
+                                + arr[si(x, yup, ly)]
+                                + arr[si(x, ydn, ly)]
+                            )
+                            + arr[si(xup, yup, ly)]
+                            + arr[si(xup, ydn, ly)]
+                            + arr[si(xdn, yup, ly)]
+                            + arr[si(xdn, ydn, ly)]
+                        );
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
-
-            out[idx] = c * (
-                -20.0 * arr[si(x, y, ly)]
-                + 4.0 * (
-                    arr[si(xup, y, ly)]
-                    + arr[si(xdn, y, ly)]
-                    + arr[si(x, yup, ly)]
-                    + arr[si(x, ydn, ly)]
-                )
-                + arr[si(xup, yup, ly)]
-                + arr[si(xup, ydn, ly)]
-                + arr[si(xdn, yup, ly)]
-                + arr[si(xdn, ydn, ly)]
-            );
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
+                out[idx] = c * (
+                    -20.0 * arr[si(x, y, ly)]
+                    + 4.0 * (
+                        arr[si(xup, y, ly)]
+                        + arr[si(xdn, y, ly)]
+                        + arr[si(x, yup, ly)]
+                        + arr[si(x, ydn, ly)]
+                    )
+                    + arr[si(xup, yup, ly)]
+                    + arr[si(xup, ydn, ly)]
+                    + arr[si(xdn, yup, ly)]
+                    + arr[si(xdn, ydn, ly)]
+                );
+            }
         }
     }
 }
@@ -102,31 +144,64 @@ pub fn laplacian_vector(arr: &[f64], out: &mut [f64], bounds: &Boundary, coeff: 
     let ly = bounds.ly;
     let c = coeff / 6.0;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        out.par_chunks_mut(rpc * ly * 2)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly * 2).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
+                        for comp in 0..2 {
+                            row[y * 2 + comp] = c * (
+                                -20.0 * arr[vi(x, y, ly, comp)]
+                                + 4.0 * (
+                                    arr[vi(xup, y, ly, comp)]
+                                    + arr[vi(xdn, y, ly, comp)]
+                                    + arr[vi(x, yup, ly, comp)]
+                                    + arr[vi(x, ydn, ly, comp)]
+                                )
+                                + arr[vi(xup, yup, ly, comp)]
+                                + arr[vi(xup, ydn, ly, comp)]
+                                + arr[vi(xdn, yup, ly, comp)]
+                                + arr[vi(xdn, ydn, ly, comp)]
+                            );
+                        }
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
-
-            for comp in 0..2 {
-                out[vi(x, y, ly, comp)] = c * (
-                    -20.0 * arr[vi(x, y, ly, comp)]
-                    + 4.0 * (
-                        arr[vi(xup, y, ly, comp)]
-                        + arr[vi(xdn, y, ly, comp)]
-                        + arr[vi(x, yup, ly, comp)]
-                        + arr[vi(x, ydn, ly, comp)]
-                    )
-                    + arr[vi(xup, yup, ly, comp)]
-                    + arr[vi(xup, ydn, ly, comp)]
-                    + arr[vi(xdn, yup, ly, comp)]
-                    + arr[vi(xdn, ydn, ly, comp)]
-                );
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
+                for comp in 0..2 {
+                    out[vi(x, y, ly, comp)] = c * (
+                        -20.0 * arr[vi(x, y, ly, comp)]
+                        + 4.0 * (
+                            arr[vi(xup, y, ly, comp)]
+                            + arr[vi(xdn, y, ly, comp)]
+                            + arr[vi(x, yup, ly, comp)]
+                            + arr[vi(x, ydn, ly, comp)]
+                        )
+                        + arr[vi(xup, yup, ly, comp)]
+                        + arr[vi(xup, ydn, ly, comp)]
+                        + arr[vi(xdn, yup, ly, comp)]
+                        + arr[vi(xdn, ydn, ly, comp)]
+                    );
+                }
             }
         }
     }
@@ -147,21 +222,43 @@ pub fn div_vector(arr: &[f64], out: &mut [f64], bounds: &Boundary) {
     let lx = bounds.lx;
     let ly = bounds.ly;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        out.par_chunks_mut(rpc * ly)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup = (x + 1) % lx;
+                    let xdn = (x + lx - 1) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup = (y + 1) % ly;
+                        let ydn = (y + ly - 1) % ly;
+                        row[y] = 0.5 * (
+                            (arr[vi(xup, y, ly, 0)] - arr[vi(xdn, y, ly, 0)])
+                            + (arr[vi(x, yup, ly, 1)] - arr[vi(x, ydn, ly, 1)])
+                        );
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup = (x + 1) % lx;
             let xdn = (x + lx - 1) % lx;
-            let yup = (y + 1) % ly;
-            let ydn = (y + ly - 1) % ly;
-
-            out[idx] = 0.5 * (
-                (arr[vi(xup, y, ly, 0)] - arr[vi(xdn, y, ly, 0)])
-                + (arr[vi(x, yup, ly, 1)] - arr[vi(x, ydn, ly, 1)])
-            );
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup = (y + 1) % ly;
+                let ydn = (y + ly - 1) % ly;
+                out[idx] = 0.5 * (
+                    (arr[vi(xup, y, ly, 0)] - arr[vi(xdn, y, ly, 0)])
+                    + (arr[vi(x, yup, ly, 1)] - arr[vi(x, ydn, ly, 1)])
+                );
+            }
         }
     }
 }
@@ -195,60 +292,117 @@ pub fn upwind_advective_term(
     let ly = bounds.ly;
     let half_coeff = coeff * 0.5;
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = si(x, y, ly);
-            if !bounds.inside[idx] {
-                continue;
-            }
+    if use_parallel(lx, ly) {
+        let rpc = rows_per_chunk(lx);
+        out.par_chunks_mut(rpc * ly * 2)
+            .enumerate()
+            .for_each(|(chunk_idx, chunk)| {
+                let x_start = chunk_idx * rpc;
+                for (row_offset, row) in chunk.chunks_mut(ly * 2).enumerate() {
+                    let x = x_start + row_offset;
+                    if x >= lx { break; }
+                    let xup   = (x + 1) % lx;
+                    let xdn   = (x + lx - 1) % lx;
+                    let xupup = (x + 2) % lx;
+                    let xdndn = (x + lx - 2) % lx;
+                    for y in 0..ly {
+                        let idx = si(x, y, ly);
+                        if !bounds.inside[idx] { continue; }
+                        let yup   = (y + 1) % ly;
+                        let ydn   = (y + ly - 1) % ly;
+                        let yupup = (y + 2) % ly;
+                        let ydndn = (y + ly - 2) % ly;
 
-            // --- x-direction ---
+                        let tmp_x = half_coeff * u[vi(x, y, ly, 0)];
+                        if u[vi(x, y, ly, 0)] > 0.0 {
+                            for c in 0..2 {
+                                row[y * 2 + c] += tmp_x * (
+                                    3.0 * arr[vi(x,     y, ly, c)]
+                                    - 4.0 * arr[vi(xdn,   y, ly, c)]
+                                    +       arr[vi(xdndn, y, ly, c)]
+                                );
+                            }
+                        } else {
+                            for c in 0..2 {
+                                row[y * 2 + c] += tmp_x * (
+                                    -3.0 * arr[vi(x,     y, ly, c)]
+                                    + 4.0 * arr[vi(xup,   y, ly, c)]
+                                    -       arr[vi(xupup, y, ly, c)]
+                                );
+                            }
+                        }
+
+                        let tmp_y = half_coeff * u[vi(x, y, ly, 1)];
+                        if u[vi(x, y, ly, 1)] > 0.0 {
+                            for c in 0..2 {
+                                row[y * 2 + c] += tmp_y * (
+                                    3.0 * arr[vi(x, y,     ly, c)]
+                                    - 4.0 * arr[vi(x, ydn,   ly, c)]
+                                    +       arr[vi(x, ydndn, ly, c)]
+                                );
+                            }
+                        } else {
+                            for c in 0..2 {
+                                row[y * 2 + c] += tmp_y * (
+                                    -3.0 * arr[vi(x, y,     ly, c)]
+                                    + 4.0 * arr[vi(x, yup,   ly, c)]
+                                    -       arr[vi(x, yupup, ly, c)]
+                                );
+                            }
+                        }
+                    }
+                }
+            });
+    } else {
+        for x in 0..lx {
             let xup   = (x + 1) % lx;
             let xdn   = (x + lx - 1) % lx;
             let xupup = (x + 2) % lx;
             let xdndn = (x + lx - 2) % lx;
+            for y in 0..ly {
+                let idx = si(x, y, ly);
+                if !bounds.inside[idx] { continue; }
+                let yup   = (y + 1) % ly;
+                let ydn   = (y + ly - 1) % ly;
+                let yupup = (y + 2) % ly;
+                let ydndn = (y + ly - 2) % ly;
 
-            let tmp_x = half_coeff * u[vi(x, y, ly, 0)];
-            if u[vi(x, y, ly, 0)] > 0.0 {
-                for c in 0..2 {
-                    out[vi(x, y, ly, c)] += tmp_x * (
-                        3.0 * arr[vi(x,     y, ly, c)]
-                        - 4.0 * arr[vi(xdn,   y, ly, c)]
-                        +       arr[vi(xdndn, y, ly, c)]
-                    );
+                let tmp_x = half_coeff * u[vi(x, y, ly, 0)];
+                if u[vi(x, y, ly, 0)] > 0.0 {
+                    for c in 0..2 {
+                        out[vi(x, y, ly, c)] += tmp_x * (
+                            3.0 * arr[vi(x,     y, ly, c)]
+                            - 4.0 * arr[vi(xdn,   y, ly, c)]
+                            +       arr[vi(xdndn, y, ly, c)]
+                        );
+                    }
+                } else {
+                    for c in 0..2 {
+                        out[vi(x, y, ly, c)] += tmp_x * (
+                            -3.0 * arr[vi(x,     y, ly, c)]
+                            + 4.0 * arr[vi(xup,   y, ly, c)]
+                            -       arr[vi(xupup, y, ly, c)]
+                        );
+                    }
                 }
-            } else {
-                for c in 0..2 {
-                    out[vi(x, y, ly, c)] += tmp_x * (
-                        -3.0 * arr[vi(x,     y, ly, c)]
-                        + 4.0 * arr[vi(xup,   y, ly, c)]
-                        -       arr[vi(xupup, y, ly, c)]
-                    );
-                }
-            }
 
-            // --- y-direction ---
-            let yup   = (y + 1) % ly;
-            let ydn   = (y + ly - 1) % ly;
-            let yupup = (y + 2) % ly;
-            let ydndn = (y + ly - 2) % ly;
-
-            let tmp_y = half_coeff * u[vi(x, y, ly, 1)];
-            if u[vi(x, y, ly, 1)] > 0.0 {
-                for c in 0..2 {
-                    out[vi(x, y, ly, c)] += tmp_y * (
-                        3.0 * arr[vi(x, y,     ly, c)]
-                        - 4.0 * arr[vi(x, ydn,   ly, c)]
-                        +       arr[vi(x, ydndn, ly, c)]
-                    );
-                }
-            } else {
-                for c in 0..2 {
-                    out[vi(x, y, ly, c)] += tmp_y * (
-                        -3.0 * arr[vi(x, y,     ly, c)]
-                        + 4.0 * arr[vi(x, yup,   ly, c)]
-                        -       arr[vi(x, yupup, ly, c)]
-                    );
+                let tmp_y = half_coeff * u[vi(x, y, ly, 1)];
+                if u[vi(x, y, ly, 1)] > 0.0 {
+                    for c in 0..2 {
+                        out[vi(x, y, ly, c)] += tmp_y * (
+                            3.0 * arr[vi(x, y,     ly, c)]
+                            - 4.0 * arr[vi(x, ydn,   ly, c)]
+                            +       arr[vi(x, ydndn, ly, c)]
+                        );
+                    }
+                } else {
+                    for c in 0..2 {
+                        out[vi(x, y, ly, c)] += tmp_y * (
+                            -3.0 * arr[vi(x, y,     ly, c)]
+                            + 4.0 * arr[vi(x, yup,   ly, c)]
+                            -       arr[vi(x, yupup, ly, c)]
+                        );
+                    }
                 }
             }
         }
