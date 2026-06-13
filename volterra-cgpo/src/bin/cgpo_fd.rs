@@ -48,6 +48,13 @@ fn env_f64(key: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
+fn env_i64(key: &str, default: i64) -> i64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
 fn env_u64(key: &str, default: u64) -> u64 {
     std::env::var(key)
         .ok()
@@ -150,6 +157,43 @@ fn write_2col_txt(path: &Path, arr: &[f64], n: usize) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Write a 1-column scalar field (length `n`), GAUGE-FIXED for visualization.
+///
+/// The CGPO pressure-Poisson solve uses pure Neumann BCs, so the absolute
+/// pressure is defined only up to an additive constant (the null-space / constant
+/// mode is unconstrained, and `subtract_p_avg` is commented out in flow-solver.py).
+/// The dynamics use ∇p only, so they are unaffected — but the absolute field
+/// drifts, which is why the pressure panel rendered as "bugged / not working".
+/// We fix the gauge for OUTPUT by subtracting the interior mean; this changes
+/// nothing physical (∇p is identical) and makes the pressure field meaningful.
+fn write_1col_gauge_fixed(
+    path: &Path,
+    field: &[f64],
+    inside: &[bool],
+    n: usize,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    // interior mean (the gauge)
+    let mut sum = 0.0_f64;
+    let mut cnt = 0usize;
+    for i in 0..n {
+        if inside[i] {
+            sum += field[i];
+            cnt += 1;
+        }
+    }
+    let mean = if cnt > 0 { sum / cnt as f64 } else { 0.0 };
+    let mut f = fs::File::create(path)?;
+    for i in 0..n {
+        // interior: gauge-fixed (zero-mean); exterior: 0 (masked in render, clean on disk)
+        let v = if inside[i] { field[i] - mean } else { 0.0 };
+        writeln!(f, "{:.18e}", v)?;
+    }
+    Ok(())
+}
+
 /// Format step count with zero-padding to 10 digits (matching Python:
 /// `f'_{stepcount:10d}'.replace(' ','0')`).
 fn step_name(step: usize) -> String {
@@ -163,10 +207,11 @@ fn step_name(step: usize) -> String {
 fn main() {
     // --- read config ---
     let lx = env_usize("CGPO_LX", 100);
-    let als = env_usize("CGPO_ALS", 1);
-    let ncl = env_usize("CGPO_NCL", 9);
+    let als = env_f64("CGPO_ALS", 2.8);
+    let ncl = env_f64("CGPO_NCL", 4.8);
+    let lambda = env_f64("CGPO_LAMBDA", 1.0); // code-truth flow-alignment (flow-solver.py λ=1)
     let dt = env_f64("CGPO_DT", 1e-4);
-    let max_p_iters = env_usize("CGPO_MAX_P_ITERS", 50);
+    let max_p_iters = env_i64("CGPO_MAX_P_ITERS", -1); // code-truth: uncapped (relax to convergence)
     let max_steps = env_usize("CGPO_MAX_STEPS", 400_000);
     let save_every = env_usize("CGPO_SAVE_EVERY", 1_000);
     let out_root = env_string("CGPO_OUT")
@@ -178,12 +223,12 @@ fn main() {
     let ly = lx; // square grid
     let n = lx * ly;
 
-    println!("cgpo_fd: lx={lx} als={als} ncl={ncl} dt={dt} max_p_iters={max_p_iters}");
+    println!("cgpo_fd: lx={lx} als={als} ncl={ncl} lambda={lambda} dt={dt} max_p_iters={max_p_iters}");
     println!("  max_steps={max_steps} save_every={save_every}");
     println!("  out_root={out_root}  seed={seed}");
 
     // --- build params ---
-    let params = Params::new(lx, als, ncl, dt, max_p_iters);
+    let params = Params::new(lx, als, ncl, lambda, dt, max_p_iters);
     println!(
         "  k_elastic={:.4e} zeta={:.4e} c_landau={:.4e} s0={:.6} eta={:.4e}",
         params.k_elastic, params.zeta, params.c_landau, params.s0, params.eta
@@ -201,8 +246,10 @@ fn main() {
     let run_dir = Path::new(&out_root).join(&run_label);
     let q_dir = run_dir.join("Q");
     let u_dir = run_dir.join("u");
+    let p_dir = run_dir.join("p");
     fs::create_dir_all(&q_dir).expect("could not create Q output dir");
     fs::create_dir_all(&u_dir).expect("could not create u output dir");
+    fs::create_dir_all(&p_dir).expect("could not create p output dir");
 
     // --- allocate state ---
     let mut state = State::new(lx, ly);
@@ -237,8 +284,12 @@ fn main() {
         let sn = step_name(step);
         let qp = q_dir.join(format!("Q_{sn}.txt"));
         let up = u_dir.join(format!("u_{sn}.txt"));
+        let pp = p_dir.join(format!("p_{sn}.txt"));
         write_2col_txt(&qp, &state.q, n).expect("failed to write Q frame");
         write_2col_txt(&up, &state.u, n).expect("failed to write u frame");
+        // pressure: gauge-fixed (interior-mean subtracted) — fixes the bugged field
+        write_1col_gauge_fixed(&pp, &state.p, &boundary.inside, n)
+            .expect("failed to write p frame");
     };
 
     save_frame(0, &state);
