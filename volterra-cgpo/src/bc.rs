@@ -24,22 +24,9 @@
 //! Every Python loop `for l in range(2)` is replicated here by iterating over
 //! both layers in the same order (layer 0 = inner first, then layer 1 = outer).
 
+use crate::index::{si, vi};
 use crate::Boundary;
 use std::f64::consts::PI;
-
-// ---------------------------------------------------------------------------
-// index helpers
-// ---------------------------------------------------------------------------
-
-#[inline(always)]
-fn si(x: usize, y: usize, ly: usize) -> usize {
-    x * ly + y
-}
-
-#[inline(always)]
-fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
-    (x * ly + y) * 2 + c
-}
 
 // ---------------------------------------------------------------------------
 // sign helper (matches Python's round(nx / abs(nx)))
