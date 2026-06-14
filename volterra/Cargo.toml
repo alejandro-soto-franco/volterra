@@ -16,6 +16,7 @@ volterra-solver  = { path = "../volterra-solver", version = "0.3.0" }
 volterra-cgpo    = { path = "../volterra-cgpo",   version = "0.3.0" }
 clap             = { version = "4", features = ["derive"] }
 serde            = { workspace = true }
+serde_json       = { workspace = true }
 toml             = "0.8"
 
 [[bin]]
