@@ -20,6 +20,8 @@
 pub mod nematic_params;
 pub use nematic_params::NematicParams;
 
+pub mod sim;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
