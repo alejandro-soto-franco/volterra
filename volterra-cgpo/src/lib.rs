@@ -1,10 +1,11 @@
-//! `volterra-cgpo`: scaffold and boundary for the nephroid-confined CGPO solver.
+//! `volterra-cgpo`: a finite-difference Beris-Edwards + relaxation-Stokes solver
+//! for the nephroid-confined CGPO problem.
 //!
-//! This crate is the foundation for a Rust port of the Beris–Edwards +
-//! relaxation-Stokes finite-difference solver from
-//! `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`.
-//! Task A provides the simulation parameters and the nephroid boundary
-//! construction; later tasks add the physics kernels.
+//! This crate is a complete Rust port of the solver in
+//! `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`. Every kernel matches the
+//! Python numba reference to rounding (the golden-data tests under `tests/ref/`
+//! are the contract). It provides the simulation parameters, the nephroid
+//! boundary construction, the physics kernels, and a hardened run harness.
 
 pub mod boundary;
 pub use boundary::{nephroid_boundary, Boundary};

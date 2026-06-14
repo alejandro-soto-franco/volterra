@@ -1,6 +1,6 @@
 [package]
 name = "volterra-cgpo"
-description = "Nephroid-confined CGPO finite-difference solver scaffold (Beris-Edwards + relaxation Stokes)"
+description = "Nephroid-confined CGPO finite-difference solver (Beris-Edwards + relaxation Stokes)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
