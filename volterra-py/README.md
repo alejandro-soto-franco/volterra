@@ -29,6 +29,7 @@ pip install volterra-nematic
 ## Example
 
 ```python
+import numpy as np
 import volterra
 
 params = volterra.ActiveNematicParams(
@@ -37,8 +38,26 @@ params = volterra.ActiveNematicParams(
     a_landau=-0.1, c_landau=0.1, lambda_=0.7,
     k_l=0.01, gamma_l=0.1, xi_l=5.0,
 )
-snapshots = volterra.run_dry_active_nematic(params, n_steps=10000, snap_every=500)
+q0 = volterra.QField2D.random_perturbation(params.nx, params.ny, params.dx, 0.001, 42)
+q_final, snapshots = volterra.run_dry_active_nematic(q0, params, n_steps=10000, snap_every=500)
+S = np.asarray(q_final.order_param()).reshape(params.nx, params.ny)
 ```
+
+## Development and testing
+
+The bindings are built with [maturin](https://www.maturin.rs/) and tested with
+pytest. Using [uv](https://docs.astral.sh/uv/):
+
+```bash
+cd volterra-py
+uv venv
+uv pip install maturin pytest numpy
+source .venv/bin/activate
+maturin develop          # compile the extension into the venv
+pytest tests/ -q         # run the smoke suite
+```
+
+The same recipe runs in CI (the `pytest` job in `.github/workflows/ci.yml`).
 
 ## License
 
