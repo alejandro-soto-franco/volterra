@@ -120,7 +120,7 @@ fn main() {
         t0,
     };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
     };
     runner.run(&mut q, &mut physics, &mut sink);
 

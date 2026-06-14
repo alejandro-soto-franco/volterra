@@ -676,7 +676,7 @@ pub fn run_active_nematic_hydro(
     let mut q = q_init.clone();
     let mut sink = WetSink { params, area, out: Vec::new() };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
     };
     runner.run(&mut q, &mut physics, &mut sink);
     (q, sink.out)
@@ -846,7 +846,7 @@ pub fn run_dry_active_nematic(
     let mut q = q_init.clone();
     let mut sink = DrySink { params, area, out: Vec::new() };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
     };
     runner.run(&mut q, &mut physics, &mut sink);
     (q, sink.out)
@@ -1167,7 +1167,7 @@ pub fn run_bech(
     let mut state = BechState { q: q_init.clone(), phi: phi_init.clone() };
     let mut sink = BechSink { params, area, out: Vec::new() };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
     };
     runner.run(&mut state, &mut physics, &mut sink);
     let BechState { q, phi } = state;
