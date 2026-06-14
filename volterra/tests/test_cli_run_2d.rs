@@ -12,7 +12,7 @@ fn run_cartesian2d_dry_exits_zero() {
             "--ny", "16",
             "--steps", "4",
             "--snap-every", "2",
-            "--out-raw", tmp.to_str().unwrap(),
+            "--out", tmp.to_str().unwrap(),
         ])
         .status()
         .expect("spawn volterra");

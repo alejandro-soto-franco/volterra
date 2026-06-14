@@ -13,7 +13,7 @@ fn run_cartesian3d_dry_exits_zero_and_writes_output() {
             "--nz", "8",
             "--steps", "4",
             "--snap-every", "2",
-            "--out-raw", tmp.to_str().unwrap(),
+            "--out", tmp.to_str().unwrap(),
         ])
         .status()
         .expect("spawn volterra");

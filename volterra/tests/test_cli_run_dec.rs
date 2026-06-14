@@ -11,7 +11,7 @@ fn run_dec_sphere_dry_exits_zero_and_writes_stats() {
             "--mode", "dry",
             "--steps", "4",
             "--snap-every", "2",
-            "--out-raw", tmp.to_str().unwrap(),
+            "--out", tmp.to_str().unwrap(),
         ])
         .status()
         .expect("spawn volterra");
