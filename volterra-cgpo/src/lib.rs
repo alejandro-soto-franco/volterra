@@ -24,7 +24,7 @@ pub use error::{CgpoError, CgpoResult};
 /// Simulation parameters, matching the Python solver's constants.
 ///
 /// Constructor: [`Params::new`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Params {
     // Grid
     pub lx: usize,
