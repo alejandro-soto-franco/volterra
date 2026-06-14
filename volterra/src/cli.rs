@@ -188,9 +188,7 @@ pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
     match cli.command {
         Command::Run(target) => match target {
             RunTarget::Cartesian2d(args) => run_cartesian2d(args),
-            RunTarget::Cartesian3d(_) => {
-                Err("cartesian3d subcommand is not implemented yet (Task 3.4)".into())
-            }
+            RunTarget::Cartesian3d(args) => run_cartesian3d(args),
             RunTarget::Dec(_) => {
                 Err("dec subcommand is not implemented yet (Task 3.5)".into())
             }
@@ -269,6 +267,77 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
         params.ny,
         args.common.steps,
         summary.len(),
+        out.display()
+    );
+    Ok(())
+}
+
+/// Run the 3D Cartesian active nematic. The runner writes its own npy frames
+/// and `stats.json` into the output directory.
+fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
+    use volterra_core::ActiveNematicParams3D;
+    use volterra_fields::{QField3D, ScalarField3D};
+    use volterra_solver::runner_3d::{run_bech_3d, run_dry_active_nematic_3d};
+
+    let mut params = ActiveNematicParams3D::default_test();
+    if let Some(cfg) = &args.common.config {
+        let text = std::fs::read_to_string(cfg)
+            .map_err(|e| -> DynErr { format!("read {}: {e}", cfg.display()).into() })?;
+        params = toml::from_str(&text)
+            .map_err(|e| -> DynErr { format!("parse {}: {e}", cfg.display()).into() })?;
+    }
+    params.nx = args.nx;
+    params.ny = args.ny;
+    params.nz = args.nz;
+
+    let q0 = QField3D::random_perturbation(
+        params.nx,
+        params.ny,
+        params.nz,
+        params.dx,
+        0.001,
+        args.common.seed,
+    );
+
+    let out = args.common.out_or_default("cartesian3d");
+    make_out_dir(&out)?;
+
+    let mode = args.mode.as_str();
+    let n_snaps = match mode {
+        "dry" => {
+            let (_qf, stats) = run_dry_active_nematic_3d(
+                &q0,
+                &params,
+                args.common.steps,
+                args.common.snap_every,
+                &out,
+                false,
+            );
+            stats.len()
+        }
+        "bech" => {
+            let phi0 = ScalarField3D::zeros(params.nx, params.ny, params.nz, params.dx);
+            let (_qf, _phif, stats) = run_bech_3d(
+                &q0,
+                &phi0,
+                &params,
+                args.common.steps,
+                args.common.snap_every,
+                &out,
+                false,
+            );
+            stats.len()
+        }
+        other => return Err(format!("unknown cartesian3d mode '{other}' (expected dry|bech)").into()),
+    };
+
+    println!(
+        "cartesian3d {mode}: {}x{}x{} grid, {} steps, {} snapshots -> {}",
+        params.nx,
+        params.ny,
+        params.nz,
+        args.common.steps,
+        n_snaps,
         out.display()
     );
     Ok(())
