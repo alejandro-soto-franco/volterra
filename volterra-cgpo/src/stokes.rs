@@ -252,6 +252,7 @@ pub fn relax_pressure_inner_loop(
 /// # Returns
 ///
 /// Number of Jacobi sweeps performed.
+#[allow(clippy::too_many_arguments)] // FD kernel: many physical and grid parameters
 pub fn relax_pressure(
     u: &[f64],
     rho: f64,
@@ -446,6 +447,7 @@ pub fn u_update_p_pi_terms(
 ///
 /// `ν` is the kinematic viscosity (`params.eta / params.rho` in the Python
 /// convention, but the Python passes `ν` directly as the `eta` field).
+#[allow(clippy::too_many_arguments)] // FD kernel: many physical and grid parameters
 pub fn get_u_update(
     dudt: &mut [f64],
     u: &[f64],
@@ -469,7 +471,8 @@ pub fn get_u_update(
 /// Convenience wrapper: runs the full pressure relaxation from [`Params`].
 ///
 /// Equivalent to [`relax_pressure`] but takes `params` for `rho`, `dt`, and
-/// `max_p_iters` (using `params.max_p_iters as i64`).
+/// `max_p_iters` (passed through from `params.max_p_iters`).
+#[allow(clippy::too_many_arguments)] // FD kernel: many physical and grid parameters
 pub fn relax_pressure_from_params(
     u: &[f64],
     p: &mut [f64],
@@ -490,6 +493,6 @@ pub fn relax_pressure_from_params(
         params.dt,
         target_rel_change,
         bounds,
-        params.max_p_iters as i64,
+        params.max_p_iters,
     )
 }

@@ -46,6 +46,7 @@ fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants)] // intentional compile-time premise guard below
 fn parallel_path_is_engaged_at_test_grid() {
     // Guards the premise of this file: 512x512 must take the parallel branch.
     // If PAR_THRESHOLD is ever raised above 262_144, bump LX/LY here too.

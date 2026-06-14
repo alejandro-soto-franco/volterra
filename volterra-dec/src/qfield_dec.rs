@@ -187,7 +187,7 @@ mod fieldvec_tests {
         // A small handcrafted field with non-trivial values.
         let q = QFieldDec {
             q1: vec![0.137, -0.92, 1.55, 0.0041, -3.7],
-            q2: vec![-0.5, 0.333, -1.2, 2.71828, 0.6],
+            q2: vec![-0.5, 0.333, -1.2, 2.65, 0.6],
             n_vertices: 5,
         };
         let dt = 0.0137_f64;
