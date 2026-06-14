@@ -112,6 +112,8 @@ pub use stokes_trait::{StokesSolver, StokesBackend, FlowField, KillingOperatorSo
 pub mod active_nematic_engine;
 pub use active_nematic_engine::{ActiveNematicEngine, EngineParams, StepDiagnostics};
 
+pub mod sim_impls;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
 // ─────────────────────────────────────────────────────────────────────────────
@@ -814,56 +816,49 @@ pub fn run_dry_active_nematic(
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
-    let integrator = RK4Integrator;
-    let mut q = q_init.clone();
-    let mut stats = Vec::new();
+    use volterra_core::sim::noise::LangevinNoise;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
+    use volterra_core::sim::stats::StepStats;
+
     let lx = params.nx as f64 * params.dx;
     let ly = params.ny as f64 * params.dx;
     let area = lx * ly;
 
-    // Langevin noise: Q += noise_amp * sqrt(dt) * W(x,t) per component per vertex.
-    let use_noise = params.noise_amp > 0.0;
-    let noise_scale = params.noise_amp * params.dt.sqrt();
-    // Use a reproducible but unique seed derived from grid dimensions.
-    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
-        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
-        ^ n_steps as u64;
-    let mut rng = SmallRng::seed_from_u64(seed);
-
-    for step in 0..=n_steps {
-        if step % snap_every == 0 {
-            let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
+    // Sink that rebuilds the exact SnapStats the legacy loop produced:
+    // defect scan + charge breakdown + density at each snapshot point.
+    struct DrySink<'a> {
+        params: &'a ActiveNematicParams,
+        area: f64,
+        out: Vec<SnapStats>,
+    }
+    impl Observer<QField2D> for DrySink<'_> {
+        fn observe(&mut self, step: usize, _t: f64, q: &QField2D, _s: &StepStats) {
+            let defects = scan_defects(q, std::f64::consts::PI / 2.0);
             let (n_plus, n_minus) = defect_count(&defects);
             let n_defects = defects.len();
-            stats.push(SnapStats {
-                time: step as f64 * params.dt,
+            self.out.push(SnapStats {
+                time: step as f64 * self.params.dt,
                 mean_s: q.mean_order_param(),
                 n_defects,
                 n_plus,
                 n_minus,
-                defect_density: n_defects as f64 / area,
+                defect_density: n_defects as f64 / self.area,
             });
-        }
-        if step < n_steps {
-            let p = params.clone();
-            q = integrator.step(&q, params.dt, move |q_| beris_edwards_rhs(q_, None, &p));
-            // Langevin noise injection (Euler-Maruyama for the stochastic part).
-            // Box-Muller transform: two uniform samples -> two standard normals.
-            if use_noise {
-                let mut iter = q.q.iter_mut();
-                for [q1, q2] in iter.by_ref() {
-                    let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
-                    let u2: f64 = rng.random::<f64>();
-                    let mag = noise_scale * (-2.0 * u1.ln()).sqrt();
-                    let angle = std::f64::consts::TAU * u2;
-                    *q1 += mag * angle.cos();
-                    *q2 += mag * angle.sin();
-                }
-            }
         }
     }
 
-    (q, stats)
+    let use_noise = params.noise_amp > 0.0;
+    let mut physics = sim_impls::cartesian2d::Cartesian2DDry {
+        params: params.clone(),
+        noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
+    };
+    let mut q = q_init.clone();
+    let mut sink = DrySink { params, area, out: Vec::new() };
+    let runner = SimulationRunner {
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+    };
+    runner.run(&mut q, &mut physics, &mut sink);
+    (q, sink.out)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
