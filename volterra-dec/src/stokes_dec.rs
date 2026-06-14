@@ -26,6 +26,9 @@ pub struct StokesSolverDec {
     normals: Vec<[f64; 3]>,
     /// Per-vertex tangent frame e1 direction (e2 = n x e1).
     e1_frames: Vec<[f64; 3]>,
+    /// Vertices at which velocity is zeroed after recovery (no-slip BCs).
+    /// Empty for closed-manifold mode (no zeroing applied).
+    no_slip_vertices: Vec<usize>,
 }
 
 /// Velocity field on a DEC mesh: 3D tangent vector per vertex.
@@ -94,6 +97,9 @@ fn compute_dual_areas(nv: usize, simplices: &[[usize; 3]], coords: &[[f64; 3]]) 
 
 impl StokesSolverDec {
     /// Build the Stokes solver, caching vertex coordinates, dual areas, and tangent frames.
+    ///
+    /// Uses the closed-manifold Poisson solver (pin vertex 0 + zero-mean projection).
+    /// Correct for periodic/closed meshes (sphere, torus, flat torus).
     pub fn new<M: Manifold>(ops: &Operators<M, 3, 2>, mesh: &Mesh<M, 3, 2>) -> Result<Self, String> {
         let n_vertices = ops.laplace_beltrami.rows();
         let poisson = PoissonSolver::new(ops)?;
@@ -103,7 +109,48 @@ impl StokesSolverDec {
         let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
         let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
         let e1_frames = compute_tangent_frames_stokes(&normals);
-        Ok(Self { poisson, n_vertices, coords, dual_areas, star1, normals, e1_frames })
+        Ok(Self { poisson, n_vertices, coords, dual_areas, star1, normals, e1_frames, no_slip_vertices: Vec::new() })
+    }
+
+    /// Build the Stokes solver for a **confined (bounded) domain** with no-slip BCs.
+    ///
+    /// Enforces ψ = 0 on all vertices in `boundary_vertices` via Dirichlet
+    /// elimination in the Poisson solver. This gives the no-slip condition
+    /// u = 0 on the domain boundary (the stream function is constant on each
+    /// connected boundary component; setting it to zero on the single boundary
+    /// of a simply-connected domain is the correct no-slip choice).
+    ///
+    /// Additionally, after velocity recovery from ψ, the velocity is explicitly
+    /// zeroed at all boundary vertices. This enforces the strong no-slip condition
+    /// at the discrete level, eliminating residual velocity from interior edges
+    /// incident to boundary vertices.
+    ///
+    /// All other behaviour (vorticity source, velocity recovery) is identical
+    /// to [`Self::new`]. The existing `new` is left unchanged for closed-manifold
+    /// callers (sphere, torus, etc.).
+    pub fn new_confined<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        mesh: &Mesh<M, 3, 2>,
+        boundary_vertices: &[usize],
+    ) -> Result<Self, String> {
+        let n_vertices = ops.laplace_beltrami.rows();
+        let poisson = PoissonSolver::with_dirichlet(ops, boundary_vertices)?;
+        let coords = extract_coords(mesh);
+        let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
+        let s1 = ops.hodge.star1();
+        let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
+        let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
+        let e1_frames = compute_tangent_frames_stokes(&normals);
+        Ok(Self {
+            poisson,
+            n_vertices,
+            coords,
+            dual_areas,
+            star1,
+            normals,
+            e1_frames,
+            no_slip_vertices: boundary_vertices.to_vec(),
+        })
     }
 
     /// Solve Stokes for the active velocity field.
@@ -132,7 +179,18 @@ impl StokesSolverDec {
         let psi = self.poisson.solve(&omega);
 
         // Recover 3D velocity: u = curl(psi) on the surface.
-        velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1)
+        let mut vel = velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1);
+
+        // Enforce no-slip: zero velocity at all boundary vertices.
+        // This is needed because the discrete curl recovery via edge differences
+        // distributes contributions from interior edges to boundary vertices,
+        // giving a small but nonzero velocity even when ψ=0 on the boundary.
+        // The physically correct condition is u=0 on ∂Ω.
+        for &bv in &self.no_slip_vertices {
+            vel.v[bv] = [0.0, 0.0, 0.0];
+        }
+
+        vel
     }
 }
 

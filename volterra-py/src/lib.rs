@@ -74,6 +74,7 @@ impl PyActiveNematicParams {
             nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta,
             a_landau, c_landau, lambda: lambda_, k_l, gamma_l, xi_l, noise_amp,
             chi_ms, kappa_ch, a_ch, b_ch, m_l,
+            zeta_field: None,
         };
         p.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: p })
@@ -103,6 +104,37 @@ impl PyActiveNematicParams {
     #[setter] fn set_noise_amp(&mut self, v: f64) { self.inner.noise_amp = v; }
 
     #[setter] fn set_zeta_eff(&mut self, v: f64) { self.inner.zeta_eff = v; }
+
+    /// Per-vertex spatial activity field ζ(x) (length nx*ny, row-major i*ny+j),
+    /// or None when the scalar zeta_eff is used uniformly.
+    #[getter]
+    fn zeta_field(&self) -> Option<Vec<f64>> { self.inner.zeta_field.clone() }
+
+    /// Set the spatial activity field ζ(x). Length must equal nx*ny; an empty
+    /// array clears it (revert to the scalar zeta_eff in the active stress).
+    #[setter]
+    fn set_zeta_field(&mut self, arr: numpy::PyReadonlyArray1<f64>) -> PyResult<()> {
+        let v = arr
+            .as_slice()
+            .map_err(|_| PyValueError::new_err("zeta_field must be contiguous"))?;
+        if v.is_empty() {
+            self.inner.zeta_field = None;
+        } else {
+            let want = self.inner.nx * self.inner.ny;
+            if v.len() != want {
+                return Err(PyValueError::new_err(format!(
+                    "zeta_field length {} must equal nx*ny = {}",
+                    v.len(),
+                    want
+                )));
+            }
+            self.inner.zeta_field = Some(v.to_vec());
+        }
+        self.inner
+            .validate()
+            .map_err(|e| PyValueError::new_err(format!("invalid params after set_zeta_field: {e:?}")))?;
+        Ok(())
+    }
     #[setter] fn set_dt(&mut self, v: f64)        { self.inner.dt = v; }
     #[setter] fn set_nx(&mut self, v: usize)      { self.inner.nx = v; }
     #[setter] fn set_ny(&mut self, v: usize)      { self.inner.ny = v; }

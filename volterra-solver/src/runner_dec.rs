@@ -10,15 +10,22 @@
 //! ```
 //!
 //! where H is the molecular field from [`volterra_dec::molecular_field_dec`].
-//! Flow coupling (Stokes solver) is deferred to Sub-project B.
+//! Flow coupling (Stokes solver) is in [`crate::run_wet_active_nematic_dec`].
+//!
+//! The per-step physics lives in [`crate::sim_impls::dec::DecDry`]; this module
+//! is the thin wrapper driving it through `volterra_core::sim::SimulationRunner`.
 
 use cartan_core::Manifold;
 use cartan_dec::Operators;
 use cartan_manifolds::sphere::Sphere;
+use volterra_core::sim::stats::StepStats;
+use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
 use volterra_core::ActiveNematicParams;
 use volterra_dec::connection_laplacian::{molecular_field_conn, ConnectionLaplacian};
 use volterra_dec::mesh_gen::icosphere;
-use volterra_dec::{molecular_field_dec, QFieldDec};
+use volterra_dec::QFieldDec;
+
+use crate::sim_impls::dec::DecDry;
 
 /// Per-snapshot statistics from a DEC simulation.
 #[derive(Debug, Clone)]
@@ -31,44 +38,39 @@ pub struct SnapStatsDec {
     pub n_vertices: usize,
 }
 
-/// Beris-Edwards RHS for the dry active nematic (no flow).
+/// Build a partial `SnapStatsDec` from the runner-core `StepStats` currency.
 ///
-/// dQ/dt = gamma_r * H
-fn beris_edwards_rhs_dec<M: Manifold>(
-    q: &QFieldDec,
-    params: &ActiveNematicParams,
-    ops: &Operators<M, 3, 2>,
-    curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
-) -> QFieldDec {
-    let h = molecular_field_dec(q, params, ops, curvature_correction);
-    h.scale(params.gamma_r)
+/// Carries the shared `time` and `mean_s` (the DEC `order_param`); `n_vertices`
+/// is not a per-step diagnostic and is filled in by the snapshot sink from the
+/// observed field.
+impl From<StepStats> for SnapStatsDec {
+    fn from(s: StepStats) -> Self {
+        SnapStatsDec {
+            time: s.time.unwrap_or(0.0),
+            mean_s: s.order_param.unwrap_or(0.0),
+            n_vertices: 0,
+        }
+    }
 }
 
-/// One RK4 step for the Q-tensor field on a DEC mesh.
-fn rk4_step<M: Manifold>(
-    q: &QFieldDec,
-    dt: f64,
-    params: &ActiveNematicParams,
-    ops: &Operators<M, 3, 2>,
-    curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
-) -> QFieldDec {
-    let k1 = beris_edwards_rhs_dec(q, params, ops, curvature_correction);
+/// Snapshot sink that builds `SnapStatsDec` from the observed field and stats.
+///
+/// `mean_s` is read from the field (`q.mean_order_param()`) so the step-0
+/// snapshot (whose `StepStats` predate any physics step) reports the initial
+/// field's order parameter, exactly as the legacy loop did.
+pub(crate) struct DecSink {
+    /// Collected snapshots, in order.
+    pub out: Vec<SnapStatsDec>,
+}
 
-    let q2 = q.add(&k1.scale(0.5 * dt));
-    let k2 = beris_edwards_rhs_dec(&q2, params, ops, curvature_correction);
-
-    let q3 = q.add(&k2.scale(0.5 * dt));
-    let k3 = beris_edwards_rhs_dec(&q3, params, ops, curvature_correction);
-
-    let q4 = q.add(&k3.scale(dt));
-    let k4 = beris_edwards_rhs_dec(&q4, params, ops, curvature_correction);
-
-    // q_next = q + (dt/6)(k1 + 2*k2 + 2*k3 + k4)
-    let rhs = k1
-        .add(&k2.scale(2.0))
-        .add(&k3.scale(2.0))
-        .add(&k4);
-    q.add(&rhs.scale(dt / 6.0))
+impl Observer<QFieldDec> for DecSink {
+    fn observe(&mut self, _step: usize, t: f64, q: &QFieldDec, _stats: &StepStats) {
+        self.out.push(SnapStatsDec {
+            time: t,
+            mean_s: q.mean_order_param(),
+            n_vertices: q.n_vertices,
+        });
+    }
 }
 
 /// Run the dry active nematic on a 2D DEC mesh.
@@ -98,23 +100,23 @@ pub fn run_dry_active_nematic_dec<M: Manifold>(
     n_steps: usize,
     snap_every: usize,
 ) -> (QFieldDec, Vec<SnapStatsDec>) {
+    let mut physics = DecDry {
+        params: params.clone(),
+        ops,
+        cc: curvature_correction,
+    };
     let mut q = q_init.clone();
-    let mut stats = Vec::new();
-
-    for step in 0..=n_steps {
-        if step % snap_every == 0 {
-            stats.push(SnapStatsDec {
-                time: step as f64 * params.dt,
-                mean_s: q.mean_order_param(),
-                n_vertices: q.n_vertices,
-            });
-        }
-        if step < n_steps {
-            q = rk4_step(&q, params.dt, params, ops, curvature_correction);
-        }
-    }
-
-    (q, stats)
+    let mut sink = DecSink { out: Vec::new() };
+    let runner = SimulationRunner {
+        config: RunConfig {
+            steps: n_steps,
+            snap_every,
+            dt: params.dt,
+            seed: 0,
+        },
+    };
+    runner.run(&mut q, &mut physics, &mut sink);
+    (q, sink.out)
 }
 
 /// Smoke helper: run a short rotor-backed connection Laplacian simulation on S^2.
