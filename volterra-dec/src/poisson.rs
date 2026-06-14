@@ -214,6 +214,7 @@ fn dirichlet_neg_laplacian_lower(lap: &CsMat<f64>, dirichlet: &[usize]) -> CsMat
 
     // Add eps to non-Dirichlet diagonals (robustness) and ensure every
     // Dirichlet diagonal entry exists (in case the Laplacian diagonal was missing).
+    #[allow(clippy::needless_range_loop)] // i is pushed as a value (row/col index), not just used to index
     for i in 0..n {
         rows.push(i);
         cols.push(i);
