@@ -14,6 +14,10 @@ volterra-core    = { path = "../volterra-core",   version = "0.3.0" }
 volterra-fields  = { path = "../volterra-fields", version = "0.3.0" }
 volterra-solver  = { path = "../volterra-solver", version = "0.3.0" }
 volterra-cgpo    = { path = "../volterra-cgpo",   version = "0.3.0" }
+volterra-dec     = { path = "../volterra-dec",    version = "0.3.0" }
+cartan-core      = { workspace = true }
+cartan-dec       = { workspace = true }
+cartan-manifolds = { workspace = true }
 clap             = { version = "4", features = ["derive"] }
 serde            = { workspace = true }
 serde_json       = { workspace = true }
