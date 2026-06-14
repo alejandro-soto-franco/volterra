@@ -29,3 +29,8 @@ sprs             = "0.11"
 
 [dev-dependencies]
 approx           = { workspace = true }
+criterion        = { workspace = true }
+
+[[bench]]
+name = "solver_bench"
+harness = false

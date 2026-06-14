@@ -113,6 +113,7 @@ pub fn run_dry_active_nematic_dec<M: Manifold>(
             snap_every,
             dt: params.dt,
             seed: 0,
+            snap_final: false,
         },
     };
     runner.run(&mut q, &mut physics, &mut sink);

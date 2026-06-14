@@ -20,3 +20,8 @@ rand       = { workspace = true }
 
 [dev-dependencies]
 approx = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "cgpo_bench"
+harness = false
