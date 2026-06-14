@@ -5,3 +5,4 @@
 //! while the caller's sink handles snapshot collection.
 
 pub mod cartesian2d;
+pub mod cartesian3d;
