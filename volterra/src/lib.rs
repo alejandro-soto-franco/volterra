@@ -41,6 +41,8 @@
 //! }
 //! ```
 
+pub mod cli;
+
 pub use volterra_core as core;
 pub use volterra_fields as fields;
 pub use volterra_solver as solver;
