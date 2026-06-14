@@ -176,10 +176,117 @@ pub struct CgpoArgs {
     pub common: CommonArgs,
 }
 
+/// Boxed error alias for dispatch bodies.
+type DynErr = Box<dyn std::error::Error>;
+
 /// Execute the parsed CLI command.
 ///
-/// Subcommand bodies are filled in Tasks 3.3-3.6; this stub returns `Ok(())`
-/// so the binary compiles and the skeleton tests pass.
-pub fn dispatch(_cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+/// Each `run` subcommand builds the appropriate initial field and parameters,
+/// drives the matching runner from `volterra-solver`, writes its output under
+/// the resolved output directory, and prints a one-line summary.
+pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
+    match cli.command {
+        Command::Run(target) => match target {
+            RunTarget::Cartesian2d(args) => run_cartesian2d(args),
+            RunTarget::Cartesian3d(_) => {
+                Err("cartesian3d subcommand is not implemented yet (Task 3.4)".into())
+            }
+            RunTarget::Dec(_) => {
+                Err("dec subcommand is not implemented yet (Task 3.5)".into())
+            }
+            RunTarget::Cgpo(_) => {
+                Err("cgpo subcommand is not implemented yet (Task 3.6)".into())
+            }
+        },
+    }
+}
+
+/// Create a directory, mapping any IO error into the boxed dispatch error.
+fn make_out_dir(dir: &std::path::Path) -> Result<(), DynErr> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| -> DynErr { format!("create {}: {e}", dir.display()).into() })
+}
+
+/// Run the flat 2D Cartesian active nematic.
+fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
+    use volterra_core::ActiveNematicParams;
+    use volterra_fields::{QField2D, ScalarField2D};
+    use volterra_solver::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
+
+    // Start from the deterministic test defaults, optionally merge a TOML config
+    // (ActiveNematicParams derives Deserialize), then let CLI flags win for nx/ny.
+    let mut params = ActiveNematicParams::default_test();
+    if let Some(cfg) = &args.common.config {
+        let text = std::fs::read_to_string(cfg)
+            .map_err(|e| -> DynErr { format!("read {}: {e}", cfg.display()).into() })?;
+        params = toml::from_str(&text)
+            .map_err(|e| -> DynErr { format!("parse {}: {e}", cfg.display()).into() })?;
+    }
+    params.nx = args.nx;
+    params.ny = args.ny;
+
+    let q0 = QField2D::random_perturbation(params.nx, params.ny, params.dx, 0.001, args.common.seed);
+
+    let out = args.common.out_or_default("cartesian2d");
+    make_out_dir(&out)?;
+
+    // Each branch produces a per-snapshot (time, mean_s) summary; the stats
+    // structs themselves are not Serialize, so we hand-build the JSON.
+    let mode = args.mode.as_str();
+    let summary: Vec<(f64, f64)> = match mode {
+        "dry" => {
+            let (_qf, stats) =
+                run_dry_active_nematic(&q0, &params, args.common.steps, args.common.snap_every);
+            stats.iter().map(|s| (s.time, s.mean_s)).collect()
+        }
+        "wet" => {
+            let (_qf, stats) =
+                run_active_nematic_hydro(&q0, &params, args.common.steps, args.common.snap_every);
+            stats.iter().map(|s| (s.time, s.mean_s)).collect()
+        }
+        "bech" => {
+            // phi near equilibrium with a small sinusoidal perturbation, matching
+            // the bech golden fixture construction.
+            let n = params.nx * params.ny;
+            let phi_vals: Vec<f64> = (0..n)
+                .map(|k| {
+                    let frac = k as f64 / n as f64;
+                    0.5 + 0.05 * (frac * 7.3).sin()
+                })
+                .collect();
+            let phi0 = ScalarField2D { phi: phi_vals, nx: params.nx, ny: params.ny, dx: params.dx };
+            let (_qf, _phif, stats) =
+                run_bech(&q0, &phi0, &params, args.common.steps, args.common.snap_every);
+            stats.iter().map(|s| (s.time, s.mean_s)).collect()
+        }
+        other => return Err(format!("unknown cartesian2d mode '{other}' (expected dry|wet|bech)").into()),
+    };
+
+    write_summary_json(&out, &summary)?;
+    println!(
+        "cartesian2d {mode}: {}x{} grid, {} steps, {} snapshots -> {}",
+        params.nx,
+        params.ny,
+        args.common.steps,
+        summary.len(),
+        out.display()
+    );
+    Ok(())
+}
+
+/// Write a `stats.json` summary of `(time, mean_s)` snapshots to `out/stats.json`.
+///
+/// The runner stats structs do not derive `Serialize`, so we serialise a small
+/// hand-built array of objects instead.
+fn write_summary_json(out: &std::path::Path, summary: &[(f64, f64)]) -> Result<(), DynErr> {
+    let arr: Vec<serde_json::Value> = summary
+        .iter()
+        .map(|(t, s)| serde_json::json!({ "time": t, "mean_s": s }))
+        .collect();
+    let json = serde_json::to_string_pretty(&arr)
+        .map_err(|e| -> DynErr { format!("serialise stats: {e}").into() })?;
+    let path = out.join("stats.json");
+    std::fs::write(&path, json)
+        .map_err(|e| -> DynErr { format!("write {}: {e}", path.display()).into() })?;
     Ok(())
 }
