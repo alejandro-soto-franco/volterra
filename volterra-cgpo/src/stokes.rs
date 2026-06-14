@@ -50,25 +50,12 @@
 //! A negative `max_p_iters` means **uncapped** (loop until convergence only).
 
 use crate::{
+    index::{si, vi},
     ops::{div_vector, laplacian_vector, upwind_advective_term},
     par_gate::{rows_per_chunk, use_parallel},
     Boundary, Params,
 };
 use rayon::prelude::*;
-
-// ---------------------------------------------------------------------------
-// index helpers (matching ops.rs conventions)
-// ---------------------------------------------------------------------------
-
-#[inline(always)]
-fn si(x: usize, y: usize, ly: usize) -> usize {
-    x * ly + y
-}
-
-#[inline(always)]
-fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
-    (x * ly + y) * 2 + c
-}
 
 // ---------------------------------------------------------------------------
 // Public kernels

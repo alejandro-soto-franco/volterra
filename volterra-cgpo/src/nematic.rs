@@ -33,25 +33,12 @@
 //! - `Π_A = 2*(Q0*H1 − H0*Q1)` — one scalar.
 
 use crate::{
+    index::{si, vi},
     ops::laplacian_vector,
     par_gate::{rows_per_chunk, use_parallel},
     Boundary,
 };
 use rayon::prelude::*;
-
-// ---------------------------------------------------------------------------
-// index helpers (module-local, matching ops.rs conventions)
-// ---------------------------------------------------------------------------
-
-#[inline(always)]
-fn si(x: usize, y: usize, ly: usize) -> usize {
-    x * ly + y
-}
-
-#[inline(always)]
-fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
-    (x * ly + y) * 2 + c
-}
 
 // ---------------------------------------------------------------------------
 // Public kernels

@@ -33,25 +33,10 @@
 //! rows so spawn overhead is amortized.  Results are bit-identical regardless
 //! of path.
 
+use crate::index::{si, vi};
 use crate::par_gate::{rows_per_chunk, use_parallel};
 use crate::Boundary;
 use rayon::prelude::*;
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-/// Flat scalar index.
-#[inline(always)]
-fn si(x: usize, y: usize, ly: usize) -> usize {
-    x * ly + y
-}
-
-/// Flat vector index for component `c ∈ {0,1}`.
-#[inline(always)]
-fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
-    (x * ly + y) * 2 + c
-}
 
 // ---------------------------------------------------------------------------
 // Public operators
