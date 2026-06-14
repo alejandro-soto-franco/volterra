@@ -52,6 +52,19 @@ pub struct StatsSink {
     pub snapshots: Vec<StepStats>,
 }
 
+use super::runner::Observer;
+
+impl<F> Observer<F> for StatsSink {
+    fn observe(&mut self, _step: usize, t: f64, _field: &F, stats: &StepStats) {
+        // Carry the snapshot time even when the step's stats predate it (step 0).
+        let mut s = stats.clone();
+        if s.time.is_none() {
+            s.time = Some(t);
+        }
+        self.snapshots.push(s);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::write_npy;
