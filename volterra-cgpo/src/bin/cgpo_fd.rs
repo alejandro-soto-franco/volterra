@@ -271,6 +271,9 @@ fn main() -> CgpoResult<()> {
         snap_every: save_every,
         dt: params.dt,
         seed,
+        // Output-facing: always write the final frame even when
+        // max_steps is not a multiple of save_every.
+        snap_final: true,
     };
     let runner = SimulationRunner { config: cfg };
 
