@@ -18,7 +18,7 @@ fn run_cgpo_exits_zero_and_writes_frame_files() {
             "--ncl", "1",
             "--steps", "2",
             "--snap-every", "1",
-            "--out-raw", tmp.to_str().unwrap(),
+            "--out", tmp.to_str().unwrap(),
         ])
         .status()
         .expect("spawn volterra");
