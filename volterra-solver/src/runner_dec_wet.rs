@@ -5,14 +5,19 @@
 //!
 //! 1. **Stokes**: solve for velocity from active stress sigma = -zeta Q.
 //! 2. **Beris-Edwards (RK4)**: advance Q with molecular field + advection.
+//!
+//! The per-step physics lives in [`crate::sim_impls::dec::DecWet`]; these are
+//! the thin wrappers driving it through `volterra_core::sim::SimulationRunner`.
 
 use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
+use volterra_core::sim::{RunConfig, SimulationRunner};
 use volterra_core::ActiveNematicParams;
-use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
-use volterra_dec::{molecular_field_dec, QFieldDec};
+use volterra_dec::stokes_dec::StokesSolverDec;
+use volterra_dec::QFieldDec;
 
-use crate::runner_dec::SnapStatsDec;
+use crate::runner_dec::{DecSink, SnapStatsDec};
+use crate::sim_impls::dec::DecWet;
 
 /// Shared coordinate extraction helper (avoids duplicating the Debug-parse hack).
 fn extract_coords_runner<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
@@ -37,6 +42,43 @@ fn extract_coords_runner<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
     }).collect()
 }
 
+/// Drive a [`DecWet`] physics through the shared `SimulationRunner` loop.
+///
+/// The Stokes solver is constructed by the caller (closed or confined) and
+/// moved into the physics; the loop itself never fails.
+fn run_wet_inner<M: Manifold>(
+    q_init: &QFieldDec,
+    params: &ActiveNematicParams,
+    ops: &Operators<M, 3, 2>,
+    mesh: &Mesh<M, 3, 2>,
+    stokes: StokesSolverDec,
+    coords: Vec<[f64; 3]>,
+    curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
+    n_steps: usize,
+    snap_every: usize,
+) -> (QFieldDec, Vec<SnapStatsDec>) {
+    let mut physics = DecWet {
+        params: params.clone(),
+        stokes,
+        ops,
+        mesh,
+        coords,
+        cc: curvature_correction,
+    };
+    let mut q = q_init.clone();
+    let mut sink = DecSink { out: Vec::new() };
+    let runner = SimulationRunner {
+        config: RunConfig {
+            steps: n_steps,
+            snap_every,
+            dt: params.dt,
+            seed: 0,
+        },
+    };
+    runner.run(&mut q, &mut physics, &mut sink);
+    (q, sink.out)
+}
+
 /// Run the wet active nematic on a 2D DEC mesh.
 ///
 /// # Returns
@@ -55,53 +97,17 @@ pub fn run_wet_active_nematic_dec<M: Manifold>(
 ) -> Result<(QFieldDec, Vec<SnapStatsDec>), String> {
     let stokes = StokesSolverDec::new(ops, mesh)?;
     let coords = extract_coords_runner(mesh);
-
-    let mut q = q_init.clone();
-    let mut stats = Vec::new();
-
-    for step in 0..=n_steps {
-        if step % snap_every == 0 {
-            stats.push(SnapStatsDec {
-                time: step as f64 * params.dt,
-                mean_s: q.mean_order_param(),
-                n_vertices: q.n_vertices,
-            });
-        }
-        if step < n_steps {
-            // 1. Stokes solve: get 3D tangent velocity.
-            let vel = stokes.solve(&q, params, ops, mesh);
-
-            // 2. RK4 step: molecular field + directional advection.
-            let rhs = |qq: &QFieldDec| -> QFieldDec {
-                let h = molecular_field_dec(qq, params, ops, curvature_correction);
-                let mut dq = h.scale(params.gamma_r);
-
-                let adv = advect_q(
-                    qq, &vel,
-                    &mesh.boundaries,
-                    &mesh.vertex_boundaries,
-                    &coords,
-                );
-                for i in 0..qq.n_vertices {
-                    dq.q1[i] -= adv.q1[i];
-                    dq.q2[i] -= adv.q2[i];
-                }
-                dq
-            };
-
-            let k1 = rhs(&q);
-            let q2 = q.add(&k1.scale(0.5 * params.dt));
-            let k2 = rhs(&q2);
-            let q3 = q.add(&k2.scale(0.5 * params.dt));
-            let k3 = rhs(&q3);
-            let q4 = q.add(&k3.scale(params.dt));
-            let k4 = rhs(&q4);
-            let update = k1.add(&k2.scale(2.0)).add(&k3.scale(2.0)).add(&k4);
-            q = q.add(&update.scale(params.dt / 6.0));
-        }
-    }
-
-    Ok((q, stats))
+    Ok(run_wet_inner(
+        q_init,
+        params,
+        ops,
+        mesh,
+        stokes,
+        coords,
+        curvature_correction,
+        n_steps,
+        snap_every,
+    ))
 }
 
 /// Run the wet active nematic on a **confined (bounded) 2D DEC mesh** with no-slip BCs.
@@ -131,51 +137,15 @@ pub fn run_wet_active_nematic_dec_confined<M: Manifold>(
 ) -> Result<(QFieldDec, Vec<SnapStatsDec>), String> {
     let stokes = StokesSolverDec::new_confined(ops, mesh, boundary_vertices)?;
     let coords = extract_coords_runner(mesh);
-
-    let mut q = q_init.clone();
-    let mut stats = Vec::new();
-
-    for step in 0..=n_steps {
-        if step % snap_every == 0 {
-            stats.push(SnapStatsDec {
-                time: step as f64 * params.dt,
-                mean_s: q.mean_order_param(),
-                n_vertices: q.n_vertices,
-            });
-        }
-        if step < n_steps {
-            // 1. Stokes solve with no-slip BCs.
-            let vel = stokes.solve(&q, params, ops, mesh);
-
-            // 2. RK4 step: molecular field + directional advection.
-            let rhs = |qq: &QFieldDec| -> QFieldDec {
-                let h = molecular_field_dec(qq, params, ops, curvature_correction);
-                let mut dq = h.scale(params.gamma_r);
-
-                let adv = advect_q(
-                    qq, &vel,
-                    &mesh.boundaries,
-                    &mesh.vertex_boundaries,
-                    &coords,
-                );
-                for i in 0..qq.n_vertices {
-                    dq.q1[i] -= adv.q1[i];
-                    dq.q2[i] -= adv.q2[i];
-                }
-                dq
-            };
-
-            let k1 = rhs(&q);
-            let q2 = q.add(&k1.scale(0.5 * params.dt));
-            let k2 = rhs(&q2);
-            let q3 = q.add(&k2.scale(0.5 * params.dt));
-            let k3 = rhs(&q3);
-            let q4 = q.add(&k3.scale(params.dt));
-            let k4 = rhs(&q4);
-            let update = k1.add(&k2.scale(2.0)).add(&k3.scale(2.0)).add(&k4);
-            q = q.add(&update.scale(params.dt / 6.0));
-        }
-    }
-
-    Ok((q, stats))
+    Ok(run_wet_inner(
+        q_init,
+        params,
+        ops,
+        mesh,
+        stokes,
+        coords,
+        curvature_correction,
+        n_steps,
+        snap_every,
+    ))
 }
