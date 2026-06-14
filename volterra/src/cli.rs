@@ -45,7 +45,7 @@ pub struct CommonArgs {
 
     /// Output directory override. If absent, a per-subcommand default under
     /// `./output/<subcommand>` is used; see `out_or_default`.
-    #[arg(long)]
+    #[arg(long = "out")]
     pub out_raw: Option<PathBuf>,
 
     /// Optional TOML config file; CLI flags take precedence over file values.
@@ -92,7 +92,7 @@ pub struct Cartesian2dArgs {
     #[arg(long, default_value_t = 128)]
     pub ny: usize,
 
-    /// Common loop flags (steps, snap-every, seed, out-raw, config).
+    /// Common loop flags (steps, snap-every, seed, out, config).
     #[command(flatten)]
     pub common: CommonArgs,
 }

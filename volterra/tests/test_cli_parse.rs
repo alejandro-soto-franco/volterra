@@ -5,7 +5,7 @@ use clap::Parser;
 fn parses_cartesian2d_dry_with_common_flags() {
     let cli = Cli::try_parse_from([
         "volterra", "run", "cartesian2d", "--mode", "dry",
-        "--steps", "10", "--snap-every", "2", "--seed", "7", "--out-raw", "/tmp/out",
+        "--steps", "10", "--snap-every", "2", "--seed", "7", "--out", "/tmp/out",
     ])
     .expect("parse");
     match cli.command {
