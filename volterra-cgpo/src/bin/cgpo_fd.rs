@@ -26,6 +26,7 @@ use serde_json::json;
 
 use volterra_cgpo::{
     boundary::nephroid_boundary,
+    index::{si, vi},
     step::{update_step, State},
     Params,
 };
@@ -69,18 +70,6 @@ fn env_string(key: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 // IC helpers
 // ---------------------------------------------------------------------------
-
-/// Flat index: scalar (x*ly + y).
-#[inline(always)]
-fn si(x: usize, y: usize, ly: usize) -> usize {
-    x * ly + y
-}
-
-/// Flat index: 2-component vector ((x*ly + y)*2 + c).
-#[inline(always)]
-fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
-    (x * ly + y) * 2 + c
-}
 
 /// Initialise Q from a theta grid (x*ly+y order, both inside and outside cells).
 ///

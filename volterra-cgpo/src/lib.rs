@@ -9,6 +9,8 @@
 pub mod boundary;
 pub use boundary::{nephroid_boundary, Boundary};
 
+pub mod index;
+
 pub mod par_gate;
 pub mod ops;
 pub mod nematic;
