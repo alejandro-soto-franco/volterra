@@ -63,9 +63,6 @@
 //! - Giomi, L. (2015). "Geometry and topology of turbulence in active nematics."
 //!   *Phys. Rev. X* **5**, 031003.
 
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
-use rand::RngExt;
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::{Integrator, ActiveNematicParams};
 use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
@@ -98,7 +95,7 @@ pub mod runner_dec;
 pub use runner_dec::{run_dry_active_nematic_dec, run_dry_active_nematic_dec_smoke, SnapStatsDec};
 
 pub mod runner_dec_wet;
-pub use runner_dec_wet::run_wet_active_nematic_dec;
+pub use runner_dec_wet::{run_wet_active_nematic_dec, run_wet_active_nematic_dec_confined};
 
 pub mod engine;
 pub use engine::{NematicEngine, EngineStats};
@@ -111,6 +108,8 @@ pub use stokes_trait::{StokesSolver, StokesBackend, FlowField, KillingOperatorSo
 
 pub mod active_nematic_engine;
 pub use active_nematic_engine::{ActiveNematicEngine, EngineParams, StepDiagnostics};
+
+pub mod sim_impls;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
@@ -497,7 +496,6 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
     let n = nx * ny;
     let dx = q.dx;
     let eta = params.eta;
-    let ze = params.zeta_eff;
 
     let mut planner = FftPlanner::<f64>::new();
     let fft_x = planner.plan_fft_forward(nx);
@@ -570,12 +568,17 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
         buf.iter().map(|c| c.re / norm).collect()
     };
 
-    // Extract Q components into row-major flat arrays.
-    let q1_field: Vec<f64> = q.q.iter().map(|[q1, _]| *q1).collect();
-    let q2_field: Vec<f64> = q.q.iter().map(|[_, q2]| *q2).collect();
+    // Active stress components s = ζ(x) Q(x), built in real space so a spatial
+    // ζ field (params.zeta_field) is handled correctly: the FFT of the real-space
+    // product is the right Fourier source. A uniform ζ reproduces the scalar
+    // result exactly by linearity (s_hat = ζ q_hat).
+    let s1_field: Vec<f64> =
+        q.q.iter().enumerate().map(|(i, [q1, _])| params.zeta_at(i) * q1).collect();
+    let s2_field: Vec<f64> =
+        q.q.iter().enumerate().map(|(i, [_, q2])| params.zeta_at(i) * q2).collect();
 
-    let q1_hat = fft2_real(&q1_field);
-    let q2_hat = fft2_real(&q2_field);
+    let s1_hat = fft2_real(&s1_field);
+    let s2_hat = fft2_real(&s2_field);
 
     // Compute stream function ψ̂ and velocity components v̂_x, v̂_y in Fourier space.
     let mut vx_hat: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
@@ -596,8 +599,9 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
                 continue;
             }
             let k4 = k2 * k2;
-            // ψ̂ = ζ [(k_y² - k_x²) q̂₂ + 2 k_x k_y q̂₁] / (η k⁴)
-            let rhs = ze * ((ky * ky - kx * kx) * q2_hat[k] + 2.0 * kx * ky * q1_hat[k]);
+            // ψ̂ = [(k_y² - k_x²) ŝ₂ + 2 k_x k_y ŝ₁] / (η k⁴), with the active
+            // stress ŝ = (ζ Q)^ already carrying ζ (scalar or spatial).
+            let rhs = (ky * ky - kx * kx) * s2_hat[k] + 2.0 * kx * ky * s1_hat[k];
             let psi_hat = rhs / (eta * k4);
             // v̂_x = i k_y ψ̂, v̂_y = -i k_x ψ̂
             vx_hat[k] = i_unit * ky * psi_hat;
@@ -633,55 +637,49 @@ pub fn run_active_nematic_hydro(
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
-    let mut q = q_init.clone();
-    let mut stats = Vec::new();
+    use volterra_core::sim::noise::LangevinNoise;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
+    use volterra_core::sim::stats::StepStats;
+
     let lx = params.nx as f64 * params.dx;
     let ly = params.ny as f64 * params.dx;
     let area = lx * ly;
 
-    let use_noise = params.noise_amp > 0.0;
-    let noise_scale = params.noise_amp * params.dt.sqrt();
-    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
-        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
-        ^ n_steps as u64;
-    let mut rng = SmallRng::seed_from_u64(seed);
-
-    // Euler-step loop: compute v from Stokes, then advance Q.
-    // (Stokes is linear and instantaneous, so it's re-solved each step.)
-    for step in 0..=n_steps {
-        if step % snap_every == 0 {
-            let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
+    // Sink that rebuilds the exact SnapStats the legacy loop produced:
+    // defect scan + charge breakdown + density at each snapshot point.
+    struct WetSink<'a> {
+        params: &'a ActiveNematicParams,
+        area: f64,
+        out: Vec<SnapStats>,
+    }
+    impl Observer<QField2D> for WetSink<'_> {
+        fn observe(&mut self, step: usize, _t: f64, q: &QField2D, _s: &StepStats) {
+            let defects = scan_defects(q, std::f64::consts::PI / 2.0);
             let (n_plus, n_minus) = defect_count(&defects);
             let n_defects = defects.len();
-            stats.push(SnapStats {
-                time: step as f64 * params.dt,
+            self.out.push(SnapStats {
+                time: step as f64 * self.params.dt,
                 mean_s: q.mean_order_param(),
                 n_defects,
                 n_plus,
                 n_minus,
-                defect_density: n_defects as f64 / area,
+                defect_density: n_defects as f64 / self.area,
             });
-        }
-        if step < n_steps {
-            let v = stokes_solve(&q, params);
-            let p = params.clone();
-            let dq = beris_edwards_rhs(&q, Some(&v), &p);
-            // Euler step (fast; Stokes re-solve dominates cost).
-            q = q.add(&dq.scale(params.dt));
-            if use_noise {
-                for [q1, q2] in q.q.iter_mut() {
-                    let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
-                    let u2: f64 = rng.random::<f64>();
-                    let mag = noise_scale * (-2.0 * u1.ln()).sqrt();
-                    let angle = std::f64::consts::TAU * u2;
-                    *q1 += mag * angle.cos();
-                    *q2 += mag * angle.sin();
-                }
-            }
         }
     }
 
-    (q, stats)
+    let use_noise = params.noise_amp > 0.0;
+    let mut physics = sim_impls::cartesian2d::Cartesian2DWet {
+        params: params.clone(),
+        noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
+    };
+    let mut q = q_init.clone();
+    let mut sink = WetSink { params, area, out: Vec::new() };
+    let runner = SimulationRunner {
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+    };
+    runner.run(&mut q, &mut physics, &mut sink);
+    (q, sink.out)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -772,6 +770,21 @@ pub struct SnapStats {
     pub defect_density: f64,
 }
 
+impl From<volterra_core::sim::stats::StepStats> for SnapStats {
+    /// Fill the fields shared with the generic currency; defect-charge breakdown
+    /// and density are set by the runner wrapper at snapshot time.
+    fn from(s: volterra_core::sim::stats::StepStats) -> Self {
+        SnapStats {
+            time: s.time.unwrap_or(0.0),
+            mean_s: s.order_param.unwrap_or(0.0),
+            n_defects: s.defect_count.unwrap_or(0),
+            n_plus: 0,
+            n_minus: 0,
+            defect_density: 0.0,
+        }
+    }
+}
+
 /// Run the dry active nematic simulation.
 ///
 /// Evolves the Q-tensor field forward for `n_steps` time steps using the RK4
@@ -794,56 +807,49 @@ pub fn run_dry_active_nematic(
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
-    let integrator = RK4Integrator;
-    let mut q = q_init.clone();
-    let mut stats = Vec::new();
+    use volterra_core::sim::noise::LangevinNoise;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
+    use volterra_core::sim::stats::StepStats;
+
     let lx = params.nx as f64 * params.dx;
     let ly = params.ny as f64 * params.dx;
     let area = lx * ly;
 
-    // Langevin noise: Q += noise_amp * sqrt(dt) * W(x,t) per component per vertex.
-    let use_noise = params.noise_amp > 0.0;
-    let noise_scale = params.noise_amp * params.dt.sqrt();
-    // Use a reproducible but unique seed derived from grid dimensions.
-    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
-        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
-        ^ n_steps as u64;
-    let mut rng = SmallRng::seed_from_u64(seed);
-
-    for step in 0..=n_steps {
-        if step % snap_every == 0 {
-            let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
+    // Sink that rebuilds the exact SnapStats the legacy loop produced:
+    // defect scan + charge breakdown + density at each snapshot point.
+    struct DrySink<'a> {
+        params: &'a ActiveNematicParams,
+        area: f64,
+        out: Vec<SnapStats>,
+    }
+    impl Observer<QField2D> for DrySink<'_> {
+        fn observe(&mut self, step: usize, _t: f64, q: &QField2D, _s: &StepStats) {
+            let defects = scan_defects(q, std::f64::consts::PI / 2.0);
             let (n_plus, n_minus) = defect_count(&defects);
             let n_defects = defects.len();
-            stats.push(SnapStats {
-                time: step as f64 * params.dt,
+            self.out.push(SnapStats {
+                time: step as f64 * self.params.dt,
                 mean_s: q.mean_order_param(),
                 n_defects,
                 n_plus,
                 n_minus,
-                defect_density: n_defects as f64 / area,
+                defect_density: n_defects as f64 / self.area,
             });
-        }
-        if step < n_steps {
-            let p = params.clone();
-            q = integrator.step(&q, params.dt, move |q_| beris_edwards_rhs(q_, None, &p));
-            // Langevin noise injection (Euler-Maruyama for the stochastic part).
-            // Box-Muller transform: two uniform samples -> two standard normals.
-            if use_noise {
-                let mut iter = q.q.iter_mut();
-                for [q1, q2] in iter.by_ref() {
-                    let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
-                    let u2: f64 = rng.random::<f64>();
-                    let mag = noise_scale * (-2.0 * u1.ln()).sqrt();
-                    let angle = std::f64::consts::TAU * u2;
-                    *q1 += mag * angle.cos();
-                    *q2 += mag * angle.sin();
-                }
-            }
         }
     }
 
-    (q, stats)
+    let use_noise = params.noise_amp > 0.0;
+    let mut physics = sim_impls::cartesian2d::Cartesian2DDry {
+        params: params.clone(),
+        noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
+    };
+    let mut q = q_init.clone();
+    let mut sink = DrySink { params, area, out: Vec::new() };
+    let runner = SimulationRunner {
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+    };
+    runner.run(&mut q, &mut physics, &mut sink);
+    (q, sink.out)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1118,70 +1124,54 @@ pub fn run_bech(
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, ScalarField2D, Vec<BechStats>) {
-    let mut q   = q_init.clone();
-    let mut phi = phi_init.clone();
-    let mut stats: Vec<BechStats> = Vec::new();
+    use volterra_core::sim::noise::LangevinNoise;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
+    use volterra_core::sim::stats::StepStats;
+    use sim_impls::cartesian2d::BechState;
 
     let lx   = params.nx as f64 * params.dx;
     let ly   = params.ny as f64 * params.dx;
     let area = lx * ly;
 
-    // Langevin noise for the rotor Q-field (same convention as Component 1).
-    let use_noise  = params.noise_amp > 0.0;
-    let noise_scale = params.noise_amp * params.dt.sqrt();
-    let seed: u64 = (params.nx as u64).wrapping_mul(6364136223846793005)
-        ^ (params.ny as u64).wrapping_mul(1442695040888963407)
-        ^ n_steps as u64;
-    let mut rng = SmallRng::seed_from_u64(seed);
-
-    for step in 0..=n_steps {
-        // ── Snapshot ──────────────────────────────────────────────────────
-        if step % snap_every == 0 {
-            let defects = scan_defects(&q, std::f64::consts::PI / 2.0);
+    // Sink that rebuilds the exact BechStats the legacy loop produced at each
+    // snapshot: nematic defect breakdown + phi concentration diagnostics.
+    struct BechSink<'a> {
+        params: &'a ActiveNematicParams,
+        area: f64,
+        out: Vec<BechStats>,
+    }
+    impl Observer<BechState> for BechSink<'_> {
+        fn observe(&mut self, step: usize, _t: f64, st: &BechState, _s: &StepStats) {
+            let defects = scan_defects(&st.q, std::f64::consts::PI / 2.0);
             let (n_plus, n_minus) = defect_count(&defects);
             let n_defects = defects.len();
-            stats.push(BechStats {
-                time: step as f64 * params.dt,
-                mean_s: q.mean_order_param(),
+            self.out.push(BechStats {
+                time: step as f64 * self.params.dt,
+                mean_s: st.q.mean_order_param(),
                 n_defects,
                 n_plus,
                 n_minus,
-                defect_density: n_defects as f64 / area,
-                mean_phi: phi.mean_value(),
-                phi_variance: phi.variance(),
-                mean_grad_phi_sq: phi.mean_gradient_sq(),
+                defect_density: n_defects as f64 / self.area,
+                mean_phi: st.phi.mean_value(),
+                phi_variance: st.phi.variance(),
+                mean_grad_phi_sq: st.phi.mean_gradient_sq(),
             });
         }
-
-        if step == n_steps { break; }
-
-        // ── 1. Stokes: v from active stress σ^a = ζ_eff Q^rot ─────────────
-        let v = stokes_solve(&q, params);
-
-        // ── 2. Beris-Edwards Euler step (rotor field) ─────────────────────
-        let dq = beris_edwards_rhs(&q, Some(&v), params);
-        q = q.add(&dq.scale(params.dt));
-
-        // Langevin noise injection into Q^rot (Euler-Maruyama, Box-Muller).
-        if use_noise {
-            for [q1, q2] in q.q.iter_mut() {
-                let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE);
-                let u2: f64 = rng.random::<f64>();
-                let mag   = noise_scale * (-2.0 * u1.ln()).sqrt();
-                let angle = std::f64::consts::TAU * u2;
-                *q1 += mag * angle.cos();
-                *q2 += mag * angle.sin();
-            }
-        }
-
-        // ── 3. Transfer map: Q^lip = K₀ * Q^rot ───────────────────────────
-        let q_lip = k0_convolution(&q, params);
-
-        // ── 4. CH-ETD1 step (lipid concentration field) ───────────────────
-        phi = ch_step_etd(&phi, &q_lip, &v, params);
     }
 
-    (q, phi, stats)
+    let use_noise = params.noise_amp > 0.0;
+    let mut physics = sim_impls::cartesian2d::Cartesian2DBech {
+        params: params.clone(),
+        noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
+    };
+    let mut state = BechState { q: q_init.clone(), phi: phi_init.clone() };
+    let mut sink = BechSink { params, area, out: Vec::new() };
+    let runner = SimulationRunner {
+        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0 },
+    };
+    runner.run(&mut state, &mut physics, &mut sink);
+    let BechState { q, phi } = state;
+    (q, phi, sink.out)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

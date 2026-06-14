@@ -20,6 +20,8 @@
 pub mod nematic_params;
 pub use nematic_params::NematicParams;
 
+pub mod sim;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -147,9 +149,32 @@ pub struct ActiveNematicParams {
     /// exponential integrator; the explicit Euler limit would require
     /// Δt < 1/(M_l κ_ch k_max⁴)).
     pub m_l: f64,
+
+    // ── Optional spatial activity ─────────────────────────────────────────
+    /// Optional per-vertex active coefficient field ζ(x), row-major `i*ny + j`,
+    /// length `nx*ny`. When present it overrides the scalar [`zeta_eff`] in the
+    /// active stress `σ = ζ(x) Q(x)`; when `None` the scalar `zeta_eff` is used
+    /// uniformly. A spatial field lets a contact-driven conversion front cross
+    /// the activity threshold in space (the saddle-node of the intermittency
+    /// prediction), which a single scalar cannot represent.
+    ///
+    /// [`zeta_eff`]: Self::zeta_eff
+    #[serde(default)]
+    pub zeta_field: Option<Vec<f64>>,
 }
 
 impl ActiveNematicParams {
+    /// Active coefficient at vertex `i`: the spatial field value if a
+    /// [`zeta_field`] is set, otherwise the scalar `zeta_eff`.
+    ///
+    /// [`zeta_field`]: Self::zeta_field
+    pub fn zeta_at(&self, i: usize) -> f64 {
+        match &self.zeta_field {
+            Some(f) => f[i],
+            None => self.zeta_eff,
+        }
+    }
+
     /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
     ///
     /// This equals the mean rotor defect spacing.
@@ -239,6 +264,15 @@ impl ActiveNematicParams {
         if self.m_l <= 0.0 {
             return Err(VError::InvalidParams("m_l must be positive".into()));
         }
+        if let Some(f) = &self.zeta_field {
+            if f.len() != self.nx * self.ny {
+                return Err(VError::InvalidParams(format!(
+                    "zeta_field length {} must equal nx*ny = {}",
+                    f.len(),
+                    self.nx * self.ny
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -274,6 +308,7 @@ impl ActiveNematicParams {
             a_ch: 1.0,
             b_ch: 1.0,
             m_l: 0.1,
+            zeta_field: None,
         }
     }
 }
