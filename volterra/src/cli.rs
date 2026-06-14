@@ -171,6 +171,12 @@ pub struct CgpoArgs {
     #[arg(long)]
     pub theta_ic: Option<PathBuf>,
 
+    /// Run the finiteness guard every step, not just at snapshots.
+    ///
+    /// When set, any NaN or Inf causes the run to abort with a non-zero exit.
+    #[arg(long, default_value_t = false)]
+    pub strict: bool,
+
     /// Common loop flags.
     #[command(flatten)]
     pub common: CommonArgs,
@@ -190,9 +196,7 @@ pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
             RunTarget::Cartesian2d(args) => run_cartesian2d(args),
             RunTarget::Cartesian3d(args) => run_cartesian3d(args),
             RunTarget::Dec(args) => run_dec(args),
-            RunTarget::Cgpo(_) => {
-                Err("cgpo subcommand is not implemented yet (Task 3.6)".into())
-            }
+            RunTarget::Cgpo(args) => run_cgpo(args),
         },
     }
 }
@@ -422,6 +426,230 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
         args.common.steps,
         summary.len(),
         out.display()
+    );
+    Ok(())
+}
+
+/// Run the nephroid-confined CGPO solver.
+///
+/// Builds `Params` from `CgpoArgs` (optionally merging a TOML config), constructs
+/// the nephroid boundary and initial condition, then drives the solver through
+/// `CgpoStep` and `SimulationRunner`. At each snapshot the observer writes Q/u/p
+/// frames via the shared `volterra_cgpo::output::write_state_frame` and checks
+/// finiteness. With `--strict`, finiteness is also checked after every step.
+fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
+    use volterra_cgpo::{
+        guard::check_finite,
+        nephroid_boundary,
+        output::write_state_frame,
+        sim_step::CgpoStep,
+        step::State,
+        CgpoError, Params,
+    };
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
+
+    // --- build Params ---
+    // Start from TOML config if provided, then apply CLI overrides.
+    let mut params = if let Some(cfg) = &args.common.config {
+        let text = std::fs::read_to_string(cfg)
+            .map_err(|e| -> DynErr { format!("read {}: {e}", cfg.display()).into() })?;
+        toml::from_str::<Params>(&text)
+            .map_err(|e| -> DynErr { format!("parse {}: {e}", cfg.display()).into() })?
+    } else {
+        // Default: als=1.5, ncl=1.0 (sensible mid-range), lambda=1.0, dt=1e-4, max_p_iters=-1
+        Params::new(args.lx, args.als, args.ncl as f64, 1.0, 1e-4, -1)
+    };
+    // CLI overrides (lx always wins; optional flags override matching field)
+    params.lx = args.lx;
+    params.ly = args.lx; // square grid
+    if let Some(lambda) = args.lambda {
+        params.lambda = lambda;
+    }
+    if let Some(dt) = args.dt {
+        params.dt = dt;
+    }
+    if let Some(mpi) = args.max_p_iters {
+        params.max_p_iters = mpi;
+    }
+
+    let lx = params.lx;
+    let ly = params.ly;
+
+    // --- boundary + initial condition ---
+    let boundary = nephroid_boundary(lx, ly);
+
+    let mut state = State::new(lx, ly);
+    if let Some(ref theta_path) = args.theta_ic {
+        // Load theta IC from file (same format as cgpo_fd).
+        let n = lx * ly;
+        let contents = std::fs::read_to_string(theta_path)
+            .map_err(|e| -> DynErr { format!("read theta IC {}: {e}", theta_path.display()).into() })?;
+        let theta: Vec<f64> = contents
+            .split_whitespace()
+            .map(|s| s.parse::<f64>().map_err(|_| -> DynErr { format!("non-float in theta IC: {s}").into() }))
+            .collect::<Result<Vec<f64>, DynErr>>()?;
+        if theta.len() != n {
+            return Err(format!("theta IC has {} values, expected {n}", theta.len()).into());
+        }
+        // Q_xx = s0*(cos^2(theta) - 0.5), Q_xy = s0*cos(theta)*sin(theta)
+        for x in 0..lx {
+            for y in 0..ly {
+                let idx = x * ly + y;
+                let t = theta[idx];
+                let cos_t = t.cos();
+                let sin_t = t.sin();
+                state.q[idx * 2]     = params.s0 * (cos_t * cos_t - 0.5);
+                state.q[idx * 2 + 1] = params.s0 * (cos_t * sin_t);
+            }
+        }
+    } else {
+        // Deterministic IC: small uniform Q on interior cells (same as test_smoke / test_cgpo_step).
+        let amplitude = 0.1 * params.s0;
+        for x in 0..lx {
+            for y in 0..ly {
+                let idx = x * ly + y;
+                if boundary.inside[idx] {
+                    state.q[idx * 2]     =  amplitude;
+                    state.q[idx * 2 + 1] = -amplitude * 0.5;
+                }
+            }
+        }
+    }
+
+    // --- output directory ---
+    let out = args.common.out_or_default("cgpo");
+    // Per-run sub-dir matching cgpo_fd layout: <out>/als_<als>_ncl_<ncl>/
+    let run_dir = out.join(format!("als_{}_ncl_{}", args.als, args.ncl));
+    for sub in &["Q", "u", "p"] {
+        make_out_dir(&run_dir.join(sub))?;
+    }
+
+    // --- physics + runner ---
+    let target_rel_change = 1e-4_f64;
+    let mut physics = CgpoStep {
+        params: params.clone(),
+        boundary: boundary.clone(),
+        target_rel_change,
+    };
+
+    let cfg = RunConfig {
+        steps: args.common.steps,
+        snap_every: args.common.snap_every,
+        dt: params.dt,
+        seed: args.common.seed,
+    };
+    let runner = SimulationRunner { config: cfg };
+
+    // --- observer: writes frames + guards at snapshot cadence ---
+    // On strict mode, also guard after every step (implemented via a wrapper observer).
+    let strict = args.strict;
+    let boundary_ref = &boundary;
+    let run_dir_ref = &run_dir;
+
+    // Track the first guard error across snapshots.
+    let mut guard_err: Option<CgpoError> = None;
+
+    struct CgpoObserver<'a> {
+        run_dir: &'a std::path::Path,
+        boundary: &'a volterra_cgpo::boundary::Boundary,
+        guard_err: &'a mut Option<CgpoError>,
+    }
+
+    impl<'a> Observer<State> for CgpoObserver<'a> {
+        fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
+            if self.guard_err.is_some() {
+                return;
+            }
+            // Finiteness guard
+            let r = check_finite(&state.q, "Q", step)
+                .and_then(|_| check_finite(&state.u, "u", step))
+                .and_then(|_| check_finite(&state.p, "p", step));
+            if let Err(e) = r {
+                *self.guard_err = Some(e);
+                return;
+            }
+            // Write frame
+            if let Err(e) = write_state_frame(self.run_dir, step, state, self.boundary) {
+                *self.guard_err = Some(e);
+            }
+        }
+    }
+
+    // For --strict we need to observe every step.  The simplest approach:
+    // set snap_every=1 in the runner if strict, so we guard every step.
+    // But we still want to write frames at the original cadence.
+    // Instead, use a two-observer approach via a wrapper that calls the
+    // real observer at snap cadence and guards-only at every step.
+    //
+    // Since SimulationRunner calls observe() per snap_every, the guard is
+    // already at snapshot cadence by default. For --strict, we run with
+    // snap_every=1 but only write frames at the original cadence.
+
+    let orig_snap_every = args.common.snap_every;
+
+    if strict {
+        // Strict: observe every step; write frames only at original cadence.
+        struct StrictObserver<'a> {
+            run_dir: &'a std::path::Path,
+            boundary: &'a volterra_cgpo::boundary::Boundary,
+            orig_snap_every: usize,
+            guard_err: &'a mut Option<CgpoError>,
+        }
+        impl<'a> Observer<State> for StrictObserver<'a> {
+            fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
+                if self.guard_err.is_some() {
+                    return;
+                }
+                let r = check_finite(&state.q, "Q", step)
+                    .and_then(|_| check_finite(&state.u, "u", step))
+                    .and_then(|_| check_finite(&state.p, "p", step));
+                if let Err(e) = r {
+                    *self.guard_err = Some(e);
+                    return;
+                }
+                // Write frame only at original cadence.
+                if self.orig_snap_every == 0 || step % self.orig_snap_every == 0 {
+                    if let Err(e) = write_state_frame(self.run_dir, step, state, self.boundary) {
+                        *self.guard_err = Some(e);
+                    }
+                }
+            }
+        }
+
+        let strict_runner = SimulationRunner {
+            config: RunConfig {
+                snap_every: 1,
+                ..runner.config.clone()
+            },
+        };
+        let mut obs = StrictObserver {
+            run_dir: run_dir_ref,
+            boundary: boundary_ref,
+            orig_snap_every,
+            guard_err: &mut guard_err,
+        };
+        strict_runner.run(&mut state, &mut physics, &mut obs);
+    } else {
+        let mut obs = CgpoObserver {
+            run_dir: run_dir_ref,
+            boundary: boundary_ref,
+            guard_err: &mut guard_err,
+        };
+        runner.run(&mut state, &mut physics, &mut obs);
+    }
+
+    if let Some(e) = guard_err {
+        return Err(Box::new(e));
+    }
+
+    println!(
+        "cgpo: {}x{} grid, {} steps, snap_every={}, strict={} -> {}",
+        lx,
+        ly,
+        args.common.steps,
+        orig_snap_every,
+        strict,
+        run_dir.display()
     );
     Ok(())
 }

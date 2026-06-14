@@ -25,6 +25,7 @@ pub use error::{CgpoError, CgpoResult};
 pub mod guard;
 
 pub mod sim_step;
+pub mod output;
 
 /// Simulation parameters, matching the Python solver's constants.
 ///
