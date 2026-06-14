@@ -26,3 +26,8 @@ __pycache__/
 volterra-braid/oracle/concurrence/flow_solver_run.py
 theta_ic_*.txt
 als_*_ncl_*/
+.superpowers/
+
+# maturin / packaging build output
+dist/
+uv.lock
