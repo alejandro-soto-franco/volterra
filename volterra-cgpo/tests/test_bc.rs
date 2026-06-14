@@ -173,7 +173,7 @@ fn q_bc_sets_winding_tangent_director() {
             let inner_nz = bnd.is_inner[idx] && bnd.inner_normals[idx] != [0.0, 0.0];
 
             if !outer_nz && !inner_nz {
-                // Untouched — check sentinel preserved.
+                // Untouched - check sentinel preserved.
                 assert_eq!(
                     q[vi(x, y, ly, 0)],
                     999.0,
@@ -188,7 +188,7 @@ fn q_bc_sets_winding_tangent_director() {
             }
 
             // Last-write wins: layer 1 (outer) overwrites layer 0 (inner)
-            // if both are nonzero — match bc.rs loop order.
+            // if both are nonzero - match bc.rs loop order.
             let [nx, ny] = if outer_nz {
                 bnd.outer_normals[idx]
             } else {
