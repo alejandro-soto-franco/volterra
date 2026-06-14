@@ -1,4 +1,4 @@
-//! `cgpo_fd` — finite-difference driver for the nephroid-confined CGPO solver.
+//! `cgpo_fd` -- finite-difference driver for the nephroid-confined CGPO solver.
 //!
 //! All configuration is via environment variables (defaults in parentheses):
 //!
@@ -11,9 +11,9 @@
 //! | `CGPO_MAX_P_ITERS`| 50                                           | Max pressure Jacobi iters per step |
 //! | `CGPO_MAX_STEPS`  | 400000                                       | Total simulation steps             |
 //! | `CGPO_SAVE_EVERY` | 1000                                         | Steps between frame saves          |
-//! | `CGPO_OUT`        | /mnt/ASF-EX1/volterra-cgpo-nephroid          | Root output directory              |
+//! | `CGPO_OUT`        | ./output/cgpo                                | Root output directory              |
 //! | `CGPO_SEED`       | 0                                            | RNG seed (u64) for IC              |
-//! | `CGPO_THETA_IC`   | (unset)                                      | Path to flat θ grid (optional)     |
+//! | `CGPO_THETA_IC`   | (unset)                                      | Path to flat theta grid (optional) |
 
 use std::fs;
 use std::io::Write as IoWrite;
@@ -28,7 +28,7 @@ use volterra_cgpo::{
     boundary::nephroid_boundary,
     index::{si, vi},
     step::{update_step, State},
-    Params,
+    CgpoError, CgpoResult, Params,
 };
 
 // ---------------------------------------------------------------------------
@@ -68,15 +68,27 @@ fn env_string(key: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// I/O error helper
+// ---------------------------------------------------------------------------
+
+/// Map an `io::Result` to a `CgpoResult`, attaching the failing path as context.
+fn io_ctx<T>(path: &Path, r: std::io::Result<T>) -> CgpoResult<T> {
+    r.map_err(|source| CgpoError::Io {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // IC helpers
 // ---------------------------------------------------------------------------
 
 /// Initialise Q from a theta grid (x*ly+y order, both inside and outside cells).
 ///
-/// `initialize_Q_from_θ` in the Python:
+/// `initialize_Q_from_theta` in the Python:
 /// ```python
-/// Q[:,:,0] = S0 * (cos(θ)^2 - 0.5)
-/// Q[:,:,1] = S0 * (cos(θ) * sin(θ))
+/// Q[:,:,0] = S0 * (cos(theta)^2 - 0.5)
+/// Q[:,:,1] = S0 * (cos(theta) * sin(theta))
 /// ```
 fn init_q_from_theta(q: &mut [f64], theta: &[f64], s0: f64, lx: usize, ly: usize) {
     for x in 0..lx {
@@ -93,10 +105,10 @@ fn init_q_from_theta(q: &mut [f64], theta: &[f64], s0: f64, lx: usize, ly: usize
 
 /// Generate random theta IC, matching Python:
 /// ```python
-/// theta_initial = 1.0 * π * np.random.random((Lx, Ly))
+/// theta_initial = 1.0 * pi * np.random.random((Lx, Ly))
 /// ```
-/// (fully random uniform angles in [0, π); then Q from theta, applied only at
-/// interior cells — outside cells are zeroed since theta_mask zeros them).
+/// (fully random uniform angles in [0, pi); then Q from theta, applied only at
+/// interior cells -- outside cells are zeroed since theta_mask zeros them).
 ///
 /// We replicate the mask: theta is non-zero only for inside cells.
 fn random_theta_ic(
@@ -151,10 +163,10 @@ fn write_2col_txt(path: &Path, arr: &[f64], n: usize) -> std::io::Result<()> {
 /// The CGPO pressure-Poisson solve uses pure Neumann BCs, so the absolute
 /// pressure is defined only up to an additive constant (the null-space / constant
 /// mode is unconstrained, and `subtract_p_avg` is commented out in flow-solver.py).
-/// The dynamics use ∇p only, so they are unaffected — but the absolute field
-/// drifts, which is why the pressure panel rendered as "bugged / not working".
+/// The dynamics use only the gradient of p, so they are unaffected -- but the absolute
+/// field drifts, which is why the pressure panel rendered as "bugged / not working".
 /// We fix the gauge for OUTPUT by subtracting the interior mean; this changes
-/// nothing physical (∇p is identical) and makes the pressure field meaningful.
+/// nothing physical (the gradient of p is identical) and makes the pressure field meaningful.
 fn write_1col_gauge_fixed(
     path: &Path,
     field: &[f64],
@@ -193,18 +205,17 @@ fn step_name(step: usize) -> String {
 // Main
 // ---------------------------------------------------------------------------
 
-fn main() {
+fn main() -> CgpoResult<()> {
     // --- read config ---
     let lx = env_usize("CGPO_LX", 100);
     let als = env_f64("CGPO_ALS", 2.8);
     let ncl = env_f64("CGPO_NCL", 4.8);
-    let lambda = env_f64("CGPO_LAMBDA", 1.0); // code-truth flow-alignment (flow-solver.py λ=1)
+    let lambda = env_f64("CGPO_LAMBDA", 1.0); // code-truth flow-alignment (flow-solver.py lambda=1)
     let dt = env_f64("CGPO_DT", 1e-4);
     let max_p_iters = env_i64("CGPO_MAX_P_ITERS", -1); // code-truth: uncapped (relax to convergence)
     let max_steps = env_usize("CGPO_MAX_STEPS", 400_000);
     let save_every = env_usize("CGPO_SAVE_EVERY", 1_000);
-    let out_root = env_string("CGPO_OUT")
-        .unwrap_or_else(|| "/mnt/ASF-EX1/volterra-cgpo-nephroid".to_string());
+    let out_root = env_string("CGPO_OUT").unwrap_or_else(|| "./output/cgpo".to_string());
     let seed = env_u64("CGPO_SEED", 0);
     let theta_ic_path = env_string("CGPO_THETA_IC");
 
@@ -224,11 +235,11 @@ fn main() {
     );
 
     // --- build boundary ---
-    println!("Building nephroid boundary (lx={lx})…");
+    println!("Building nephroid boundary (lx={lx})...");
     let t_bnd = Instant::now();
     let boundary = nephroid_boundary(lx, ly);
     let n_interior = boundary.interior_count();
-    println!("  boundary built in {:.2}s — {n_interior} interior cells", t_bnd.elapsed().as_secs_f64());
+    println!("  boundary built in {:.2}s -- {n_interior} interior cells", t_bnd.elapsed().as_secs_f64());
 
     // --- output directories ---
     let run_label = format!("als_{als}_ncl_{ncl}");
@@ -236,9 +247,9 @@ fn main() {
     let q_dir = run_dir.join("Q");
     let u_dir = run_dir.join("u");
     let p_dir = run_dir.join("p");
-    fs::create_dir_all(&q_dir).expect("could not create Q output dir");
-    fs::create_dir_all(&u_dir).expect("could not create u output dir");
-    fs::create_dir_all(&p_dir).expect("could not create p output dir");
+    io_ctx(&q_dir, fs::create_dir_all(&q_dir))?;
+    io_ctx(&u_dir, fs::create_dir_all(&u_dir))?;
+    io_ctx(&p_dir, fs::create_dir_all(&p_dir))?;
 
     // --- allocate state ---
     let mut state = State::new(lx, ly);
@@ -247,49 +258,53 @@ fn main() {
     if let Some(ref path) = theta_ic_path {
         // Load flat theta grid from text file (one value per line, x*ly+y order)
         println!("Loading theta IC from {path}");
-        let contents = fs::read_to_string(path).expect("could not read CGPO_THETA_IC file");
+        let ic_path = Path::new(path);
+        let contents = io_ctx(ic_path, fs::read_to_string(ic_path))?;
         let theta: Vec<f64> = contents
             .split_whitespace()
-            .map(|s| s.parse::<f64>().expect("non-float in theta IC file"))
-            .collect();
-        assert_eq!(
-            theta.len(),
-            n,
-            "theta IC file has {} values, expected {}",
-            theta.len(),
-            n
-        );
+            .map(|s| {
+                s.parse::<f64>()
+                    .map_err(|_| CgpoError::Config(format!("non-float in theta IC file: {s}")))
+            })
+            .collect::<CgpoResult<Vec<f64>>>()?;
+        if theta.len() != n {
+            return Err(CgpoError::Config(format!(
+                "theta IC file has {} values, expected {}",
+                theta.len(),
+                n
+            )));
+        }
         init_q_from_theta(&mut state.q, &theta, params.s0, lx, ly);
         println!("  theta IC loaded and Q initialised");
     } else {
-        // Random IC matching Python: theta ~ Uniform([0, π)) per interior cell
+        // Random IC matching Python: theta ~ Uniform([0, pi)) per interior cell
         let mut rng = StdRng::seed_from_u64(seed);
         random_theta_ic(&mut state.q, params.s0, lx, ly, &boundary.inside, &mut rng);
         println!("  random IC generated (seed={seed})");
     }
 
-    // --- save frame 0 ---
-    let save_frame = |step: usize, state: &State| {
+    // --- save_frame: write all three field files, report only on full success ---
+    let save_frame = |step: usize, state: &State| -> CgpoResult<()> {
         let sn = step_name(step);
         let qp = q_dir.join(format!("Q_{sn}.txt"));
         let up = u_dir.join(format!("u_{sn}.txt"));
         let pp = p_dir.join(format!("p_{sn}.txt"));
-        write_2col_txt(&qp, &state.q, n).expect("failed to write Q frame");
-        write_2col_txt(&up, &state.u, n).expect("failed to write u frame");
-        // pressure: gauge-fixed (interior-mean subtracted) — fixes the bugged field
-        write_1col_gauge_fixed(&pp, &state.p, &boundary.inside, n)
-            .expect("failed to write p frame");
+        io_ctx(&qp, write_2col_txt(&qp, &state.q, n))?;
+        io_ctx(&up, write_2col_txt(&up, &state.u, n))?;
+        // pressure: gauge-fixed (interior-mean subtracted) -- fixes the bugged field
+        io_ctx(&pp, write_1col_gauge_fixed(&pp, &state.p, &boundary.inside, n))?;
+        println!("  step {step} saved");
+        Ok(())
     };
 
-    save_frame(0, &state);
-    println!("  step 0 saved");
+    save_frame(0, &state)?;
 
     // --- pressure relaxation target (matching Python p_target_rel_change = 1e-4) ---
     // With max_p_iters set, the loop stops at cap; target is permissive fallback.
     let target_rel_change = 1e-4_f64;
 
     // --- run loop ---
-    println!("Starting run loop…");
+    println!("Starting run loop...");
     let t_start = Instant::now();
     let mut total_steps: usize = 0;
     let mut last_report = Instant::now();
@@ -302,10 +317,10 @@ fn main() {
 
         total_steps += steps_done;
 
-        // save frame
-        save_frame(total_steps, &state);
+        // save frame -- propagate any I/O failure immediately
+        save_frame(total_steps, &state)?;
 
-        // progress report every 10 seconds or every save
+        // progress report every 10 seconds or at final step
         let elapsed = t_start.elapsed().as_secs_f64();
         let sps = total_steps as f64 / elapsed;
         let since_last = last_report.elapsed().as_secs_f64();
@@ -347,8 +362,11 @@ fn main() {
         "theta_ic_path": theta_ic_path,
     });
     let meta_path = run_dir.join("meta.json");
-    fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap())
-        .expect("failed to write meta.json");
+    // serde_json::to_string_pretty on a purely in-memory json! value cannot fail
+    let meta_json = serde_json::to_string_pretty(&meta).unwrap();
+    io_ctx(&meta_path, fs::write(&meta_path, meta_json))?;
     println!("  meta.json   : {}", meta_path.display());
     println!("  output dir  : {}", run_dir.display());
+
+    Ok(())
 }
