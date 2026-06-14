@@ -16,6 +16,9 @@ pub mod stokes;
 pub mod bc;
 pub mod step;
 
+pub mod error;
+pub use error::{CgpoError, CgpoResult};
+
 /// Simulation parameters, matching the Python solver's constants.
 ///
 /// Constructor: [`Params::new`].
