@@ -14,23 +14,12 @@
 //! - [`get_u_update`] — full velocity time-derivative (viscous + convective +
 //!   pressure/stress).
 //!
-//! # BC assumption (Task E deferred)
+//! # Pressure boundary conditions
 //!
-//! The Python `relax_pressure` calls `apply_p_boundary_conditions` after each
-//! inner sweep (line 303).  That function uses the Python `boundary` array of
-//! shape `[2, Lx, Ly, 2]` which carries per-layer normal vectors — a richer
-//! structure than our `Boundary` struct (which stores `is_outer`/`is_inner`
-//! bool masks and normals, but is keyed differently from the Python 4-D array).
-//! **For Task D, the BC application is a no-op stub.**  The pressure field is
-//! relaxed purely on the interior cells; boundary cells retain whatever value
-//! they were initialised with (zero by default in the test).  Task E will wire
-//! the full Neumann pressure BC using our `Boundary` normal data.
-//!
-//! The test fixture bypasses this gap by using a flat rectangular interior
-//! (1-cell border), capping iterations to an exact N, and setting
-//! `p_target_rel_change` to a tiny value so the Python also does exactly N
-//! sweeps without BC application mattering (the Python BC only touches the
-//! outer/inner boundary ring, which is outside the rectangular interior).
+//! Pressure boundary conditions are handled by
+//! [`crate::bc::apply_p_boundary_conditions`], which applies Neumann-like BCs on
+//! the outer and inner boundary rings using normal vectors from the `Boundary`
+//! struct.
 //!
 //! # Jacobi vs Gauss-Seidel
 //!
@@ -232,27 +221,6 @@ pub fn relax_pressure_inner_loop(
     }
 }
 
-/// No-op stub for pressure boundary conditions (Task E).
-///
-/// The Python `apply_p_boundary_conditions` applies Neumann-like BCs on the
-/// outer and inner boundary rings using the boundary normal vectors.  That
-/// function's signature takes the Python 4-D `boundary` array
-/// `[layer, x, y, component]`, which maps to our `Boundary` struct's
-/// `outer_normals`/`inner_normals` but with different addressing.
-///
-/// **This stub does nothing.**  When Task E wires the full BC, replace this
-/// with the translated normal-gradient pressure condition.  The test fixtures
-/// use a rectangular interior (no boundary ring inside the tested region), so
-/// the no-op is numerically exact for the test.
-#[allow(unused_variables)]
-pub fn apply_p_boundary_conditions_stub(
-    _p: &mut [f64],
-    _p_aux: &[f64],
-    _bounds: &Boundary,
-) {
-    // Task E: implement Neumann pressure BC using bounds.outer_normals / inner_normals
-}
-
 /// Full pressure relaxation driver.
 ///
 /// Ports `relax_pressure(u, ρ, p, Π_S, Π_A, ν, p_aux, pressure_poisson_RHS,
@@ -330,9 +298,6 @@ pub fn relax_pressure(
 
         // Inner Jacobi sweep: read p_aux, write p
         relax_pressure_inner_loop(p, p_aux, rhs, bounds);
-
-        // BC stub (no-op; Task E)
-        apply_p_boundary_conditions_stub(p, p_aux, bounds);
 
         // Convergence test: rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)
         let (sum_diff, sum_old) = if use_parallel(lx, ly) {
