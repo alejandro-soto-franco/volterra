@@ -73,6 +73,10 @@ def load_snapshot(path, nx, ny):
     elif data.ndim == 3 and data.shape == (nx, ny, 2):
         q1 = data[:, :, 0]
         q2 = data[:, :, 1]
+    elif data.ndim == 4 and data.shape[3] == 2:
+        # (nx, ny, nz, 2): take the first z-slice (q1, q2 per cell)
+        q1 = data[:, :, 0, 0]
+        q2 = data[:, :, 0, 1]
     elif data.ndim == 4 and data.shape[3] == 5:
         # 3D Q-tensor (nx, ny, nz, 5): take the middle z-slice, use q11 and q12
         nz = data.shape[2]
