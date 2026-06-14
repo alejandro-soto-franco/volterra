@@ -22,6 +22,8 @@ pub mod step;
 pub mod error;
 pub use error::{CgpoError, CgpoResult};
 
+pub mod guard;
+
 /// Simulation parameters, matching the Python solver's constants.
 ///
 /// Constructor: [`Params::new`].
