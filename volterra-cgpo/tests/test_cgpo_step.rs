@@ -56,7 +56,7 @@ fn cgpo_step_advances_and_reports_finite_stats() {
 
         // Any reported order_param must be finite.
         assert!(
-            stats.order_param.map_or(true, f64::is_finite),
+            stats.order_param.is_none_or(f64::is_finite),
             "step {step_idx}: order_param is not finite: {:?}", stats.order_param
         );
 

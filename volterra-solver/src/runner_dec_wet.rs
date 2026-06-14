@@ -46,6 +46,7 @@ fn extract_coords_runner<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
 ///
 /// The Stokes solver is constructed by the caller (closed or confined) and
 /// moved into the physics; the loop itself never fails.
+#[allow(clippy::too_many_arguments)] // physics driver: many fields and parameters
 fn run_wet_inner<M: Manifold>(
     q_init: &QFieldDec,
     params: &ActiveNematicParams,

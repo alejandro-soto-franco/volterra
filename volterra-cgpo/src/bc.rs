@@ -47,8 +47,7 @@ fn sign_i(v: f64) -> i64 {
 /// Wrapping neighbour index (Python: (i - a) where a can be -1,0,1; wraps via %.
 #[inline(always)]
 fn wrap(i: usize, delta: i64, n: usize) -> usize {
-    let r = (i as i64 + n as i64 + delta).rem_euclid(n as i64) as usize;
-    r
+    (i as i64 + n as i64 + delta).rem_euclid(n as i64) as usize
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +148,7 @@ pub fn apply_ss_boundary_conditions(ss: &mut [f64], bnd: &Boundary) {
 /// lapu = 2*u[x,y] - 2*(u[x-a,y]+u[x,y-b]) + u[x-2a,y] + u[x,y-2b]
 /// p[x,y] = (n·(F + ρ*ν*lapu) + a*nx*p_aux[x-a,y] + b*ny*p_aux[x,y-b]) / (a*nx + b*ny)
 /// ```
+#[allow(clippy::too_many_arguments)] // FD kernel: many physical and grid parameters
 pub fn apply_p_boundary_conditions(
     p: &mut [f64],
     p_aux: &[f64],

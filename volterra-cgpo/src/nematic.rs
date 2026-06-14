@@ -64,6 +64,7 @@ use rayon::prelude::*;
 ///    - `TrQE = 2*Q0*dxux + Q1*(dyux + dxuy)`
 ///    - `S0 = λS*dxux − 2*ωxy*Q1 − 2*TrQE*Q0`
 ///    - `S1 = λS*0.5*(dxuy + dyux) + 2*ωxy*Q0 − 2*TrQE*Q1`
+#[allow(clippy::too_many_arguments)] // FD kernel: many physical and grid parameters
 pub fn h_s_from_q(
     u: &[f64],
     q: &[f64],
@@ -302,6 +303,7 @@ pub fn get_trqh_term(q: &[f64], h: &[f64], pi_s: &mut [f64], lx: usize, ly: usiz
 /// - `q`    : Q-tensor field
 /// - `lambda`, `zeta`, `k` : model constants
 /// - `bounds` : boundary mask
+#[allow(clippy::too_many_arguments)] // FD kernel: many physical and grid parameters
 pub fn calculate_pi(
     pi_s: &mut [f64],
     pi_a: &mut [f64],

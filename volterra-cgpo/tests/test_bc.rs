@@ -108,7 +108,7 @@ fn ss_bc_zeroes_boundary_cells() {
     let lx = bnd.lx;
     let ly = bnd.ly;
 
-    let mut ss = vec![3.14_f64; lx * ly];
+    let mut ss = vec![42.0_f64; lx * ly];
 
     apply_ss_boundary_conditions(&mut ss, &bnd);
 
@@ -129,8 +129,8 @@ fn ss_bc_zeroes_boundary_cells() {
             if !outer_nz && !inner_nz {
                 let v = ss[idx];
                 assert_eq!(
-                    v, 3.14,
-                    "ss[{x},{y}] should be untouched (3.14) for non-boundary cell, got {v}"
+                    v, 42.0,
+                    "ss[{x},{y}] should be untouched (42.0) for non-boundary cell, got {v}"
                 );
             }
         }
