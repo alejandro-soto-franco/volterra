@@ -74,6 +74,7 @@ fn run_wet_inner<M: Manifold>(
             snap_every,
             dt: params.dt,
             seed: 0,
+            snap_final: false,
         },
     };
     runner.run(&mut q, &mut physics, &mut sink);

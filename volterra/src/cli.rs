@@ -537,6 +537,9 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         snap_every: args.common.snap_every,
         dt: params.dt,
         seed: args.common.seed,
+        // Output-facing: never silently drop the final state if steps is not a
+        // multiple of snap_every. Inherited by strict_runner via config.clone().
+        snap_final: true,
     };
     let runner = SimulationRunner { config: cfg };
 
