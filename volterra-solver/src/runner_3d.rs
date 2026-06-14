@@ -114,42 +114,27 @@ pub fn run_dry_active_nematic_3d(
     out_dir: &Path,
     track_defects: bool,
 ) -> (QField3D, Vec<SnapStats3D>) {
+    use crate::sim_impls::cartesian3d::Cartesian3DDry;
+    use volterra_core::sim::PhysicsStep;
+    use volterra_core::sim::snapshot::write_npy;
+
     let mut q = q_init.clone();
     let mut stats: Vec<SnapStats3D> = Vec::new();
-
-    // Previous lines for event tracking (populated lazily).
     let mut prev_lines: Option<Vec<DisclinationLine>> = None;
 
+    let mut physics = Cartesian3DDry { params: p.clone(), step_idx: 0 };
+
     for step in 0..n_steps {
-        let t = step as f64 * p.dt;
+        // Advance physics (fused Euler step + Langevin noise).
+        // Pass t=0.0; Cartesian3DDry computes t from its internal step_idx before
+        // incrementing, so the correct t = step * dt is used each call.
+        physics.step(&mut q, 0.0);
 
-        // 1+2. Fused molecular field + Euler step (single pass, zero
-        //       intermediate allocation, cache-blocked, unrolled stencil).
-        crate::mol_field_3d::euler_step_fused_par(&mut q, p, t);
-
-        // 3. Add Langevin noise to each of the 5 Q-components at every vertex.
-        //    The 5 independent Gaussian increments are already in the
-        //    symmetric-traceless basis, so no symmetrization is needed.
-        if p.noise_amp > 0.0 {
-            let amp = p.noise_amp * p.dt.sqrt();
-            let n_verts = q.len();
-            // Seed per step for reproducibility; cheap with SmallRng.
-            let mut rng = SmallRng::seed_from_u64(step as u64 ^ 0xdead_beef_cafe_1234);
-            for k in 0..n_verts {
-                // Box-Muller to generate 5 independent N(0,1) samples.
-                let samples = box_muller_5(&mut rng);
-                for c in 0..5 {
-                    q.q[k][c] += amp * samples[c];
-                }
-            }
-        }
-
-        // 4. Snapshot trigger: when (step+1) % snap_every == 0.
+        // Snapshot trigger: when (step+1) % snap_every == 0.
         if snap_every > 0 && (step + 1) % snap_every == 0 {
             let snap_idx = (step + 1) / snap_every;
             let t_snap = (step + 1) as f64 * p.dt;
 
-            // Defect detection and event tracking.
             let (lines, n_events) = if track_defects {
                 let current = scan_defects_3d(&q);
                 let n_ev = if let Some(ref prev) = prev_lines {
@@ -166,15 +151,14 @@ pub fn run_dry_active_nematic_3d(
             let s = compute_snap_stats(&q, &lines, n_events, t_snap);
             stats.push(s);
 
-            // Write Q snapshot named by step number (consistent with snapshot conventions).
             let npy_path = out_dir.join(format!("q_{step:06}.npy"));
-            if let Err(e) = write_npy(&npy_path, &q.q, p.nx, p.ny, p.nz, 5) {
+            let flat: Vec<f64> = q.q.iter().flat_map(|arr| arr.iter().copied()).collect();
+            if let Err(e) = write_npy(&npy_path, &flat, p.nx, p.ny, p.nz, 5) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", npy_path.display());
             }
         }
     }
 
-    // Write stats.json at the end.
     let stats_path = out_dir.join("stats.json");
     if let Ok(json) = serde_json::to_string_pretty(&stats) {
         let _ = std::fs::write(&stats_path, json);
