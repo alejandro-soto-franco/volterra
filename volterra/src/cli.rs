@@ -189,9 +189,7 @@ pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
         Command::Run(target) => match target {
             RunTarget::Cartesian2d(args) => run_cartesian2d(args),
             RunTarget::Cartesian3d(args) => run_cartesian3d(args),
-            RunTarget::Dec(_) => {
-                Err("dec subcommand is not implemented yet (Task 3.5)".into())
-            }
+            RunTarget::Dec(args) => run_dec(args),
             RunTarget::Cgpo(_) => {
                 Err("cgpo subcommand is not implemented yet (Task 3.6)".into())
             }
@@ -338,6 +336,91 @@ fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
         params.nz,
         args.common.steps,
         n_snaps,
+        out.display()
+    );
+    Ok(())
+}
+
+/// Run a DEC manifold simulation on a sphere or torus.
+///
+/// Meshes are built at low refinement so a smoke run completes in a few seconds:
+/// an icosphere (`Sphere<3>`) for `--mesh sphere` and a small torus
+/// (`Euclidean<3>`) for `--mesh torus`. Both go through the proven
+/// `DecDomain` operator assembly used by the example binaries.
+fn run_dec(args: DecArgs) -> Result<(), DynErr> {
+    use cartan_core::Manifold;
+    use cartan_dec::{Mesh, Operators};
+    use cartan_manifolds::{euclidean::Euclidean, sphere::Sphere};
+    use volterra_core::ActiveNematicParams;
+    use volterra_dec::mesh_gen::{icosphere, torus_mesh};
+    use volterra_dec::{DecDomain, QFieldDec};
+    use volterra_solver::{run_dry_active_nematic_dec, run_wet_active_nematic_dec};
+
+    let mut params = ActiveNematicParams::default_test();
+    if let Some(cfg) = &args.common.config {
+        let text = std::fs::read_to_string(cfg)
+            .map_err(|e| -> DynErr { format!("read {}: {e}", cfg.display()).into() })?;
+        params = toml::from_str(&text)
+            .map_err(|e| -> DynErr { format!("parse {}: {e}", cfg.display()).into() })?;
+    }
+    params.dt = 0.005;
+
+    let out = args.common.out_or_default("dec");
+    make_out_dir(&out)?;
+
+    // Generic driver shared by both mesh topologies: dry uses only the operators,
+    // wet additionally needs the mesh and returns a Result.
+    fn drive<M: Manifold>(
+        mesh: Mesh<M, 3, 2>,
+        manifold: M,
+        params: &ActiveNematicParams,
+        mode: &str,
+        seed: u64,
+        steps: usize,
+        snap_every: usize,
+    ) -> Result<Vec<(f64, f64)>, DynErr> {
+        let domain = DecDomain::new(mesh, manifold)
+            .map_err(|e| -> DynErr { format!("DEC domain assembly: {e:?}").into() })?;
+        let nv = domain.mesh.n_vertices();
+        let q0 = QFieldDec::random_perturbation(nv, 0.01, seed);
+        let ops: &Operators<M, 3, 2> = &domain.ops;
+        match mode {
+            "dry" => {
+                let (_qf, stats) =
+                    run_dry_active_nematic_dec(&q0, params, ops, None, steps, snap_every);
+                Ok(stats.iter().map(|s| (s.time, s.mean_s)).collect())
+            }
+            "wet" => {
+                let (_qf, stats) = run_wet_active_nematic_dec(
+                    &q0, params, ops, &domain.mesh, None, steps, snap_every,
+                )
+                .map_err(|e| -> DynErr { format!("wet dec runner: {e}").into() })?;
+                Ok(stats.iter().map(|s| (s.time, s.mean_s)).collect())
+            }
+            other => Err(format!("unknown dec mode '{other}' (expected dry|wet)").into()),
+        }
+    }
+
+    let mode = args.mode.as_str();
+    let summary = match args.mesh.as_str() {
+        "sphere" => {
+            // refinement 2 -> 162 vertices: small and fast, real curvature.
+            let mesh = icosphere(2);
+            drive(mesh, Sphere::<3>, &params, mode, args.common.seed, args.common.steps, args.common.snap_every)?
+        }
+        "torus" => {
+            let mesh = torus_mesh(2.0, 1.0, 12, 8);
+            drive(mesh, Euclidean::<3>, &params, mode, args.common.seed, args.common.steps, args.common.snap_every)?
+        }
+        other => return Err(format!("unknown dec mesh '{other}' (expected sphere|torus)").into()),
+    };
+
+    write_summary_json(&out, &summary)?;
+    println!(
+        "dec {} {mode}: {} steps, {} snapshots -> {}",
+        args.mesh,
+        args.common.steps,
+        summary.len(),
         out.display()
     );
     Ok(())
