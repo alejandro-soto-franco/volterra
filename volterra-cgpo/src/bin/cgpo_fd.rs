@@ -16,7 +16,6 @@
 //! | `CGPO_THETA_IC`   | (unset)                                      | Path to flat theta grid (optional) |
 
 use std::fs;
-use std::io::Write as IoWrite;
 use std::path::Path;
 use std::time::Instant;
 
@@ -27,9 +26,12 @@ use serde_json::json;
 use volterra_cgpo::{
     boundary::nephroid_boundary,
     index::{si, vi},
-    step::{update_step, State},
+    output::write_state_frame,
+    sim_step::CgpoStep,
+    step::State,
     CgpoError, CgpoResult, Params,
 };
+use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
 
 // ---------------------------------------------------------------------------
 // env helpers
@@ -138,67 +140,41 @@ fn random_theta_ic(
 }
 
 // ---------------------------------------------------------------------------
-// I/O helpers
+// Observer: writes frames at each snapshot point and tracks timing/progress
 // ---------------------------------------------------------------------------
 
-/// Write a 2-column text file in numpy savetxt default format (%.18e).
-///
-/// Column 0: arr[..][0] components (e.g. Q_xx or u_x) in x*ly+y order.
-/// Column 1: arr[..][1] components (e.g. Q_xy or u_y) in x*ly+y order.
-///
-/// `arr` is a 2-component field: index `(x*ly + y)*2 + c`.
-fn write_2col_txt(path: &Path, arr: &[f64], n: usize) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut f = fs::File::create(path)?;
-    for i in 0..n {
-        writeln!(f, "{:.18e}  {:.18e}", arr[i * 2], arr[i * 2 + 1])?;
-    }
-    Ok(())
+struct FdObserver<'a> {
+    run_dir: &'a Path,
+    boundary: &'a volterra_cgpo::boundary::Boundary,
+    t_start: Instant,
+    last_report: Instant,
+    max_steps: usize,
+    guard_err: Option<CgpoError>,
 }
 
-/// Write a 1-column scalar field (length `n`), GAUGE-FIXED for visualization.
-///
-/// The CGPO pressure-Poisson solve uses pure Neumann BCs, so the absolute
-/// pressure is defined only up to an additive constant (the null-space / constant
-/// mode is unconstrained, and `subtract_p_avg` is commented out in flow-solver.py).
-/// The dynamics use only the gradient of p, so they are unaffected -- but the absolute
-/// field drifts, which is why the pressure panel rendered as "bugged / not working".
-/// We fix the gauge for OUTPUT by subtracting the interior mean; this changes
-/// nothing physical (the gradient of p is identical) and makes the pressure field meaningful.
-fn write_1col_gauge_fixed(
-    path: &Path,
-    field: &[f64],
-    inside: &[bool],
-    n: usize,
-) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    // interior mean (the gauge)
-    let mut sum = 0.0_f64;
-    let mut cnt = 0usize;
-    for i in 0..n {
-        if inside[i] {
-            sum += field[i];
-            cnt += 1;
+impl<'a> Observer<State> for FdObserver<'a> {
+    fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
+        if self.guard_err.is_some() {
+            return;
+        }
+        if let Err(e) = write_state_frame(self.run_dir, step, state, self.boundary) {
+            self.guard_err = Some(e);
+            return;
+        }
+        println!("  step {step} saved");
+
+        // Progress report every 10 seconds or at the final step.
+        let elapsed = self.t_start.elapsed().as_secs_f64();
+        let sps = if elapsed > 0.0 { step as f64 / elapsed } else { 0.0 };
+        let since_last = self.last_report.elapsed().as_secs_f64();
+        if since_last >= 10.0 || step == self.max_steps {
+            println!(
+                "  step {step}/{}  elapsed={elapsed:.1}s  {sps:.1} steps/sec",
+                self.max_steps
+            );
+            self.last_report = Instant::now();
         }
     }
-    let mean = if cnt > 0 { sum / cnt as f64 } else { 0.0 };
-    let mut f = fs::File::create(path)?;
-    for i in 0..n {
-        // interior: gauge-fixed (zero-mean); exterior: 0 (masked in render, clean on disk)
-        let v = if inside[i] { field[i] - mean } else { 0.0 };
-        writeln!(f, "{:.18e}", v)?;
-    }
-    Ok(())
-}
-
-/// Format step count with zero-padding to 10 digits (matching Python:
-/// `f'_{stepcount:10d}'.replace(' ','0')`).
-fn step_name(step: usize) -> String {
-    format!("{:010}", step)
 }
 
 // ---------------------------------------------------------------------------
@@ -244,12 +220,9 @@ fn main() -> CgpoResult<()> {
     // --- output directories ---
     let run_label = format!("als_{als}_ncl_{ncl}");
     let run_dir = Path::new(&out_root).join(&run_label);
-    let q_dir = run_dir.join("Q");
-    let u_dir = run_dir.join("u");
-    let p_dir = run_dir.join("p");
-    io_ctx(&q_dir, fs::create_dir_all(&q_dir))?;
-    io_ctx(&u_dir, fs::create_dir_all(&u_dir))?;
-    io_ctx(&p_dir, fs::create_dir_all(&p_dir))?;
+    for sub in &["Q", "u", "p"] {
+        io_ctx(&run_dir.join(sub), fs::create_dir_all(run_dir.join(sub)))?;
+    }
 
     // --- allocate state ---
     let mut state = State::new(lx, ly);
@@ -283,61 +256,49 @@ fn main() -> CgpoResult<()> {
         println!("  random IC generated (seed={seed})");
     }
 
-    // --- save_frame: write all three field files, report only on full success ---
-    let save_frame = |step: usize, state: &State| -> CgpoResult<()> {
-        let sn = step_name(step);
-        let qp = q_dir.join(format!("Q_{sn}.txt"));
-        let up = u_dir.join(format!("u_{sn}.txt"));
-        let pp = p_dir.join(format!("p_{sn}.txt"));
-        io_ctx(&qp, write_2col_txt(&qp, &state.q, n))?;
-        io_ctx(&up, write_2col_txt(&up, &state.u, n))?;
-        // pressure: gauge-fixed (interior-mean subtracted) -- fixes the bugged field
-        io_ctx(&pp, write_1col_gauge_fixed(&pp, &state.p, &boundary.inside, n))?;
-        println!("  step {step} saved");
-        Ok(())
-    };
-
-    save_frame(0, &state)?;
-
     // --- pressure relaxation target (matching Python p_target_rel_change = 1e-4) ---
-    // With max_p_iters set, the loop stops at cap; target is permissive fallback.
     let target_rel_change = 1e-4_f64;
 
-    // --- run loop ---
+    // --- physics step + runner ---
+    let mut physics = CgpoStep {
+        params: params.clone(),
+        boundary: boundary.clone(),
+        target_rel_change,
+    };
+
+    let cfg = RunConfig {
+        steps: max_steps,
+        snap_every: save_every,
+        dt: params.dt,
+        seed,
+    };
+    let runner = SimulationRunner { config: cfg };
+
+    // --- run ---
     println!("Starting run loop...");
     let t_start = Instant::now();
-    let mut total_steps: usize = 0;
-    let mut last_report = Instant::now();
 
-    while total_steps < max_steps {
-        let steps_this_chunk = save_every.min(max_steps - total_steps);
+    let mut obs = FdObserver {
+        run_dir: &run_dir,
+        boundary: &boundary,
+        t_start,
+        last_report: t_start,
+        max_steps,
+        guard_err: None,
+    };
 
-        let (steps_done, _dt_elapsed) =
-            update_step(&mut state, &params, &boundary, steps_this_chunk, target_rel_change);
+    runner.run(&mut state, &mut physics, &mut obs);
 
-        total_steps += steps_done;
-
-        // save frame -- propagate any I/O failure immediately
-        save_frame(total_steps, &state)?;
-
-        // progress report every 10 seconds or at final step
-        let elapsed = t_start.elapsed().as_secs_f64();
-        let sps = total_steps as f64 / elapsed;
-        let since_last = last_report.elapsed().as_secs_f64();
-        if since_last >= 10.0 || total_steps == max_steps {
-            println!(
-                "  step {total_steps}/{max_steps}  elapsed={elapsed:.1}s  {sps:.1} steps/sec"
-            );
-            last_report = Instant::now();
-        }
+    if let Some(e) = obs.guard_err {
+        return Err(e);
     }
 
     let total_secs = t_start.elapsed().as_secs_f64();
-    let steps_per_sec = total_steps as f64 / total_secs;
+    let steps_per_sec = max_steps as f64 / total_secs;
 
     println!();
     println!("Run complete.");
-    println!("  total steps : {total_steps}");
+    println!("  total steps : {max_steps}");
     println!("  wall time   : {total_secs:.3}s");
     println!("  steps/sec   : {steps_per_sec:.2}");
     println!(
@@ -353,7 +314,7 @@ fn main() -> CgpoResult<()> {
         "ncl": ncl,
         "dt": dt,
         "max_p_iters": max_p_iters,
-        "n_steps": total_steps,
+        "n_steps": max_steps,
         "save_every": save_every,
         "zeta": params.zeta,
         "total_seconds": total_secs,
