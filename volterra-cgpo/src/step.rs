@@ -208,7 +208,7 @@ pub fn update_step_inner(
         params,
         bnd,
         target_rel_change,
-        params.max_p_iters as i64,
+        params.max_p_iters,
     );
 
     // 5. Q update

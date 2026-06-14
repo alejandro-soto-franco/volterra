@@ -23,7 +23,7 @@ fn bech_3d_matches_captured_oracle_bit_for_bit() {
     let (qf, phif, stats) = run_bech_3d(&q0, &phi0, &p, 4, 2, &tmp, false);
 
     let q_field = flatten_q(&qf);
-    let phi_flat: Vec<f64> = phif.phi.iter().copied().collect();
+    let phi_flat: Vec<f64> = phif.phi.to_vec();
 
     // --- Q field ---
     assert_eq!(q_field.len(), ORACLE_Q_FIELD.len(), "q field length mismatch");
@@ -68,7 +68,7 @@ fn bech_3d_matches_captured_oracle_bit_for_bit() {
     }
 }
 
-const ORACLE_Q_FIELD: [f64; 2560] = [
+static ORACLE_Q_FIELD: [f64; 2560] = [
     0.00181642886828389_f64,
     -0.0007680435732143154_f64,
     0.000863367386639792_f64,
@@ -3146,7 +3146,7 @@ const ORACLE_PHI_FLAT: [f64; 512] = [
     0.30000001993238107_f64,
 ];
 
-const ORACLE_Q_NPY_BYTES: [u8; 20608] = [
+static ORACLE_Q_NPY_BYTES: [u8; 20608] = [
     147,
     78,
     85,
