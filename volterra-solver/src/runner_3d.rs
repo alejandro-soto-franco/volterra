@@ -18,20 +18,14 @@
 //! - Return the final field(s) together with a vector of per-snapshot
 //!   statistics structs ([`SnapStats3D`] / [`BechStats3D`]).
 
-use std::io::Write;
 use std::path::Path;
 
-use rand::rngs::SmallRng;
-use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, ScalarField3D};
 
-use crate::beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D};
-use crate::ch_3d::ch_step_etd_3d;
 use crate::defects_3d::{scan_defects_3d, track_defect_events};
-use crate::stokes_3d::stokes_solve_3d;
 use cartan_geo::disclination::DisclinationLine;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,48 +193,33 @@ pub fn run_bech_3d(
     out_dir: &Path,
     track_defects: bool,
 ) -> (QField3D, ScalarField3D, Vec<BechStats3D>) {
-    let euler = EulerIntegrator3D;
-    let mut q = q_init.clone();
-    let mut phi = phi_init.clone();
+    use crate::sim_impls::cartesian3d::{BechState3D, Cartesian3DBech};
+    use volterra_core::sim::PhysicsStep;
+    use volterra_core::sim::snapshot::write_npy;
+    use volterra_fields::VelocityField3D;
+
+    let mut st = BechState3D {
+        q: q_init.clone(),
+        phi: phi_init.clone(),
+        vel: VelocityField3D::zeros(p.nx, p.ny, p.nz, p.dx),
+    };
     let mut stats: Vec<BechStats3D> = Vec::new();
-
     let mut prev_lines: Option<Vec<DisclinationLine>> = None;
+
+    let mut physics = Cartesian3DBech { params: p.clone(), step_idx: 0 };
+
     for step in 0..n_steps {
-        let t = step as f64 * p.dt;
+        // Advance physics: Stokes + Euler BE + noise + CH-ETD.
+        // Pass t=0.0; Cartesian3DBech computes t from its internal step_idx.
+        physics.step(&mut st, 0.0);
 
-        // 1. Stokes solve: get incompressible velocity driven by active stress.
-        let (vel, _pressure) = stokes_solve_3d(&q, p);
-
-        // 2. Beris-Edwards RHS with flow.
-        let rhs = beris_edwards_rhs_3d(&q, Some(&vel), p, t);
-
-        // 3. Euler step on Q.
-        q = euler.step(&q, p.dt, &rhs);
-
-        // 4. Langevin noise on Q.
-        if p.noise_amp > 0.0 {
-            let amp = p.noise_amp * p.dt.sqrt();
-            let n_verts = q.len();
-            let mut rng = SmallRng::seed_from_u64(step as u64 ^ 0xdead_beef_cafe_5678);
-            for k in 0..n_verts {
-                let samples = box_muller_5(&mut rng);
-                for c in 0..5 {
-                    q.q[k][c] += amp * samples[c];
-                }
-            }
-        }
-
-        // 5. Cahn-Hilliard ETD step.
-        //    Approximation: pass &q as q_lip (see doc comment above).
-        phi = ch_step_etd_3d(&phi, &q, p, p.dt);
-
-        // 6. Snapshot trigger.
+        // Snapshot trigger.
         if snap_every > 0 && (step + 1) % snap_every == 0 {
             let snap_idx = (step + 1) / snap_every;
             let t_snap = (step + 1) as f64 * p.dt;
 
             let (lines, n_events) = if track_defects {
-                let current = scan_defects_3d(&q);
+                let current = scan_defects_3d(&st.q);
                 let n_ev = if let Some(ref prev) = prev_lines {
                     track_defect_events(prev, &current, snap_idx, p.dx).len()
                 } else {
@@ -252,71 +231,42 @@ pub fn run_bech_3d(
                 (Vec::new(), 0)
             };
 
-            let s = compute_bech_stats(&q, &phi, &lines, n_events, t_snap);
+            let s = compute_bech_stats(&st.q, &st.phi, &lines, n_events, t_snap);
             stats.push(s);
 
-            // Write snapshots named by step number (consistent with snapshot conventions).
+            // Write Q snapshot.
             let q_path = out_dir.join(format!("q_{step:06}.npy"));
-            if let Err(e) = write_npy(&q_path, &q.q, p.nx, p.ny, p.nz, 5) {
+            let flat_q: Vec<f64> = st.q.q.iter().flat_map(|arr| arr.iter().copied()).collect();
+            if let Err(e) = write_npy(&q_path, &flat_q, p.nx, p.ny, p.nz, 5) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", q_path.display());
             }
 
-            // Write phi snapshot as (nx,ny,nz,1) for uniform API; wrap each f64 in [f64;1].
-            let phi_wrapped: Vec<[f64; 1]> = phi.phi.iter().map(|&v| [v]).collect();
+            // Write phi snapshot as (nx,ny,nz,1).
             let phi_path = out_dir.join(format!("phi_{step:06}.npy"));
-            if let Err(e) = write_npy(&phi_path, &phi_wrapped, p.nx, p.ny, p.nz, 1) {
+            if let Err(e) = write_npy(&phi_path, &st.phi.phi, p.nx, p.ny, p.nz, 1) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", phi_path.display());
             }
 
             // Write velocity snapshot as (nx,ny,nz,3).
             let vel_path = out_dir.join(format!("vel_{step:06}.npy"));
-            if let Err(e) = write_npy(&vel_path, &vel.u, p.nx, p.ny, p.nz, 3) {
+            let flat_vel: Vec<f64> = st.vel.u.iter().flat_map(|arr| arr.iter().copied()).collect();
+            if let Err(e) = write_npy(&vel_path, &flat_vel, p.nx, p.ny, p.nz, 3) {
                 eprintln!("[runner_3d] warn: failed to write {}: {e}", vel_path.display());
             }
         }
     }
 
-    // Write stats.json.
     let stats_path = out_dir.join("stats.json");
     if let Ok(json) = serde_json::to_string_pretty(&stats) {
         let _ = std::fs::write(&stats_path, json);
     }
 
-    (q, phi, stats)
+    (st.q, st.phi, stats)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/// Generate 5 independent standard-normal samples using Box-Muller.
-///
-/// Consumes 6 uniform(0,1) draws from `rng` (3 pairs), discarding the 6th
-/// sample from the last pair to produce exactly 5 outputs.
-fn box_muller_5(rng: &mut SmallRng) -> [f64; 5] {
-    let mut out = [0.0f64; 5];
-    let mut i = 0;
-    while i < 5 {
-        let u1: f64 = rng.random::<f64>().max(f64::MIN_POSITIVE); // avoid ln(0)
-        let u2: f64 = rng.random::<f64>();
-        let (z0, z1) = box_muller(u1, u2);
-        out[i] = z0;
-        i += 1;
-        if i < 5 {
-            out[i] = z1;
-            i += 1;
-        }
-    }
-    out
-}
-
-/// Box-Muller transform: maps two uniform(0,1) draws to two independent N(0,1).
-#[inline]
-fn box_muller(u1: f64, u2: f64) -> (f64, f64) {
-    let r = (-2.0 * u1.ln()).sqrt();
-    let theta = 2.0 * std::f64::consts::PI * u2;
-    (r * theta.cos(), r * theta.sin())
-}
 
 /// Compute [`SnapStats3D`] from the current Q-field and disclination lines.
 fn compute_snap_stats(
@@ -371,78 +321,6 @@ fn compute_bech_stats(
         mean_line_curvature: mean_curv,
         n_events,
     }
-}
-
-/// Write a C-contiguous `f64` array to a minimal NumPy `.npy` v1.0 file.
-///
-/// The on-disk shape is `(nx, ny, nz, n_comp)`. `data` must have exactly
-/// `nx * ny * nz` entries, each of length `n_comp`.
-///
-/// The header is padded with spaces to a multiple of 64 bytes, followed by a
-/// newline, as required by the NumPy format specification.
-fn write_npy<const N: usize>(
-    path: &Path,
-    data: &[[f64; N]],
-    nx: usize,
-    ny: usize,
-    nz: usize,
-    n_comp: usize,
-) -> std::io::Result<()> {
-    // Build the Python-dict header string.
-    let header_dict = format!(
-        "{{'descr': '<f8', 'fortran_order': False, 'shape': ({nx}, {ny}, {nz}, {n_comp}), }}"
-    );
-
-    // The magic + header-length field occupies 10 bytes:
-    //   6 bytes magic (\x93NUMPY\x01\x00) + 2 bytes HEADER_LEN (uint16 LE)
-    //   + 2 bytes for version (already in magic) = total 10.
-    // Magic is \x93NUMPY\x01\x00 = 8 bytes, HEADER_LEN is 2 bytes = 10 total.
-    // We need total_file_size_up_to_data to be a multiple of 64.
-    // The header block (HEADER_LEN bytes) must include the dict + padding + \n.
-    // total = 10 + HEADER_LEN; we want this to be a multiple of 64.
-    let magic: &[u8] = b"\x93NUMPY\x01\x00"; // 8 bytes
-
-    // The header_len field counts the bytes that follow it (dict + pad + newline).
-    // We need: 10 + header_len ≡ 0 (mod 64), i.e. header_len ≡ 54 (mod 64).
-    // But any multiple of 64 >= header_dict.len()+1 works.
-    let dict_plus_newline = header_dict.len() + 1; // +1 for \n
-    // Round up to next multiple of 64 after the 10-byte prefix.
-    let header_len = {
-        let needed = dict_plus_newline;
-        let _rounded = needed.div_ceil(64) * 64;
-        // Ensure also (10 + rounded) % 64 == 0.
-        // Since rounded is already a multiple of 64, (10 + rounded) % 64 = 10 % 64 = 10 != 0.
-        // The spec says the TOTAL of (magic + header_len_field + header_data) must be divisible
-        // by 64. That means header_data must have length such that (8 + 2 + header_data_len) % 64 == 0,
-        // i.e. header_data_len % 64 == 54.
-        let rem = (needed as isize).rem_euclid(64) as usize;
-        let pad_needed = if rem == 54 { 0 } else { (54 + 64 - rem) % 64 };
-        needed + pad_needed
-    };
-
-    let padding = header_len - dict_plus_newline;
-
-    let mut padded_header = header_dict.clone();
-    for _ in 0..padding {
-        padded_header.push(' ');
-    }
-    padded_header.push('\n');
-
-    debug_assert_eq!(padded_header.len(), header_len);
-    debug_assert_eq!((8 + 2 + header_len) % 64, 0);
-
-    let header_len_u16: u16 = header_len as u16;
-
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(magic)?;
-    f.write_all(&header_len_u16.to_le_bytes())?;
-    f.write_all(padded_header.as_bytes())?;
-    for entry in data {
-        for &v in entry[..n_comp].iter() {
-            f.write_all(&v.to_le_bytes())?;
-        }
-    }
-    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
