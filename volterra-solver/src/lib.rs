@@ -777,6 +777,21 @@ pub struct SnapStats {
     pub defect_density: f64,
 }
 
+impl From<volterra_core::sim::stats::StepStats> for SnapStats {
+    /// Fill the fields shared with the generic currency; defect-charge breakdown
+    /// and density are set by the runner wrapper at snapshot time.
+    fn from(s: volterra_core::sim::stats::StepStats) -> Self {
+        SnapStats {
+            time: s.time.unwrap_or(0.0),
+            mean_s: s.order_param.unwrap_or(0.0),
+            n_defects: s.defect_count.unwrap_or(0),
+            n_plus: 0,
+            n_minus: 0,
+            defect_density: 0.0,
+        }
+    }
+}
+
 /// Run the dry active nematic simulation.
 ///
 /// Evolves the Q-tensor field forward for `n_steps` time steps using the RK4
