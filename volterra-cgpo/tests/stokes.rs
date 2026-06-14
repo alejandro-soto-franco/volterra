@@ -52,7 +52,7 @@ fn rect_interior_boundary() -> Boundary {
     let mut inside = vec![false; N];
     for x in 0..LX {
         for y in 0..LY {
-            if x >= 1 && x <= LX - 2 && y >= 1 && y <= LY - 2 {
+            if (1..=LX - 2).contains(&x) && (1..=LY - 2).contains(&y) {
                 inside[si(x, y)] = true;
             }
         }
@@ -229,7 +229,7 @@ fn u_update_p_pi_terms_vs_python() {
     // by building the expected dudt contribution directly.
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let u_flat    = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
+    let _u_flat   = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
     let pi_s_flat = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
     let pi_a_flat = load_txt(&format!("{ref_dir}/stokes_Pi_A_input.txt"));
     let p_ref     = load_txt(&format!("{ref_dir}/p_after_N_ref.txt"));
