@@ -36,6 +36,23 @@ const DILATATION_TOL: f64 = 1e-3;
 ///
 /// Returns `0.0` for finite-order or reducible braids (dilatation 1 within
 /// [`DILATATION_TOL`]); see that constant for why the tolerance is safe.
+///
+/// # Exact vs lower bound (read before using on simulation-extracted braids)
+///
+/// This returns `log` of the **unreduced Burau spectral radius at `t = -1`**,
+/// which equals the true dilatation `λ` (hence the exact topological entropy
+/// `h = log λ`) only when the braid's invariant foliation is orientable — the
+/// case for the golden (`B_3`) and silver (`B_4`) orbits this crate is built to
+/// certify. For a general braid it is a **Fried lower bound**: `return ≤ h`.
+///
+/// The gap can be severe past four strands. The Burau representation is
+/// unfaithful for `n_strands >= 5` (Bigelow), so a braid word extracted from a
+/// real confined-nematic run with five or more simultaneous defects can have a
+/// `t = -1` spectral radius that underestimates `λ`, sometimes badly (a
+/// pseudo-Anosov braid can even map to a finite-order Burau image and report
+/// `0.0`). Treat any value from a `n_strands >= 5` word as a lower bound on `h`,
+/// not a measurement; for a tight value compute the dilatation via a train-track
+/// / Bestvina–Handel route instead. See [`is_exact_regime`].
 pub fn topological_entropy(word: &BraidWord) -> f64 {
     let lambda = burau_spectral_radius_minus1(word);
     if lambda <= 1.0 + DILATATION_TOL {
@@ -43,6 +60,20 @@ pub fn topological_entropy(word: &BraidWord) -> f64 {
     } else {
         lambda.ln()
     }
+}
+
+/// Whether [`topological_entropy`] is exact (not merely a lower bound) for a
+/// braid on `n_strands` strands under the Burau-at-`t = -1` method.
+///
+/// The Burau representation is faithful through four strands, so the spectral
+/// radius equals the dilatation there; from five strands on it is unfaithful and
+/// the result is only a Fried lower bound. This is a necessary condition on the
+/// strand count, not a guarantee for a specific word — a `B_3`/`B_4` word whose
+/// invariant foliation is non-orientable is still handled exactly by the
+/// unreduced representation, which is why the crate's golden/silver certificates
+/// hold, but callers feeding simulation-extracted words should branch on this.
+pub fn is_exact_regime(n_strands: usize) -> bool {
+    n_strands <= 4
 }
 
 /// The dilatation estimate: spectral radius of the unreduced Burau matrix of
