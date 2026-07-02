@@ -235,9 +235,11 @@ pub fn relax_pressure_inner_loop(
 ///    - copy `p → p_aux`
 ///    - [`relax_pressure_inner_loop`]
 ///    - BC stub (no-op for now)
-///    - `rel_change = Σ|p_aux−p| / (1e-7 + Σ|p_aux|)`
-///    - stop if `rel_change <= target_rel_change`
-///      AND `(p_iters >= max_p_iters AND max_p_iters >= 0)`
+///    - `rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)` (signed denominator sum)
+///    - stop when the iteration cap is reached
+///      (`max_p_iters >= 0 && p_iters >= max_p_iters`)
+///      OR the sweep has converged (`p_iters > 0 && rel_change <= target_rel_change`);
+///      `max_p_iters < 0` disables the cap, leaving convergence as the only exit.
 ///
 /// # Convergence-test convention (exact Python match)
 ///
