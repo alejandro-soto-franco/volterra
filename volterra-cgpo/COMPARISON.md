@@ -56,7 +56,45 @@ sweeps), which is why numba's 32 cores don't run away. Parallelizing the Rust ke
 rayon (the per-sweep relaxation, the stress/H kernels) is open headroom to widen the gap.
 Rust also has no JIT warm-up (numba pays ~39 s compile per process).
 
-## 3. Status
+## 3. Beyond the port: reproducibility and formulation contrasts
+
+The per-kernel concurrence above proves `volterra-cgpo` **is** the CGPO scheme. It is not
+the whole relationship. Read against both Python engines in this lineage
+(`flow-solver.py`, the confined-geometry paper code, and `open-zetar/BE_NS_2D.ipynb`, the
+newer periodic-only open-source rewrite), three differences matter for how far the results
+can be trusted:
+
+- **Determinism / fastmath.** Every hot numba kernel in *both* Python engines runs
+  `fastmath=True`, which licenses reassociation and FMA contraction. Neither reference is
+  bit-reproducible across numba versions or CPUs, and in a chaotic system that reassociation
+  error is precisely the perturbation that seeds trajectory divergence. `volterra-cgpo` uses
+  no fastmath. This is what makes the machine-epsilon per-step concurrence both achievable
+  and meaningful: it reproduces the *scheme* deterministically, so the port is the more
+  trustworthy numerical object even where it merely matches a run the reference cannot
+  reproduce twice.
+
+- **Incompressibility formulation.** `flow-solver.py` (and this port) use a direct
+  pressure-Poisson RHS carrying the full nonlinear terms, including the `ρ/dt·∇·u`
+  drift-correction that actively removes accumulated divergence each step. `open-zetar` uses
+  a cleaner fractional-step projection on the acceleration but carries no drift-correction
+  term, so accumulated `∇·u` over an `O(10^4)`-step run has no restoring force. At the paper
+  Reynolds number (~0.01) the near-Stokes flow makes the convective-term differences small;
+  the divergence-drift difference is the one that shows up over long runs.
+
+- **Robustness.** `open-zetar`'s Poisson relaxation is an *uncapped* `while` loop (unbounded
+  worst-case step time near a steady state); `flow-solver.py` caps iterations;
+  `volterra-cgpo` caps *and* guards each step with `check_finite`/`check_cfl` (`CgpoError`),
+  so a blow-up surfaces as a typed error rather than silent NaN propagation.
+
+**Framing.** CGPO concurrence is `volterra-cgpo`'s validation harness, not its thesis. The
+crate is the flat-space, finite-difference *anchor* that pins the workspace's novel
+machinery (the DEC-native covariant solver on Riemannian manifolds in `volterra-dec`; the
+certified defect-braid topological entropy in `volterra-braid`) to a scheme proven identical
+to the paper's. The accurate claim is not "volterra reproduces CGPO" but "volterra proves its
+numerics are the CGPO scheme, deterministically, so the manifold and braid results the Python
+codes cannot produce inherit that credibility."
+
+## 4. Status
 - **Phase 1 (this): Rust FD port — COMPLETE & VALIDATED** (19 tests; machine-epsilon
   per-step concurrence; 4.6× runtime). Crate `volterra-cgpo`, runner `bin/cgpo_fd`
   (env-configurable, writes flow-solver-format Q/u snapshots → reuses `physical/concurrence.py`).
