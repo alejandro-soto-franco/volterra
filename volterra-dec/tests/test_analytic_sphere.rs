@@ -12,6 +12,7 @@ use support::*;
 use nalgebra::DVector;
 use volterra_dec::connection_laplacian::ConnectionLaplacian;
 use volterra_dec::curved_stokes::CurvedStokesSolver;
+use volterra_dec::poisson::PoissonSolver;
 use volterra_dec::qfield_dec::QFieldDec;
 
 /// Dual-area-weighted inner product of two scalar fields.
@@ -69,6 +70,20 @@ fn laplace_beltrami_self_adjoint() {
         (lhs - rhs).abs() / scale < 1e-9,
         "self-adjointness broken: <Lu,v> = {lhs:.6e}, <u,Lv> = {rhs:.6e}"
     );
+}
+
+#[test]
+fn poisson_recovers_l1_harmonic() {
+    // Round-trip at a single resolution. solve returns psi with Delta psi = rhs, and
+    // Delta Y = -l(l+1) Y, so feeding rhs = -l(l+1) Y recovers Y (up to a constant).
+    // O(h^2) convergence is asserted in test_convergence.rs.
+    let d = sphere_domain(3);
+    let coords = coords_of(&d);
+    let y = sph_harmonic(&coords, 1, 0); // z, eigenvalue 2
+    let rhs = &y * (-sph_eigenvalue(1));
+    let psi = PoissonSolver::new(&d.ops).expect("Poisson solver").solve(&rhs);
+    let err = l2_rel_error(&zero_mean(&psi), &zero_mean(&y), &d.dual_areas);
+    assert!(err < 0.05, "Poisson round-trip rel L2 error = {err:.4} (expected < 0.05)");
 }
 
 #[test]

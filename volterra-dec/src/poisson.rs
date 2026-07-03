@@ -1,159 +1,251 @@
 //! Sparse Poisson solver on DEC meshes.
 //!
-//! Solves the equation -Delta f = rhs on the mesh, where Delta is the
-//! scalar Laplace-Beltrami operator (negative semi-definite).
+//! Returns `psi` with `-apply_laplace_beltrami(psi) = rhs`, i.e. `Delta psi = rhs`
+//! (`apply_laplace_beltrami` is `L = -Delta`). This is the sign convention of the previous
+//! direct solver, which the DEC runners compose against.
 //!
-//! Two solver paths:
+//! The stored `Operators::laplace_beltrami` is the mass-normalised operator `M^{-1} S`
+//! (`M` = dual-area mass, `S` = symmetric cotan stiffness). It is generically NON-symmetric
+//! on curved meshes, so a symmetric direct factorisation cannot be applied to it (and a
+//! non-pivoting `LDL^T` mis-solves it, returning ~0 on the sphere). This module instead
+//! assembles the symmetric SPD stiffness `S = diag(star0) * laplace_beltrami` and solves
+//! `S psi = -M rhs` by Jacobi-preconditioned conjugate gradient, which needs only the SPD
+//! matvec and is robust on any triangulation.
 //!
-//! - [`PoissonSolver`]: precomputes an LDL^T factorisation of -Delta with
-//!   one vertex pinned (to remove the constant kernel). Amortises the
-//!   O(n^{3/2}) factorisation cost across many solves. Each subsequent
-//!   solve is O(nnz) (sparse back-substitution).
+//! Two entry points:
 //!
-//! - [`solve_poisson`]: one-shot convenience function (factorises + solves).
+//! - [`PoissonSolver`]: precomputes the stiffness and preconditioner once, reused across
+//!   many solves (each solve is a CG iteration over the sparse matvec).
+//! - [`solve_poisson`]: one-shot convenience function.
 
 use cartan_core::Manifold;
 use cartan_dec::Operators;
 use nalgebra::DVector;
 use sprs::CsMat;
 
-/// Precomputed LDL^T factorisation of -Delta for repeated Poisson solves.
+/// Precomputed symmetric stiffness and preconditioner for repeated Poisson solves.
 ///
-/// The factorisation is computed once and reused for each solve. This is
-/// the recommended path when solving Poisson multiple times per timestep
-/// (e.g., vorticity-stream function Stokes).
+/// Assembled once and reused for each CG solve. This is the recommended path when solving
+/// Poisson multiple times per timestep (e.g., vorticity-stream function Stokes).
 ///
 /// Two modes:
-/// - **Closed-manifold** (default, `dirichlet_vertices` empty): pins vertex 0 and
-///   projects to zero mean. Correct for periodic/closed meshes (sphere, torus).
-/// - **Dirichlet** (`dirichlet_vertices` non-empty): enforces ψ = 0 on all listed
-///   vertices via standard symmetric elimination. No zero-mean projection; the
-///   system is non-singular once the Dirichlet rows/cols are pinned. Use this
-///   for bounded domains (no-slip stream-function).
+/// - **Closed-manifold** (default, `dirichlet_vertices` empty): the stiffness is singular
+///   (constant kernel); the RHS is range-projected and the solution returned with zero mean.
+///   Correct for periodic/closed meshes (sphere, torus).
+/// - **Dirichlet** (`dirichlet_vertices` non-empty): enforces ψ = 0 on all listed vertices
+///   (identity rows in the CG operator). Use this for bounded domains (no-slip
+///   stream-function).
 pub struct PoissonSolver {
     /// Number of vertices.
     n: usize,
-    /// Index of the pinned vertex (closed-manifold mode only; used when
-    /// `dirichlet_vertices` is empty).
-    pinned: usize,
-    /// LDL^T factorisation of the (modified) system.
-    ldl: sprs_ldl::LdlNumeric<f64, usize>,
+    /// Full symmetric stiffness `S = diag(star0) * laplace_beltrami` (both triangles),
+    /// applied as a matvec operator in the CG solve.
+    ///
+    /// `laplace_beltrami` is the mass-normalised operator `M^{-1} S`, which is NOT symmetric
+    /// when the dual areas vary (any curved mesh). Left-multiplying by the mass diagonal
+    /// recovers the symmetric SPD stiffness `S = d0^T star1 d0`, which is what the iterative
+    /// solve requires.
+    s: CsMat<f64>,
+    /// Jacobi preconditioner `1 / A_ii`, where `A` is `S` with identity rows on Dirichlet
+    /// DOFs. One entry per vertex.
+    inv_diag: Vec<f64>,
+    /// Dual-area mass diagonal (star0), one per vertex; mass-weights the right-hand side.
+    star0: Vec<f64>,
     /// Dirichlet vertex indices (ψ = 0 enforced here). Empty → closed-manifold mode.
     dirichlet_vertices: Vec<usize>,
+    /// Boolean Dirichlet mask, length `n`.
+    is_dirichlet: Vec<bool>,
 }
 
 impl PoissonSolver {
     /// Build the solver from a DEC Operators struct (closed-manifold / periodic mode).
     ///
-    /// Factorises (-Delta + epsilon I) where epsilon is a small regularisation
-    /// that makes the matrix positive definite (removes the constant kernel).
-    /// The factorisation cost is O(n^{3/2}) for a 2D mesh.
+    /// Assembles the symmetric SPD stiffness `S = diag(star0) * laplace_beltrami` and a
+    /// Jacobi preconditioner. Solves are performed by preconditioned conjugate gradient
+    /// (see [`Self::solve`]): a direct `LDL^T` factorisation is not used because the DEC
+    /// stiffness on a general (non-well-centered) triangulation is not reliably factorised
+    /// by a non-pivoting `LDL^T`, whereas CG needs only the SPD matvec.
     pub fn new<M: Manifold>(ops: &Operators<M, 3, 2>) -> Result<Self, String> {
         let n = ops.laplace_beltrami.rows();
-
-        // Build -Delta + epsilon*I (positive definite, symmetric).
-        // epsilon is small enough not to affect the solution significantly
-        // but large enough to regularise the zero eigenvalue.
-        let eps = 1e-10;
-        let reg_mat = regularise_neg_laplacian_lower(&ops.laplace_beltrami, eps);
-
-        // LDL^T factorisation. We pass the lower triangle only, skip the
-        // symmetry check, and disable fill-reduction (which internally
-        // asserts symmetry via reverse Cuthill-McKee).
-        let ldl = sprs_ldl::Ldl::new()
-            .check_symmetry(sprs::SymmetryCheck::DontCheckSymmetry)
-            .fill_in_reduction(sprs::FillInReduction::NoReduction)
-            .numeric(reg_mat.view())
-            .map_err(|e| format!("LDL factorisation: {e:?}"))?;
-
-        Ok(Self {
-            n,
-            pinned: 0,
-            ldl,
-            dirichlet_vertices: Vec::new(),
-        })
+        let star0: Vec<f64> = ops.hodge.star0().iter().copied().collect();
+        let s = full_stiffness(&ops.laplace_beltrami, &star0);
+        let is_dirichlet = vec![false; n];
+        let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
+        Ok(Self { n, s, inv_diag, star0, dirichlet_vertices: Vec::new(), is_dirichlet })
     }
 
     /// Build the solver with Dirichlet ψ = 0 boundary conditions.
     ///
-    /// Enforces ψ = 0 on every vertex in `dirichlet_vertices` by zeroing those
-    /// rows and columns of (-Delta) and placing 1 on the diagonal (symmetric
-    /// elimination, RHS = 0 for those DOFs). The resulting system is
-    /// non-singular and no zero-mean projection is required.
-    ///
-    /// Use this for bounded domains (confined active nematics, no-slip Stokes).
-    /// The existing `new` (closed-manifold mode) is left unchanged.
+    /// Enforces ψ = 0 on every vertex in `dirichlet_vertices` (identity rows in the CG
+    /// operator, RHS forced to 0 there). The interior system is SPD. Use this for bounded
+    /// domains (confined active nematics, no-slip Stokes).
     pub fn with_dirichlet<M: Manifold>(
         ops: &Operators<M, 3, 2>,
         dirichlet_vertices: &[usize],
     ) -> Result<Self, String> {
         let n = ops.laplace_beltrami.rows();
-
-        // Build lower triangle of (-Delta) with Dirichlet elimination applied.
-        let mat = dirichlet_neg_laplacian_lower(&ops.laplace_beltrami, dirichlet_vertices);
-
-        let ldl = sprs_ldl::Ldl::new()
-            .check_symmetry(sprs::SymmetryCheck::DontCheckSymmetry)
-            .fill_in_reduction(sprs::FillInReduction::NoReduction)
-            .numeric(mat.view())
-            .map_err(|e| format!("LDL factorisation (Dirichlet): {e:?}"))?;
-
+        let star0: Vec<f64> = ops.hodge.star0().iter().copied().collect();
+        let s = full_stiffness(&ops.laplace_beltrami, &star0);
+        let mut is_dirichlet = vec![false; n];
+        for &d in dirichlet_vertices {
+            is_dirichlet[d] = true;
+        }
+        let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
         Ok(Self {
             n,
-            pinned: 0,
-            ldl,
+            s,
+            inv_diag,
+            star0,
             dirichlet_vertices: dirichlet_vertices.to_vec(),
+            is_dirichlet,
         })
     }
 
-    /// Solve -Delta f = rhs.
+    /// Apply the CG operator `A`: `S` on the interior, identity on Dirichlet rows.
+    fn apply_a(&self, x: &[f64]) -> Vec<f64> {
+        // Zero the input on Dirichlet DOFs (their columns are eliminated).
+        let mut xz = x.to_vec();
+        for (xzi, &d) in xz.iter_mut().zip(&self.is_dirichlet) {
+            if d {
+                *xzi = 0.0;
+            }
+        }
+        let mut y = vec![0.0f64; self.n];
+        for (&v, (r, c)) in self.s.iter() {
+            y[r] += v * xz[c];
+        }
+        // Identity rows for Dirichlet DOFs.
+        for (yi, (&d, &xi)) in y.iter_mut().zip(self.is_dirichlet.iter().zip(x)) {
+            if d {
+                *yi = xi;
+            }
+        }
+        y
+    }
+
+    /// Solve for `psi` with `-apply_laplace_beltrami(psi) = rhs`, by Jacobi-preconditioned CG.
     ///
-    /// **Closed-manifold mode** (no Dirichlet vertices): projects rhs to zero
-    /// mean, solves with vertex 0 pinned, then shifts the solution to zero mean.
+    /// `apply_laplace_beltrami` is `L = -Delta` (positive), so this returns `psi` with
+    /// `-L psi = rhs`, i.e. `Delta psi = rhs`. In symmetric-stiffness form the system is
+    /// `S psi = -M rhs` with `S = diag(star0) * L` and `M = diag(star0)`. On an eigenfunction
+    /// `Y_lm` (`L Y = l(l+1) Y`) this gives `solve(l(l+1) Y) = -Y`.
     ///
-    /// **Dirichlet mode**: zeros RHS entries at Dirichlet vertices (since their
-    /// target value is 0), solves the modified system, then zeros the solution
-    /// at those vertices (enforces the BC exactly at the discrete level).
+    /// This preserves the sign convention of the previous direct solver (the downstream DEC
+    /// runners compose against it); the change here is the solve method (robust CG on the
+    /// symmetric stiffness) rather than the convention.
+    ///
+    /// **Closed-manifold mode**: `S` is singular (kernel = constants); the RHS is projected
+    /// onto the range and the CG iterates are kept mean-free, and the solution is returned
+    /// with zero mean.
+    ///
+    /// **Dirichlet mode**: the RHS is forced to 0 at Dirichlet DOFs and the solution is 0
+    /// there exactly.
     pub fn solve(&self, rhs: &DVector<f64>) -> DVector<f64> {
         assert_eq!(rhs.len(), self.n);
+        let closed = self.dirichlet_vertices.is_empty();
 
-        if self.dirichlet_vertices.is_empty() {
-            // ── Closed-manifold path (original behaviour) ────────────────────
-            // Project rhs to zero mean.
-            let mean_rhs = rhs.sum() / self.n as f64;
-            let mut b: Vec<f64> = rhs.iter().map(|&v| v - mean_rhs).collect();
-
-            // Pin: set rhs at pinned vertex to 0.
-            b[self.pinned] = 0.0;
-
-            // Solve via LDL^T back-substitution.
-            let x: Vec<f64> = self.ldl.solve(&b);
-
-            // Shift to zero mean.
-            let mean_x = x.iter().sum::<f64>() / self.n as f64;
-            let result: Vec<f64> = x.iter().map(|&v| v - mean_x).collect();
-
-            DVector::from_vec(result)
+        // b = -M rhs (mass-weighted); S psi = -M rhs solves -L psi = rhs (Delta psi = rhs).
+        let mut b: Vec<f64> = (0..self.n).map(|i| -self.star0[i] * rhs[i]).collect();
+        if closed {
+            // Project onto range(S) = {v : sum v = 0}.
+            let mean = b.iter().sum::<f64>() / self.n as f64;
+            for v in b.iter_mut() {
+                *v -= mean;
+            }
         } else {
-            // ── Dirichlet path ────────────────────────────────────────────────
-            // RHS at Dirichlet DOFs must be 0 (target ψ = 0; the elimination
-            // moved nothing to the RHS since the target is 0).
-            let mut b: Vec<f64> = rhs.iter().cloned().collect();
-            for &dv in &self.dirichlet_vertices {
-                b[dv] = 0.0;
+            for &d in &self.dirichlet_vertices {
+                b[d] = 0.0;
             }
-
-            let mut x: Vec<f64> = self.ldl.solve(&b);
-
-            // Enforce ψ = 0 exactly at Dirichlet vertices (eliminates any
-            // floating-point residual from the factorisation).
-            for &dv in &self.dirichlet_vertices {
-                x[dv] = 0.0;
-            }
-
-            DVector::from_vec(x)
         }
+
+        let mut x = pcg_solve(|p| self.apply_a(p), &self.inv_diag, &b, self.n, closed);
+
+        if closed {
+            let mean = x.iter().sum::<f64>() / self.n as f64;
+            for v in x.iter_mut() {
+                *v -= mean;
+            }
+        } else {
+            for &d in &self.dirichlet_vertices {
+                x[d] = 0.0;
+            }
+        }
+        DVector::from_vec(x)
     }
+}
+
+/// Dot product of two slices.
+pub(crate) fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+/// Jacobi-preconditioned conjugate gradient for a symmetric operator `apply` with
+/// preconditioner diagonal `inv_diag`, solving `A x = b`.
+///
+/// `project_kernel` keeps the residual and preconditioned residual mean-free, so the routine
+/// converges to the minimum-norm solution when `A` is singular with the constant vector in
+/// its kernel (closed-manifold Laplacian) OR when `A` is SPD only on the zero-mean subspace
+/// (the shifted `(Delta + K)` operator, which is indefinite on constants but positive on the
+/// zero-mean harmonics). Returns the raw iterate; callers apply any final gauge fix.
+pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
+    apply: F,
+    inv_diag: &[f64],
+    b: &[f64],
+    n: usize,
+    project_kernel: bool,
+) -> Vec<f64> {
+    let demean = |v: &mut [f64]| {
+        let m = v.iter().sum::<f64>() / n as f64;
+        for x in v.iter_mut() {
+            *x -= m;
+        }
+    };
+
+    let mut x = vec![0.0f64; n];
+    let mut r = b.to_vec();
+    if project_kernel {
+        demean(&mut r);
+    }
+    let mut z: Vec<f64> = (0..n).map(|i| inv_diag[i] * r[i]).collect();
+    if project_kernel {
+        demean(&mut z);
+    }
+    let mut p = z.clone();
+    let mut rz = dot(&r, &z);
+
+    let bnorm = dot(b, b).sqrt().max(1e-300);
+    let tol = 1e-10;
+    let max_iter = 10 * n + 100;
+
+    for _ in 0..max_iter {
+        let ap = apply(&p);
+        let denom = dot(&p, &ap);
+        if denom.abs() < 1e-300 {
+            break;
+        }
+        let alpha = rz / denom;
+        for i in 0..n {
+            x[i] += alpha * p[i];
+            r[i] -= alpha * ap[i];
+        }
+        if project_kernel {
+            demean(&mut r);
+        }
+        if dot(&r, &r).sqrt() <= tol * bnorm {
+            break;
+        }
+        let mut z_new: Vec<f64> = (0..n).map(|i| inv_diag[i] * r[i]).collect();
+        if project_kernel {
+            demean(&mut z_new);
+        }
+        let rz_new = dot(&r, &z_new);
+        let beta = rz_new / rz;
+        for i in 0..n {
+            p[i] = z_new[i] + beta * p[i];
+        }
+        rz = rz_new;
+    }
+    x
 }
 
 /// One-shot convenience: factorise and solve in one call.
@@ -167,93 +259,51 @@ pub fn solve_poisson<M: Manifold>(
     Ok(solver.solve(rhs))
 }
 
-/// Build the LOWER TRIANGLE of (-Delta) with Dirichlet elimination.
+/// Build the FULL symmetric stiffness `S = diag(star0) * lap`, where `lap` is the
+/// mass-normalised Laplace-Beltrami operator `M^{-1} S`.
 ///
-/// For each Dirichlet vertex `d`:
-/// - Row `d`: zeroed off-diagonal, diagonal set to 1.
-/// - Col `d` (lower triangle only, i.e. rows > d): zeroed.
-///
-/// This is standard symmetric Dirichlet elimination for ψ_d = 0.
-/// The resulting matrix is strictly positive definite (no kernel) as long
-/// as at least one Dirichlet DOF exists, so no epsilon regularisation is needed.
-/// A small epsilon is still added on the diagonal for numerical robustness.
-fn dirichlet_neg_laplacian_lower(lap: &CsMat<f64>, dirichlet: &[usize]) -> CsMat<f64> {
+/// `lap` is generically NON-symmetric on curved meshes (the dual-area mass `M` varies).
+/// Left-multiplying by the mass diagonal recovers the symmetric SPD stiffness
+/// `S = d0^T star1 d0`: entry `(r, c)` is `star0[r] * lap_{r,c} = S_{r,c}`, and entry
+/// `(c, r)` is `star0[c] * lap_{c,r} = S_{c,r} = S_{r,c}`, so both triangles agree. The full
+/// matrix is stored (both triangles) so it can be applied directly as a matvec.
+pub(crate) fn full_stiffness(lap: &CsMat<f64>, star0: &[f64]) -> CsMat<f64> {
     let n = lap.rows();
-    let eps = 1e-10;
-
-    // Build a boolean mask for O(1) lookup.
-    let mut is_dirichlet = vec![false; n];
-    for &d in dirichlet {
-        is_dirichlet[d] = true;
-    }
-
     let mut rows: Vec<usize> = Vec::new();
     let mut cols: Vec<usize> = Vec::new();
     let mut vals: Vec<f64> = Vec::new();
 
-    // Copy only the lower triangle of -Delta, applying Dirichlet elimination.
     for (&val, (row, col)) in lap.iter() {
-        if row < col {
-            continue; // upper triangle: skip
-        }
-        if is_dirichlet[row] || is_dirichlet[col] {
-            // Zero off-diagonal entries touching a Dirichlet DOF.
-            if row != col {
-                continue;
-            }
-            // Diagonal of a Dirichlet row: set to 1.
-            rows.push(row);
-            cols.push(col);
-            vals.push(1.0);
-        } else {
-            rows.push(row);
-            cols.push(col);
-            vals.push(-val);
-        }
-    }
-
-    // Add eps to non-Dirichlet diagonals (robustness) and ensure every
-    // Dirichlet diagonal entry exists (in case the Laplacian diagonal was missing).
-    #[allow(clippy::needless_range_loop)] // i is pushed as a value (row/col index), not just used to index
-    for i in 0..n {
-        rows.push(i);
-        cols.push(i);
-        vals.push(if is_dirichlet[i] { 0.0 } else { eps });
+        rows.push(row);
+        cols.push(col);
+        vals.push(star0[row] * val);
     }
 
     let tri = sprs::TriMat::from_triplets((n, n), rows, cols, vals);
     tri.to_csc()
 }
 
-/// Build the LOWER TRIANGLE of (-Delta + epsilon * I).
-///
-/// sprs-ldl reads only the lower triangle of the input matrix (row >= col).
-/// Delta is negative semi-definite, so -Delta is positive semi-definite.
-/// Adding epsilon * I makes it strictly positive definite.
-fn regularise_neg_laplacian_lower(lap: &CsMat<f64>, eps: f64) -> CsMat<f64> {
-    let n = lap.rows();
-    let mut rows: Vec<usize> = Vec::new();
-    let mut cols: Vec<usize> = Vec::new();
-    let mut vals: Vec<f64> = Vec::new();
-
-    // Copy only the lower triangle of -Delta (row >= col).
-    for (&val, (row, col)) in lap.iter() {
-        if row >= col {
-            rows.push(row);
-            cols.push(col);
-            vals.push(-val);
+/// Jacobi preconditioner diagonal `1 / A_ii`, where `A` is the stiffness `S` with identity
+/// rows on Dirichlet DOFs. Non-positive or missing diagonals fall back to `1.0`.
+pub(crate) fn jacobi_inv_diag(s: &CsMat<f64>, is_dirichlet: &[bool]) -> Vec<f64> {
+    let n = s.rows();
+    let mut diag = vec![0.0f64; n];
+    for (&v, (r, c)) in s.iter() {
+        if r == c {
+            diag[r] += v;
         }
     }
-
-    // Add epsilon to the diagonal.
-    for i in 0..n {
-        rows.push(i);
-        cols.push(i);
-        vals.push(eps);
-    }
-
-    let tri = sprs::TriMat::from_triplets((n, n), rows, cols, vals);
-    tri.to_csc()
+    (0..n)
+        .map(|i| {
+            if is_dirichlet[i] {
+                1.0
+            } else if diag[i].abs() > 1e-300 {
+                1.0 / diag[i]
+            } else {
+                1.0
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -290,7 +340,7 @@ mod tests {
 
         let x = solve_poisson(&ops, &rhs).unwrap();
 
-        // Check: -Delta x should equal rhs (up to a constant).
+        // Check: solve returns psi with -apply_laplace_beltrami(psi) = rhs (Delta psi = rhs).
         let neg_lap_x = -ops.apply_laplace_beltrami(&x);
         let mean_r = neg_lap_x.sum() / nv as f64;
         let mean_b = rhs.sum() / nv as f64;
