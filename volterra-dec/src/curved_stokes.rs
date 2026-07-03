@@ -14,13 +14,17 @@
 //!  Delta_0 psi = phi                 (standard Poisson)
 //! ```
 //!
-//! Both operators are precomputed (LDL^T factorised) at construction.
+//! Both operators are assembled as symmetric stiffness matrices and solved by
+//! Jacobi-preconditioned conjugate gradient (the shifted `(Delta + K)` operator is SPD on
+//! the zero-mean subspace where the physical fields live).
 
 use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
 use nalgebra::DVector;
 
-use crate::poisson::PoissonSolver;
+use sprs::CsMat;
+
+use crate::poisson::{full_stiffness, pcg_solve, PoissonSolver};
 use crate::stokes_dec::VelocityFieldDec;
 use crate::QFieldDec;
 // NematicParams will be used when the engine wires this solver to the full pipeline.
@@ -58,86 +62,77 @@ pub struct CurvedStokesSolver {
 
 /// Solver for -(Delta + K) phi = rhs, where K is per-vertex Gaussian curvature.
 struct ModifiedPoissonSolver {
-    ldl: sprs_ldl::LdlNumeric<f64, usize>,
     n: usize,
+    /// Symmetric stiffness `S = diag(star0) * laplace_beltrami`.
+    s: CsMat<f64>,
+    /// Mass-weighted curvature shift `star0_i * K_i` (the `-diag(star0 K)` diagonal term).
+    sk: Vec<f64>,
+    /// Jacobi preconditioner `1 / (S_ii - star0_i K_i)`.
+    inv_diag: Vec<f64>,
+    /// Dual-area mass diagonal (star0).
+    star0: Vec<f64>,
 }
 
 impl ModifiedPoissonSolver {
-    /// Build from the raw Laplacian matrix and per-vertex Gaussian curvature.
-    fn new<M: Manifold>(ops: &Operators<M, 3, 2>, gaussian_k: &[f64], _star0: &[f64]) -> Result<Self, String> {
+    /// Build the shifted operator `-(Delta + K)` from the Laplacian and Gaussian curvature.
+    ///
+    /// `apply_laplace_beltrami` is `L = -Delta`, so `-(Delta + K) = L - K`. In symmetric
+    /// form the operator is `A = S - diag(star0 K)` with `S = diag(star0) * laplace_beltrami`.
+    /// `A` is indefinite on the constant mode (its eigenvalue there is `-star0 K < 0` for
+    /// `K > 0`) but SPD on the zero-mean subspace where the physical fields live, so the
+    /// solve uses kernel-projected CG.
+    fn new<M: Manifold>(ops: &Operators<M, 3, 2>, gaussian_k: &[f64], star0: &[f64]) -> Result<Self, String> {
         let n = ops.laplace_beltrami.rows();
+        let s = full_stiffness(&ops.laplace_beltrami, star0);
+        let sk: Vec<f64> = (0..n).map(|i| star0[i] * gaussian_k[i]).collect();
 
-        // Build -(Delta + K) = -Delta - diag(K).
-        // -Delta is positive semi-definite. -diag(K) adds curvature correction.
-        // The combined matrix -(Delta + K) is positive definite if K is not
-        // too negative (which it won't be at the regularised level).
-        let mut rows: Vec<usize> = Vec::new();
-        let mut cols: Vec<usize> = Vec::new();
-        let mut vals: Vec<f64> = Vec::new();
-
-        // Lower triangle of -Delta.
-        for (&val, (row, col)) in ops.laplace_beltrami.iter() {
-            if row >= col {
-                rows.push(row);
-                cols.push(col);
-                vals.push(-val);
+        // Jacobi diagonal of A = S - diag(sk).
+        let mut s_diag = vec![0.0f64; n];
+        for (&v, (r, c)) in s.iter() {
+            if r == c {
+                s_diag[r] += v;
             }
         }
+        let inv_diag: Vec<f64> = (0..n)
+            .map(|i| {
+                let d = s_diag[i] - sk[i];
+                if d.abs() > 1e-300 {
+                    1.0 / d
+                } else {
+                    1.0
+                }
+            })
+            .collect();
 
-        // Add -K * star_0 to diagonal (the mass-weighted curvature).
-        // The equation is: star_0_inv * (L + diag(star_0 * K)) * phi = f
-        // which becomes: (L + diag(star_0 * K)) * phi = star_0 * f.
-        // So the matrix we factorise is: -L - diag(star_0 * K).
-        // -L is already added above (from -Delta before star_0_inv).
-        // Actually, -Delta = star_0_inv * (-L), so -L = star_0 * (-Delta).
-        // This is getting confusing. Let me think step by step.
-        //
-        // The DEC Laplacian is: Delta = star_0_inv * d0^T * star_1 * d0.
-        // The stored matrix ops.laplace_beltrami IS Delta (with star_0_inv applied).
-        //
-        // We want to solve: -(Delta + K) phi = rhs.
-        // => -Delta phi - K phi = rhs.
-        // => (-Delta - diag(K)) phi = rhs.
-        //
-        // -Delta is the negated Laplacian (positive semi-definite).
-        // Adding -diag(K): on the outer equator of a torus (K > 0), this subtracts,
-        // making the matrix less positive definite. Need regularisation.
-        for (i, &k) in gaussian_k.iter().enumerate() {
-            rows.push(i);
-            cols.push(i);
-            vals.push(-k);
-        }
-
-        // Regularise: add small epsilon to ensure positive definiteness.
-        let eps = 1e-10;
-        for i in 0..n {
-            rows.push(i);
-            cols.push(i);
-            vals.push(eps);
-        }
-
-        let tri = sprs::TriMat::from_triplets((n, n), rows, cols, vals);
-        let mat = tri.to_csc();
-
-        let ldl = sprs_ldl::Ldl::new()
-            .check_symmetry(sprs::SymmetryCheck::DontCheckSymmetry)
-            .fill_in_reduction(sprs::FillInReduction::NoReduction)
-            .numeric(mat.view())
-            .map_err(|e| format!("Modified Poisson LDL: {e:?}"))?;
-
-        Ok(Self { ldl, n })
+        Ok(Self { n, s, sk, inv_diag, star0: star0.to_vec() })
     }
 
-    /// Solve -(Delta + K) phi = rhs.
-    fn solve(&self, rhs: &DVector<f64>) -> DVector<f64> {
-        let n = self.n;
-        let mean = rhs.sum() / n as f64;
-        let mut b: Vec<f64> = rhs.iter().map(|&v| v - mean).collect();
-        b[0] = 0.0; // pin vertex 0
+    /// Apply `A x = S x - diag(sk) x`.
+    fn apply_a(&self, x: &[f64]) -> Vec<f64> {
+        let mut y = vec![0.0f64; self.n];
+        for (&v, (r, c)) in self.s.iter() {
+            y[r] += v * x[c];
+        }
+        for i in 0..self.n {
+            y[i] -= self.sk[i] * x[i];
+        }
+        y
+    }
 
-        let x: Vec<f64> = self.ldl.solve(&b);
-        let mean_x = x.iter().sum::<f64>() / n as f64;
-        DVector::from_vec(x.iter().map(|&v| v - mean_x).collect())
+    /// Solve `-(Delta + K) phi = rhs`, i.e. `A phi = M rhs`, by kernel-projected CG.
+    fn solve(&self, rhs: &DVector<f64>) -> DVector<f64> {
+        // b = M rhs, projected onto the zero-mean subspace.
+        let mut b: Vec<f64> = (0..self.n).map(|i| self.star0[i] * rhs[i]).collect();
+        let mean = b.iter().sum::<f64>() / self.n as f64;
+        for v in b.iter_mut() {
+            *v -= mean;
+        }
+        let mut x = pcg_solve(|p| self.apply_a(p), &self.inv_diag, &b, self.n, true);
+        let mean_x = x.iter().sum::<f64>() / self.n as f64;
+        for v in x.iter_mut() {
+            *v -= mean_x;
+        }
+        DVector::from_vec(x)
     }
 }
 
