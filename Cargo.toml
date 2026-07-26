@@ -25,11 +25,11 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
-cartan-core      = "0.6.1"
-cartan-manifolds = "0.6"
-cartan-geo       = "0.6"
-cartan-dec       = "0.6"
-cartan-remesh    = "0.6"
+cartan-core      = "0.8.1"
+cartan-manifolds = "0.8"
+cartan-geo       = "0.8"
+cartan-dec       = "0.8"
+cartan-remesh    = "0.8"
 
 nalgebra         = { version = "0.35", features = ["std"] }
 rayon            = "1"
