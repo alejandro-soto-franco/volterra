@@ -10,8 +10,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-cartan-core      = { workspace = true }
-nalgebra         = { workspace = true }
 thiserror        = { workspace = true }
 serde            = { workspace = true }
 rand             = { workspace = true }
