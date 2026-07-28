@@ -18,6 +18,7 @@
 //! | [`connection_laplacian`] | Covariant Laplacian for spin-2 fields |
 //! | [`molecular_field_dec`] | Landau-de Gennes molecular field on DEC meshes |
 //! | [`bending`] | Discrete Helfrich energy and its exact vertex gradient |
+//! | [`flow`] | Semi-implicit time stepping for overdamped Helfrich flow |
 //! | [`helfrich`] | Superseded shape-equation forces; see [`bending`] |
 //! | [`variational`] | BAOAB splitting integrator for membrane dynamics |
 //! | [`mesh_gen`] | Icosphere, torus, and epitrochoid mesh generators |
@@ -28,6 +29,7 @@
 
 pub mod bending;
 pub mod boundary_conditions;
+pub mod flow;
 pub mod connection_laplacian;
 pub mod curved_stokes;
 pub mod mesh_gen;
