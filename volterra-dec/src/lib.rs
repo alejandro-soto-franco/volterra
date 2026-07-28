@@ -17,7 +17,8 @@
 //! | [`semi_lagrangian`] | `SemiLagrangian`: BVH-accelerated advection with RK4 + deformation gradient |
 //! | [`connection_laplacian`] | Covariant Laplacian for spin-2 fields |
 //! | [`molecular_field_dec`] | Landau-de Gennes molecular field on DEC meshes |
-//! | [`helfrich`] | Helfrich bending energy and forces |
+//! | [`bending`] | Discrete Helfrich energy and its exact vertex gradient |
+//! | [`helfrich`] | Superseded shape-equation forces; see [`bending`] |
 //! | [`variational`] | BAOAB splitting integrator for membrane dynamics |
 //! | [`mesh_gen`] | Icosphere, torus, and epitrochoid mesh generators |
 //! | [`poisson`] | Precomputed LDL^T Poisson solver |
@@ -25,6 +26,7 @@
 //! | [`curvature_correction`] | Curvature corrections for DEC operators |
 //! | [`snapshot`] | `.npy` field snapshot export |
 
+pub mod bending;
 pub mod boundary_conditions;
 pub mod connection_laplacian;
 pub mod curved_stokes;
