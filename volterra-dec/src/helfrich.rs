@@ -1,5 +1,30 @@
 //! Helfrich bending energy and forces on triangle meshes.
 //!
+//! # Superseded by [`crate::bending`]
+//!
+//! [`helfrich_forces`] evaluates the continuum shape equation with discrete
+//! curvature estimates. It applies the DEC Laplacian to a reconstructed
+//! pointwise `H`, whose per-vertex error is `O(h)` and non-smooth, so the
+//! `h^-2` amplification of the Laplacian makes the force on an exact unit
+//! sphere, where the analytic answer is zero, DIVERGE under refinement
+//! (rms 1.2 -> 20.4, max 1.8 -> 559 over icosphere levels 1..5). Three further
+//! defects sit on top of that:
+//!
+//! - `domain.laplacian_mean_curvatures` comes from `apply_laplace_beltrami`,
+//!   which is the POSITIVE operator `-Delta` (see `.wolf/buglog.json`), so the
+//!   `lap_h` term enters with the wrong sign.
+//! - The prefactor should be `kappa/2` rather than `kappa` for
+//!   `E = (kappa/2) integral (H - H0)^2 dA`.
+//! - The `H0` variation is incomplete: `2(H - H0)(H^2 - K)` should carry the
+//!   spontaneous-curvature coupling `2(H - H0)(H^2 + H0 H - K)`.
+//!
+//! Use [`crate::bending::bending_energy`] and
+//! [`crate::bending::bending_gradient`] instead. They return the exact gradient
+//! of a discrete energy, so a discrete equilibrium is a true critical point at
+//! every resolution and descent dissipates the energy by construction. Note the
+//! sign convention differs: `crate::bending` reports `H = +1/R` on an
+//! outward-oriented sphere, while `recompute_curvatures` reports `H = -1/R`.
+//!
 //! The Helfrich energy is:
 //!
 //!   E = integral( kb/2 * (H - H0)^2 + kg * K ) dA
