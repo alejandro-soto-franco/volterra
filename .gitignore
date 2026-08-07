@@ -2,17 +2,13 @@
 Cargo.lock
 .worktrees/
 .venv/
-.wolf/
 docs/
-docs/superpowers/
 output/
 literature/
 examples/
 tools/viz/
 
 # AI tooling
-.wolf/
-docs/superpowers/
 
 # Python caches
 __pycache__/
@@ -27,7 +23,6 @@ __pycache__/
 volterra-braid/oracle/concurrence/flow_solver_run.py
 theta_ic_*.txt
 als_*_ncl_*/
-.superpowers/
 
 # maturin / packaging build output
 dist/
