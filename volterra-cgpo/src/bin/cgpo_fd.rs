@@ -14,6 +14,8 @@
 //! | `CGPO_OUT`        | ./output/cgpo                                | Root output directory              |
 //! | `CGPO_SEED`       | 0                                            | RNG seed (u64) for IC              |
 //! | `CGPO_THETA_IC`   | (unset)                                      | Path to flat theta grid (optional) |
+//! | `CGPO_BOUNDARY`   | nephroid                                     | `nephroid` or `circular`           |
+//! | `CGPO_NET_CHARGE` | 1.0                                          | Boundary winding charge q          |
 
 use std::fs;
 use std::path::Path;
@@ -24,7 +26,7 @@ use rand::{RngExt, SeedableRng};
 use serde_json::json;
 
 use volterra_cgpo::{
-    boundary::nephroid_boundary,
+    boundary::{circular_boundary, nephroid_boundary},
     index::{si, vi},
     output::write_state_frame,
     sim_step::CgpoStep,
@@ -194,6 +196,8 @@ fn main() -> CgpoResult<()> {
     let out_root = env_string("CGPO_OUT").unwrap_or_else(|| "./output/cgpo".to_string());
     let seed = env_u64("CGPO_SEED", 0);
     let theta_ic_path = env_string("CGPO_THETA_IC");
+    let boundary_kind = std::env::var("CGPO_BOUNDARY").unwrap_or_else(|_| "nephroid".to_string());
+    let net_charge = env_f64("CGPO_NET_CHARGE", 1.0);
 
     // --- derived ---
     let ly = lx; // square grid
@@ -202,18 +206,27 @@ fn main() -> CgpoResult<()> {
     println!("cgpo_fd: lx={lx} als={als} ncl={ncl} lambda={lambda} dt={dt} max_p_iters={max_p_iters}");
     println!("  max_steps={max_steps} save_every={save_every}");
     println!("  out_root={out_root}  seed={seed}");
+    println!("  boundary={boundary_kind} net_charge={net_charge}");
 
     // --- build params ---
-    let params = Params::new(lx, als, ncl, lambda, dt, max_p_iters);
+    let params = Params::new(lx, als, ncl, lambda, dt, max_p_iters).with_net_charge(net_charge);
     println!(
         "  k_elastic={:.4e} zeta={:.4e} c_landau={:.4e} s0={:.6} eta={:.4e}",
         params.k_elastic, params.zeta, params.c_landau, params.s0, params.eta
     );
 
     // --- build boundary ---
-    println!("Building nephroid boundary (lx={lx})...");
+    println!("Building {boundary_kind} boundary (lx={lx})...");
     let t_bnd = Instant::now();
-    let boundary = nephroid_boundary(lx, ly);
+    let boundary = match boundary_kind.as_str() {
+        "circular" => circular_boundary(lx, ly),
+        "nephroid" => nephroid_boundary(lx, ly),
+        other => {
+            return Err(CgpoError::Config(format!(
+                "unknown CGPO_BOUNDARY={other}, expected 'circular' or 'nephroid'"
+            )));
+        }
+    };
     let n_interior = boundary.interior_count();
     println!("  boundary built in {:.2}s -- {n_interior} interior cells", t_bnd.elapsed().as_secs_f64());
 

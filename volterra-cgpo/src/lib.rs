@@ -8,7 +8,7 @@
 //! boundary construction, the physics kernels, and a hardened run harness.
 
 pub mod boundary;
-pub use boundary::{nephroid_boundary, Boundary};
+pub use boundary::{circular_boundary, nephroid_boundary, Boundary};
 
 pub mod index;
 
@@ -70,6 +70,11 @@ pub struct Params {
 
     // Maximum pressure-Poisson iterations per step (negative = uncapped, code-truth default)
     pub max_p_iters: i64,
+
+    // Total topological charge q the boundary condition imposes on the
+    // interior (Python: net_charge in apply_Q_boundary_conditions).
+    // Defaults to 1.0, matching the crate's original hardcoded value.
+    pub net_charge: f64,
 }
 
 impl Params {
@@ -108,9 +113,13 @@ impl Params {
         let zeta = k_elastic / als.powi(2);
         let c_landau = k_elastic / ncl.powi(2);
         let a_landau = -c_landau;
-        // code-truth: S₀ = √(−A/C) (flow-solver.py / fsn.py). Since A=−C this is 1.
-        // (Sets only the IC amplitude; the field relaxes to the A,C equilibrium.)
-        let s0 = (-a_landau / c_landau).sqrt();
+        // flow-solver.py:1481: `S0 = np.sqrt(-2 * A / C)`. Since A=−C this is
+        // sqrt(2), matching the paper's stated S0 (Klein et al., arXiv:2503.10880,
+        // p. 1). A previous version of this formula omitted the factor of 2
+        // (giving S0=1 instead of sqrt(2)); the bit-for-bit concurrence tests in
+        // tests/step.rs never exercised this path, since they set s0 directly
+        // from a hardcoded SQRT_2 constant rather than through Params::new.
+        let s0 = (-2.0 * a_landau / c_landau).sqrt();
         let ly = lx; // square grid assumed (can override via field)
 
         Params {
@@ -128,6 +137,15 @@ impl Params {
             s0,
             lambda,
             max_p_iters,
+            net_charge: 1.0,
         }
+    }
+
+    /// Override the boundary's total topological charge `q`. Defaults to
+    /// `1.0` (the crate's original hardcoded value, corresponding to the
+    /// nephroid production run's `net_charge = 2/2`).
+    pub fn with_net_charge(mut self, net_charge: f64) -> Self {
+        self.net_charge = net_charge;
+        self
     }
 }

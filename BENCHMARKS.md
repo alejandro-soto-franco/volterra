@@ -8,46 +8,174 @@ Running document tracking performance comparisons between volterra and competing
 
 ---
 
-## 1. Passive LdG Relaxation (3D Periodic)
+## 1. Passive LdG Relaxation (3D Periodic) Against open-Qmin
 
-**Physics:** Landau-de Gennes free energy minimisation on a 3D periodic cubic lattice. Zero activity (zeta = 0), no flow. Random initial Q-tensor, evolving toward equilibrium.
+**Revision (2026-08-14).** The row below previously compared rayon-threaded
+volterra using Euler stepping against single-threaded CPU open-Qmin using the
+FIRE minimiser, at a fixed 200-iteration cut-off, and reported volterra ahead
+1.9x. That protocol matched neither the physics (FIRE and Euler converge in
+different iteration counts, so a fixed cut-off does not compare equilibration
+speed) nor open-Qmin's own headline configuration (MPI plus CUDA, not
+single-threaded CPU). This section replaces it with a protocol matched to the
+physics: wall-clock time to reach a fixed target residual force, from the same
+kind of initial condition, on both codes' best available configuration on this
+machine.
 
-**Codes tested:**
-- **volterra** v0.2.0 (Rust, rayon auto-threading, Euler integrator with fused parallel molecular field)
-- **open-Qmin** v0.11 (C++, single-threaded CPU, FIRE minimiser)
-- **Ludwig** latest main (C, MPI + OpenMP, lattice Boltzmann D3Q19)
+**Machine for this section:** Fedora 44, AMD Ryzen 9 8940HX (16 cores, 32
+threads), NVIDIA RTX 5060 Laptop GPU (8 GiB, compute capability 12.0, driver
+610.57.04), CUDA Toolkit 13.3, Open MPI 5.0.9. Differs from the machine line at
+the top of this document (Fedora 43, AMD Renoir), which describes an earlier
+state of this workstation; the CPU and OS have since changed.
 
-**Protocol:** 200 time steps (volterra, Ludwig) or 200 FIRE iterations (open-Qmin). All codes start from a random Q-tensor perturbation on a periodic NxNxN grid. Throughput measured as microseconds per lattice site per step.
+**Physics:** Landau-de Gennes free energy relaxation on a 3D periodic cubic
+lattice, N=100 (1,000,000 sites), one-constant elastic approximation, zero
+activity, no flow. Both codes start from a random Q-tensor perturbation; the
+two initial conditions are not bit-identical (different RNGs, and each code
+uses its own default bulk LdG coefficients rather than a matched parameter
+set), so this is a comparison of each code's own default passive-relaxation
+problem at this grid size, not a bit-for-bit shared initial state.
 
-### Results
+**open-Qmin build:** built from source at the `master` branch (`a9b5a14`)
+against CUDA Toolkit 13.3, `-DCMAKE_CUDA_ARCHITECTURES=120a
+-DCMAKE_CUDA_HOST_COMPILER=g++-15`, native compilation for this GPU's compute
+capability (12.0), not a compatibility-mode build. Getting this build working
+needed three local source patches, since upstream master does not compile
+against CUDA 13.3 on this hardware unmodified:
 
-| Code | N | Sites | Threads | Wall (s) | us/site/step |
-|------|---|-------|---------|----------|-------------|
-| volterra | 50 | 125K | rayon | 0.479 | 0.019 |
-| open-Qmin | 50 | 125K | 1 | 2.443 | 0.098 |
-| Ludwig | 50 | 125K | 1 | 43.58 | 1.743 |
-| Ludwig | 50 | 125K | 32 | 28.45 | 1.138 |
-| volterra | 100 | 1M | rayon | 5.750 | 0.029 |
-| open-Qmin | 100 | 1M | 1 | 10.890 | 0.054 |
-| Ludwig | 100 | 1M | 1 | 319.31 | 1.597 |
-| Ludwig | 100 | 1M | 32 | 67.14 | 0.336 |
+1. `CMakeLists.txt` hardcoded `CMAKE_CUDA_ARCHITECTURES` to `"50;52;70"` with a
+   plain `set()`, which discards any `-DCMAKE_CUDA_ARCHITECTURES` passed on the
+   command line. Patched to fall back to the hardcoded list only when the
+   caller has not set one.
+2. `inc/std_include.h` includes `nvToolsExt.h` unqualified; CUDA 12 moved that
+   header under an `nvtx3/` subdirectory, so the build fails with `fatal
+   error: nvToolsExt.h: No such file or directory` against any CUDA 12+
+   toolkit. Patched `CMakeLists.txt` to add that subdirectory to the include
+   path.
+3. `inc/initializationFunctions.h` reads `cudaDeviceProp::memoryClockRate`,
+   absent from the `cudaDeviceProp` struct CUDA Toolkit 13.3 ships, causing
+   `error: 'struct cudaDeviceProp' has no member named 'memoryClockRate'`.
+   Patched to query the same value via
+   `cudaDeviceGetAttribute(cudaDevAttrMemoryClockRate, ...)`.
 
-### Summary at N=100 (1M sites)
+Each is a minimal, independent fix, kept on its own branch with a staged pull
+request (not yet submitted; see the accompanying report). None changes
+open-Qmin's physics or numerics. The resulting binary reports the correct GPU
+name, clock rate and residual force at runtime, and MPI multi-rank runs
+communicate correctly (verified below).
 
-| Code | Wall-clock | vs volterra |
-|------|-----------|-------------|
-| volterra (rayon) | 5.8s | baseline |
-| open-Qmin (1 thread) | 10.9s | 1.9x slower |
-| Ludwig (32 threads) | 67.1s | 11.7x slower |
-| Ludwig (1 thread) | 319.3s | 55x slower |
+**MPI domain decomposition.** open-Qmin's `-l`/`--Lx`/`--Ly`/`--Lz` flags set
+the PER-RANK lattice size, not the global size (its own `README.md`, "moving
+to two processors... will run a simulation domain of total size (200x100x100)
+lattice sites"). A fixed global N=100 problem run on P ranks therefore needs
+each rank's box scaled down accordingly. This machine has 16 physical cores
+(32 SMT threads); Open MPI's default slot count is the physical core count, so
+16 ranks is the largest run reachable without `--oversubscribe`. Reported
+below: 1 rank (`-l 100`), 8 ranks (`-l 50`, topology 2x2x2), and 16 ranks
+(`--Lx 25 --Ly 50 --Lz 50`, topology 4x2x2); all three decompose the same
+100x100x100 global problem.
 
-### Notes
+**volterra:** rayon auto-threading, explicit Euler integrator (`dt=0.005`),
+via `volterra-solver/examples/bench_convergence.rs`, which was already in the
+repository and written for exactly this comparison. volterra has no
+FIRE-equivalent minimiser (Section 6 below); Euler is its only relevant
+integrator for this problem.
 
-- **volterra vs open-Qmin** is an apples-to-apples comparison: both compute the FD molecular field (Laplacian stencil + bulk LdG terms) per step. volterra's advantage comes from: (1) fused Laplacian + bulk computation (one pass, no intermediate allocation), (2) rayon parallel iteration across vertices.
+### Time to reach a target residual force at N=100 (1M sites)
 
-- **Ludwig comparison is not apples-to-apples.** Ludwig runs the full D3Q19 lattice Boltzmann fluid solver at every step (collision + streaming + gradient computation + free energy update), even in passive mode. It cannot disable the fluid. The 12-55x gap reflects this extra work. For active nematics with flow, Ludwig's LBM makes the Stokes solve essentially free (embedded in LBM collision), whereas volterra needs a separate Stokes solve per step. The active-with-flow comparison would narrow this gap.
+Residual is open-Qmin's own reported `max_force` (FIRE) and volterra's
+max\|dQ/dt\| (the molecular field norm at zero flow, the direct Euler
+analogue). Times below are open-Qmin's reported minimisation time (excludes
+process startup and MPI initialisation, typically 1-4s further wall-clock not
+counted here); volterra's time is wall-clock for the reported step count.
 
-- **open-Qmin uses FIRE (energy minimiser)** while volterra uses Euler time stepping. FIRE typically converges in fewer iterations than Euler for equilibrium problems, so the total-time-to-equilibrium comparison may favour open-Qmin more than the per-step throughput suggests. A convergence-matched comparison (time to reach a target residual force) is a future benchmark.
+| Code | Configuration | Target residual | Steps | Time (s) | Reached? |
+|------|---------------|-----------------|-------|----------|----------|
+| open-Qmin | CPU, 1 rank | 1e-3 | 54 | 2.929 | yes |
+| open-Qmin | CPU, 8 ranks (MPI) | 1e-3 | 54 | 1.657 | yes |
+| open-Qmin | CPU, 16 ranks (MPI) | 1e-3 | 54 | 1.096 | yes |
+| open-Qmin | GPU, 1x RTX 5060 | 1e-3 | 55 | 0.199 | yes |
+| open-Qmin | CPU, 1 rank | 1e-4 | 69 | 3.276 | yes |
+| open-Qmin | CPU, 8 ranks (MPI) | 1e-4 | 66 | 2.071 | yes |
+| open-Qmin | CPU, 16 ranks (MPI) | 1e-4 | 67 | 1.374 | yes |
+| open-Qmin | GPU, 1x RTX 5060 | 1e-4 | 65 | 0.237 | yes |
+| volterra | CPU, rayon (Euler) | 1e-3 | 20,000 (cap) | 559.858 | **no**, plateaus at 2.98e-3 |
+
+**volterra does not reach either target.** At `dt=0.005`, 20,000 Euler steps
+(the run cap in `bench_convergence.rs`) leave max\|dQ/dt\| at 2.98e-3, above
+even the looser 1e-3 target, so the 1e-4 row is not meaningful to report
+separately: it is never reached either. This is consistent with the existing
+finding in Section 6 of this document (the N=50 case): the residual settles at
+a nonzero floor set by the finite-difference Laplacian's discretisation error
+at equilibrium, not by insufficient step count, so more Euler steps at this
+`dt` and grid spacing would not close the gap.
+
+**Reading this table plainly: open-Qmin wins this comparison outright, on
+every configuration tested, including its slowest (single CPU rank).** Its
+worst time (2.929s, 1 CPU rank, target 1e-3) is 191x faster than volterra's
+best effort, which still fails to reach the target after 559.858s. Adding MPI
+ranks and the GPU widen this further, down to 0.199s on the GPU: 2,813x faster
+than volterra's non-converging run. FIRE is built for exactly this task
+(walking downhill to a force minimum); volterra's own documentation
+(Section 6) already states that Euler is built for time-dependent dynamics
+instead. On "which code reaches equilibrium faster," open-Qmin wins by a wide
+margin.
+
+### Per-step throughput: a different comparison from time-to-equilibrium
+
+This table answers a different question: given a fixed number of steps, which
+code does more work per second. It does not by itself say anything about which
+reaches equilibrium sooner, since FIRE and Euler take different numbers of
+steps to get there (previous table). Reported for volterra as an average over
+a single uninterrupted 20,000-step `beris_edwards_rhs_3d_par_dry` +
+`euler_step_par` run at N=100 (the same run used above, prior to reaching its
+residual floor); for open-Qmin as time-per-step average over each FIRE run to
+target 1e-3 above.
+
+| Code | Configuration | us/site/step |
+|------|---------------|--------------|
+| volterra | CPU, rayon (Euler, fused RHS+step) | 0.028 |
+| open-Qmin | CPU, 1 rank (FIRE) | 0.054 |
+| open-Qmin | CPU, 16 ranks (FIRE) | 0.0203 |
+| open-Qmin | GPU, 1x RTX 5060 (FIRE) | 0.0036 |
+
+volterra's fused single-rank rayon kernel is faster per step than open-Qmin's
+single-CPU-rank FIRE step (0.028 vs 0.054 us/site/step), roughly the 1.9x
+margin the original (mislabelled) row reported, but this is throughput, not
+speed to equilibrium, and open-Qmin closes and reverses the gap once it uses
+more than one CPU rank or the GPU. A separate, higher-level volterra runner
+(`volterra-solver/examples/bench_passive_3d.rs`, calling
+`run_dry_active_nematic_3d` rather than the fused low-level pair used above)
+measured 0.37-0.62 us/site/step at the same grid sizes in a fresh run today,
+13-20x slower than the fused path; the two APIs are not interchangeable for a
+throughput claim, and this document previously did not distinguish them.
+
+### Caveats
+
+- **Not a matched parameter set.** open-Qmin's default bulk phase constants
+  (`a,b,c`) and volterra's default `a_landau,c_landau` are each code's own
+  convention, not derived from a common physical system; a parameter-matched
+  run is future work.
+- **GPU vs CPU-only.** volterra has no GPU path (Section 9 below), so every
+  open-Qmin GPU row is open-Qmin unopposed; volterra cannot be run on this
+  axis at all, which is itself a gap and is reported as one rather than
+  omitted.
+- **GPU state checked before every timing run** with `nvidia-smi
+  --query-compute-apps=pid,used_memory --format=csv`, confirming no other
+  process held the device; a prior timing pass on this machine was invalidated
+  by exactly that.
+- **open-Qmin's reported minimisation time excludes process/MPI startup**
+  (roughly 1-4s further wall-clock, dominated by CUDA context creation on the
+  GPU row); volterra's reported time is total wall-clock including its process
+  startup, which is negligible for a single-process rayon run. This makes the
+  open-Qmin numbers in the first table slight underestimates of a real
+  end-to-end run and the gap to volterra correspondingly slightly narrower
+  than shown, not wider.
+- **This is not this document's only open-Qmin CPU-vs-GPU measurement.**
+  Section 8 below records an earlier comparison built from a container-based,
+  compute_89-compatibility-mode open-Qmin binary. That binary no longer
+  reflects the native `sm_120a` build used here and should be read as
+  superseded by this section for anything concerning open-Qmin's native
+  performance on this GPU.
 
 ---
 

@@ -161,7 +161,7 @@ fn q_bc_sets_winding_tangent_director() {
     let s0 = 0.75_f64; // arbitrary s0; formula must hold for any positive s0
     let mut q = vec![999.0_f64; lx * ly * 2];
 
-    apply_q_boundary_conditions(&mut q, &bnd, s0);
+    apply_q_boundary_conditions(&mut q, &bnd, s0, 1.0);
 
     // Collect cells actually touched (nonzero normal in either layer).
     // bc.rs iterates layer 0 then layer 1; for cells in both, layer 1 wins.

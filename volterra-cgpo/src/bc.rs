@@ -238,12 +238,15 @@ pub fn apply_p_boundary_conditions(
 /// The resulting Q is for the **tangent** director `n = (nny, -nnx)`, i.e. the
 /// outward normal rotated 90°.
 ///
-/// `s0` is the preferred scalar order parameter.
-pub fn apply_q_boundary_conditions(q: &mut [f64], bnd: &Boundary, s0: f64) {
+/// `s0` is the preferred scalar order parameter. `net_charge` is the total
+/// topological charge `q` the boundary condition imposes on the interior
+/// (Python: `net_charge`, "change for artificial winding index",
+/// flow-solver.py `apply_Q_boundary_conditions`; hardcoded to `2/2 = 1` in
+/// the checked-out nephroid production run). Passing `1.0` reproduces the
+/// crate's original hardcoded behaviour.
+pub fn apply_q_boundary_conditions(q: &mut [f64], bnd: &Boundary, s0: f64, net_charge: f64) {
     let lx = bnd.lx;
     let ly = bnd.ly;
-    // net_charge = 2/2 = 1 (Python integer division of two int literals evaluates to 1)
-    let net_charge = 1.0_f64;
 
     for layer in 0..2_usize {
         for x in 0..lx {

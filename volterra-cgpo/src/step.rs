@@ -258,7 +258,7 @@ pub fn update_step_inner(
     }
 
     // 9. Apply Q boundary conditions (Dirichlet anchoring)
-    apply_q_boundary_conditions(&mut state.q, bnd, params.s0);
+    apply_q_boundary_conditions(&mut state.q, bnd, params.s0, params.net_charge);
 
     // 10. Apply u boundary conditions (no-slip)
     apply_u_boundary_conditions(&mut state.u, bnd);

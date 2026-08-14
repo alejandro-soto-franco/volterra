@@ -149,7 +149,7 @@ fn debug_substeps() {
     let mut u_new = u.clone();
     for i in 0..N2 { q_new[i] += DT * dq[i]; }
     for i in 0..N2 { u_new[i] += DT * dudt[i]; }
-    volterra_cgpo::bc::apply_q_boundary_conditions(&mut q_new, &bnd, std::f64::consts::SQRT_2);
+    volterra_cgpo::bc::apply_q_boundary_conditions(&mut q_new, &bnd, std::f64::consts::SQRT_2, 1.0);
     volterra_cgpo::bc::apply_u_boundary_conditions(&mut u_new, &bnd);
 
     let diff_q_final = max_abs_diff(&q_new, &q_final_ref);

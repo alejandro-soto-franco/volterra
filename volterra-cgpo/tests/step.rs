@@ -80,6 +80,7 @@ fn make_params() -> Params {
         s0: S0,
         lambda: LAMBDA,
         max_p_iters: MAX_P_ITERS,
+        net_charge: 1.0,
     }
 }
 

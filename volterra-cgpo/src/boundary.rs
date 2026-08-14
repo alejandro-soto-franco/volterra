@@ -252,3 +252,130 @@ pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
         inner_normals,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Circular ("steady-winding circle") boundary
+// ---------------------------------------------------------------------------
+
+/// Radial unit normal at (x, y) for a disk centred at (radius, radius),
+/// rounded to 4 decimal places to match the Python `round(..., 4)` calls.
+///
+/// Matches `set_boundary`'s `'circular'` branch in flow-solver.py:
+///   boundary[l, x, y, 0] = round((x - radius) / dist, 4)
+///   boundary[l, x, y, 1] = round((y - radius) / dist, 4)
+fn circular_normal(x: usize, y: usize, radius: usize) -> [f64; 2] {
+    let r = radius as f64;
+    let dx = x as f64 - r;
+    let dy = y as f64 - r;
+    let dist = (dx * dx + dy * dy).sqrt();
+    [
+        (dx / dist * 10000.0).round() / 10000.0,
+        (dy / dist * 10000.0).round() / 10000.0,
+    ]
+}
+
+/// Test whether grid cell (x, y) lies inside the disk of the given radius,
+/// centred at (radius, radius).
+///
+/// Matches Python: `(x - radius) ** 2 + (y - radius) ** 2 <= radius ** 2`.
+fn circular_is_inside(x: usize, y: usize, radius: usize) -> bool {
+    let r = radius as f64;
+    let dx = x as f64 - r;
+    let dy = y as f64 - r;
+    dx * dx + dy * dy <= r * r
+}
+
+/// Build the "steady-winding circle" boundary for an `lx x ly` grid: a plain
+/// disk of radius `lx / 2 - 1` (integer division), centred at
+/// `(radius, radius)`.
+///
+/// Faithfully ports the `'circular'` branch of `set_boundary` in
+/// `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`. This is the boundary
+/// used for the paper's circular-confinement results (Klein et al.,
+/// arXiv:2503.10880, Eq. 1 and Figs. 2-4): a smooth disk with a tangential
+/// anchoring direction that winds through angle `2*pi*q` around the
+/// boundary, `q` set separately in [`crate::bc::apply_q_boundary_conditions`]
+/// via its `net_charge` argument.
+pub fn circular_boundary(lx: usize, ly: usize) -> Boundary {
+    let n = lx * ly;
+    let radius = lx / 2 - 1;
+
+    let mut inside = vec![false; n];
+    for x in 0..lx {
+        for y in 0..ly {
+            if circular_is_inside(x, y, radius) {
+                inside[x * ly + y] = true;
+            }
+        }
+    }
+
+    let mut is_outer = vec![false; n];
+    for x in 0..lx {
+        for y in 0..ly {
+            let idx = x * ly + y;
+            if !inside[idx] {
+                continue;
+            }
+            let xi = x as i64;
+            let yi = y as i64;
+            let neighbours = [(xi + 1, yi), (xi - 1, yi), (xi, yi + 1), (xi, yi - 1)];
+            let has_outside_neighbour = neighbours.iter().any(|&(nx, ny)| {
+                if nx < 0 || ny < 0 || nx >= lx as i64 || ny >= ly as i64 {
+                    return true;
+                }
+                !inside[nx as usize * ly + ny as usize]
+            });
+            if has_outside_neighbour {
+                is_outer[idx] = true;
+            }
+        }
+    }
+
+    let mut is_inner = vec![false; n];
+    for x in 0..lx {
+        for y in 0..ly {
+            let idx = x * ly + y;
+            if !inside[idx] || is_outer[idx] {
+                continue;
+            }
+            let xi = x as i64;
+            let yi = y as i64;
+            let neighbours = [(xi + 1, yi), (xi - 1, yi), (xi, yi + 1), (xi, yi - 1)];
+            let has_outer_neighbour = neighbours.iter().any(|&(nx, ny)| {
+                if nx < 0 || ny < 0 || nx >= lx as i64 || ny >= ly as i64 {
+                    return false;
+                }
+                is_outer[nx as usize * ly + ny as usize]
+            });
+            if has_outer_neighbour {
+                is_inner[idx] = true;
+            }
+        }
+    }
+
+    let zero = [0.0_f64; 2];
+    let mut outer_normals = vec![zero; n];
+    let mut inner_normals = vec![zero; n];
+
+    for x in 0..lx {
+        for y in 0..ly {
+            let idx = x * ly + y;
+            if is_outer[idx] {
+                outer_normals[idx] = circular_normal(x, y, radius);
+            }
+            if is_inner[idx] {
+                inner_normals[idx] = circular_normal(x, y, radius);
+            }
+        }
+    }
+
+    Boundary {
+        lx,
+        ly,
+        inside,
+        is_outer,
+        is_inner,
+        outer_normals,
+        inner_normals,
+    }
+}
