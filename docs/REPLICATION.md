@@ -68,6 +68,58 @@ still pass after the fix. `COMPARISON.md`'s throughput numbers are unaffected
 scale, not the per-step cost); its physical configuration should be read
 as having run at the wrong S0 until this fix.
 
+## Velocity boundary condition, checked and ruled out as a cause
+
+`volterra-cgpo/src/step.rs:258` labels its call to `apply_u_boundary_conditions`
+"no-slip". `flow-solver.py`'s own markdown (lines 533-547) derives a Lions
+slip condition (zero normal velocity, zero tangential shear at the wall) and
+contrasts it explicitly with true no-slip, which raised the possibility that
+the comment was stale and the port applies the wrong physics at the wall.
+Checked directly against `flow-solver.py:556-567`, `apply_u_boundary_conditions`:
+the function computes the Lions-slip value on one line
+(`u[x, y] = np.array([ny, -nx]) * (...) / (...)`) and then, on the very next
+line, unconditionally overwrites it: `u[x, y, :] = 0`. The Lions-slip
+derivation in the markdown is never wired into the code that runs: every
+call leaves `u=0` at the boundary regardless of the Lions computation. This
+is dead code in the reference script itself, the same shape as the seed
+defect below.
+
+`volterra-cgpo/src/bc.rs:96-98`'s own doc comment already states this
+precisely ("Python code... first computes a Lions slip BC, then immediately
+overwrites with `u[x,y,:] = 0`. The net effect is: set u=0..."), and the Rust
+implementation skips the discarded Lions computation and sets `u=0` directly.
+**The comment at `step.rs:258` is accurate, not stale, and the boundary
+condition is not the cause of the golden/silver mismatch.** `volterra-cgpo`
+matches `flow-solver.py`'s executed behaviour (plain no-slip) rather than its
+markdown derivation (Lions slip); the two happen to coincide here because the
+reference script never executes the derivation it documents.
+
+## The reference script's initial condition is not reproducible from a seed
+
+`flow-solver.py:1494` draws its per-run `seed` from the unseeded global
+`np.random.rand()`, then seeds a generator with it (`:1524`). That seeded
+generator is used exactly once, to set a single scalar broadcast to every
+site (`theta_initial = pi * rng.random() * np.ones((Lx, Ly))`, `:1539`), and
+the very next line discards it: `theta_initial = 1.0 * pi *
+np.random.random((Lx, Ly))` (`:1541`) draws the actual per-site field from
+the unseeded global generator. Neither the initial condition nor, therefore,
+any specific trajectory the reference script produces is reproducible from
+its own seed, including by the paper's own authors. This work's runs used a
+fixed `CGPO_SEED` for internal reproducibility (so the dense re-sampling
+re-run below is guaranteed to replay the same trajectory as the coarse run),
+but this cannot be understood as reproducing "the" trajectory behind any
+published figure: no such fixed trajectory is recoverable from the reference
+code. What is reproducible, in the reference code and in this work, is the
+statistical or topological outcome (a braid word, an entropy), never a
+specific realisation.
+
+A related, separate point: `flow-solver.py`'s own default run configuration
+(`bc_label = 'epitrochoid'`, `:1533`; `Lx = Ly = 200`, `:1431-1432`) is the
+epitrochoid confinement at 200x200, not the steady-winding circle at 100x100
+the golden and silver results use. The script as checked out is not itself
+configured for the paper's headline runs; its defaults should not be read as
+those parameters.
+
 ## The boundary this paper's headline results actually use
 
 The paper's golden and silver results (Figs. 2-4, p. 5-8) use a "steady-
@@ -141,12 +193,14 @@ full run (including the initial transient); braid extraction used
 `topological_entropy` on the trailing run of frames with a stable defect
 count.
 
-| q | Steps | net_charge | als, ncl | Extracted word | Extracted entropy | Published word | Published entropy | Verdict |
-|---|-------|-----------|----------|-----------------|--------------------|-----------------|--------------------|---------|
-| 1 (control) | 335,000 | 1.0 | 3.99, 0.975 | `{sigma_1^-1}` | 0.000000 | `{sigma_1}` | 0 | **pass**, up to an orientation sign (see below) |
-| 3/2 (golden) | 750,000 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` repeated 16x (64 generators) | 15.398778 | `{sigma_2^-1 sigma_1}` | 0.96242 | **fail** |
-| 4/2 (silver) | 500,000 | 2.0 | 3.99, 0.975 | 39-generator non-repeating sequence (see run log) | 11.804430 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **fail** |
-| 5/2 (aperiodic) | 300,000 (reduced from the paper's 1,000,000 to fit the 30-minute compute budget) | 2.5 | 0.0266, 0.975 | see below | see below | none (no stable word expected) | see below |
+| q | Steps | Frames | net_charge | als, ncl | Extracted word | Extracted entropy | Published word | Published entropy | Verdict |
+|---|-------|--------|-----------|----------|-----------------|--------------------|-----------------|--------------------|---------|
+| 1 (control) | 335,000 | 200 | 1.0 | 3.99, 0.975 | `{sigma_1^-1}` | 0.000000 | `{sigma_1}` | 0 | **pass**, up to an orientation sign (see below) |
+| 3/2 (golden), coarse | 750,000 | 200 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` repeated 16x (64 generators) | 15.398778 | `{sigma_2^-1 sigma_1}` | 0.96242 | **fail** |
+| 3/2 (golden), dense re-run | 750,000 (same trajectory, same seed) | 1000 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` repeated 16x (64 generators) | 15.398778 | `{sigma_2^-1 sigma_1}` | 0.96242 | **fail**, identical to the coarse run |
+| 4/2 (silver), coarse | 500,000 | 200 | 2.0 | 3.99, 0.975 | 39-generator repeating sequence (see run log) | 11.804430 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **fail** |
+| 4/2 (silver), dense re-run | 500,000 (same trajectory, same seed) | 1000 | 2.0 | 3.99, 0.975 | 39-generator repeating sequence (see run log) | 11.804430 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **fail**, identical to the coarse run |
+| 5/2 (aperiodic) | 300,000 (reduced from the paper's 1,000,000 to fit the 30-minute compute budget) | 200 | 2.5 | 0.0266, 0.975 | trivial (16 defects, zero crossings) | 0.000000 | none (no stable word expected) | n/a | see below |
 
 ### q=1 control passes, up to a sign convention
 
@@ -163,7 +217,7 @@ structure to get wrong), so it functions as a sanity check on the new
 circular-boundary and variable-net_charge code rather than as a demonstration
 of the paper's more detailed golden/silver claims.
 
-### golden and silver fail as measured
+### golden and silver fail as measured, and the failure is not a sampling artefact
 
 Both runs hold the correct defect count throughout the trailing window (3 for
 golden, 4 for silver, matching n=2q), so the topology-fixing part of the
@@ -174,24 +228,80 @@ and the golden run's word is a length-4 repeating block against the
 published length-2 block. These are reported as failures, not adjusted
 towards the published values.
 
-The leading candidate explanation, not confirmed within this work's time
-budget, is temporal sampling resolution: 200 frames were spread across each
-run's *entire* duration (including a substantial pre-periodic transient
-visible in the early defect-count columns of the run logs), giving markedly
-fewer samples per orbital period than the paper's own windowed analysis
-(frames 80-139 of a purpose-selected window, per
-`volterra-braid/oracle/compare_cgpo.py`'s citation of the published script's
-convention). A defect pair passing close in x between two sampled frames,
-without an intervening sample to confirm a single clean crossing, can read as
-spurious swap-and-unswap pairs to the sort-based extraction algorithm, which
-would inflate both the generator count and the computed entropy in exactly
-the direction observed. Distinguishing this from a physical
-mismatch (wrong `A_sys` normalisation, an error in the new circular-boundary
-port, or a difference between this crate's finite-difference scheme and
-the published one at this specific operating point) needs a rerun with dense,
-post-transient-only sampling, which was not completed in this work.
+**Tested and ruled out: temporal sampling resolution.** The initial
+candidate explanation was that 200 frames spread across each run's entire
+duration (including a pre-periodic transient) undersamples each orbital
+period relative to the paper's own windowed analysis (frames 80-139 of a
+purpose-selected window), so a defect pair passing close in x between two
+samples could read as a spurious swap-and-unswap pair to the sort-based
+extractor. Two further checks addressed this directly:
 
-### q=5/2 (aperiodic): [fill in after the run completes]
+- **The velocity boundary condition was checked against the reference and
+  ruled out separately** (see above): both `volterra-cgpo` and the reference
+  script's actually-executed code apply plain no-slip, so this is not a
+  source of the mismatch either.
+- **Both runs were repeated at the same total step count with 5x denser
+  saving** (golden: `CGPO_SAVE_EVERY` 3750 to 750, 200 to 1000 frames;
+  silver: 2500 to 500, 200 to 1000 frames), same seed, same `lambda`, `als`,
+  `ncl`, `dt`, boundary, and extraction routine and threshold. **Both dense
+  re-runs reproduce the coarse run's extracted word and entropy exactly**,
+  to six decimal places on the entropy and generator-for-generator on the
+  word. Since the underlying trajectory is deterministic (fixed seed) and
+  finer sampling changed nothing, the coarse run was not missing crossings
+  between samples: there is nothing in the trajectory a denser sample would
+  have caught that the coarse sample did not already catch. **The sampling
+  hypothesis is ruled out.**
+
+The discrepancy is therefore physical or in the new code, not a measurement
+artefact. The remaining candidates, in the order they should be checked
+next:
+
+1. **The `A_sys ~= 88.6` normalisation was assumed to carry over from the
+   q>=5/2 sweep to the golden/silver point**, since the paper does not
+   restate it there; if the true value differs, `als` and `ncl` are wrong
+   for this run, changing the activity and coherence length actually
+   simulated.
+2. **The new `circular_boundary` and variable-`net_charge` code has not
+   been validated against a captured Python reference the way the nephroid
+   path was** in `COMPARISON.md`. The q=1 pass is not sufficient evidence
+   for this: it is the simplest possible case (two defects, one crossing
+   type, no periodic-orbit structure), and a boundary or charge error could
+   easily be invisible there while still corrupting the golden/silver
+   dynamics. The highest-value next check is a field-by-field comparison of
+   `circular_boundary` against `flow-solver.py`'s `'circular'` branch
+   (`flow-solver.py:1205-1222`) on a single step, the same way the nephroid
+   port was validated.
+3. **A scheme difference** between this crate's finite-difference
+   Beris-Edwards implementation and the published one, specific to this
+   operating point, distinct from the general kernel-level concurrence
+   already established for the nephroid configuration in `COMPARISON.md`.
+
+None of these three was completed within this dispatch.
+
+### q=5/2 aperiodic run shows a different failure mode, also reported as measured
+
+Run reduced to 300,000 steps (from the paper's 1,000,000) to fit the
+30-minute compute budget, after the unreduced attempt was measured at
+roughly 270-310 steps/second (far slower than the ~1,500-1,800 steps/second
+of the golden/silver runs, since the much smaller `als=0.0266` drives a
+stiffer, more active system) and killed before completion.
+
+The defect count does not stay near the topologically-required minimum of
+n=2q=5: it climbs during the transient and stabilises at **16** defects for
+essentially the entire post-transient window, not 5. Despite 16 defects
+persisting, the extraction finds **zero crossings** across that whole
+window: the braid word is trivial and the entropy is 0. This is a different
+failure mode from "aperiodic, no stable word" (the paper's own description
+of this regime): a frozen 16-defect configuration is neither the periodic
+few-defect orbit of golden/silver nor the erratic many-swap motion the
+paper describes for q>=5/2. The most likely reading is that `als=0.0266`
+(derived from the paper's stated dimensionless active length 0.0003 under
+the same `A_sys` assumption used for golden and silver, itself unconfirmed)
+drives activity far past the regime the paper examines, nucleating many more
+defect pairs than the boundary requires and jamming them in place, rather
+than reproducing the paper's own aperiodic-but-still-five-to-ten-defect
+dynamics. This is reported as the measured outcome, not adjusted towards the
+paper's qualitative description.
 
 ## What this means for the subsumption claim
 
@@ -217,15 +327,21 @@ runs above:
 
 ## Reproduce
 
+The dense re-run (the one reported above as the definitive golden/silver
+result):
+
 ```bash
 cd volterra
 cargo build --release -p volterra-cgpo --bin cgpo_fd
 CGPO_LX=100 CGPO_BOUNDARY=circular CGPO_NET_CHARGE=1.5 CGPO_ALS=3.99 \
   CGPO_NCL=0.975 CGPO_LAMBDA=1.0 CGPO_MAX_P_ITERS=50 CGPO_MAX_STEPS=750000 \
-  CGPO_SAVE_EVERY=3750 CGPO_OUT=/tmp/cgpo-golden CGPO_SEED=0 \
+  CGPO_SAVE_EVERY=750 CGPO_OUT=/tmp/cgpo-golden-dense CGPO_SEED=0 \
   ./target/release/cgpo_fd
-python3 planning-scripts/extract_braid.py /tmp/cgpo-golden/als_3.99_ncl_0.975 100 3
+python3 extract_braid.py /tmp/cgpo-golden-dense/als_3.99_ncl_0.975 100 3
 ```
 
-(`extract_braid.py` lives outside this repository during this dispatch; see
-the accompanying report for its path.)
+Swap `CGPO_NET_CHARGE=2.0`, `CGPO_MAX_STEPS=500000`, `CGPO_SAVE_EVERY=500`
+for silver. `extract_braid.py` lives outside this repository during this
+dispatch; see the accompanying report for its path. See `docs/SUBSUMPTION.md`
+for how this boundary condition and its validation status are recorded in
+the coverage matrix.
