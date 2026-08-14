@@ -39,6 +39,21 @@ enough; both are needed for the "1e-3" target to mean a comparable thing on
 each side. Even with both fixed, a residual scale mismatch remains and is
 reported openly rather than hidden: see **Scale mismatch** in the caveats.
 
+**Revision (2026-08-15, third pass).** The previous revision left the tuned
+preset (43 steps down to 19 at the scale-matched target, from a CPU sweep)
+untested on the device, the fused/SoA force kernels unwired and untimed, and
+several roofline numbers pending a GPU that was not free at the time. All of
+that is now measured: the tuned preset's GPU timing, both fused kernels
+timed back-to-back against the split kernel, and host-to-device upload
+timed directly rather than left out of the accounting. Every number below in
+this pass is a fresh measurement from `volterra-cuda`'s own `roofline`,
+`validate`, `time-tuned` and `kernels` phases, run in that order (nothing is
+timed before its own correctness check has passed), with `nvidia-smi
+--query-compute-apps` confirming the device was free immediately before every
+timing phase. The **After tuning** and roofline sections below carry the new
+numbers; the headline is the tuned preset's scale-matched time, now
+**0.067 s**, against open-Qmin's 0.198 s.
+
 **Machine for this section:** Fedora 44, AMD Ryzen 9 8940HX (16 cores, 32
 threads), NVIDIA RTX 5060 Laptop GPU (8 GiB, compute capability 12.0, driver
 610.57.04), CUDA Toolkit 13.3, Open MPI 5.0.9. Differs from the machine line at
@@ -235,10 +250,19 @@ launches a FIRE iteration makes. Measured this GPU's achieved bandwidth
 directly rather than reading it off a spec sheet
 (`Device::measure_bandwidth`, a pure copy kernel, one read and one write per
 element, 2 GiB, 20 repeated timed launches after an untimed warm-up):
-**336.6 GB/s** (three clean runs: 338.6, 336.9, 334.3 GB/s), and kernel launch
-overhead (`Device::measure_launch_overhead`, 1-element launches, 2000 reps):
-**1.9 us** (two clean runs: 1.46, 2.33 us; a run under `ncu` gave 86.5 us,
-the profiler's own instrumentation overhead, not the device's).
+**323.0 GB/s** in this pass's own run (a prior pass measured 336.6 GB/s over
+three clean runs, 338.6/336.9/334.3; the two are close enough to read as the
+same achieved-bandwidth regime, with the small gap ordinary run-to-run and
+thermal variance rather than a real change), and kernel launch overhead
+(`Device::measure_launch_overhead`, 1-element launches, 2000 reps): **1.45
+us** in this pass (the prior pass's two clean runs: 1.46, 2.33 us; a run
+under `ncu` gave 86.5 us, the profiler's own instrumentation overhead, not
+the device's). Host-to-device upload, measured directly rather than assumed
+(`Device::measure_h2d_upload`, the same `DeviceBuffer::from_host` call
+`fire_minimize`'s first statement makes, N=100's field, 40 MB, 20 reps after
+an untimed warm-up): **3.20 ms** (effective 12.5 GB/s). This sits far below
+the 323.0 GB/s device-DRAM figure above because this transfer crosses PCIe,
+not the on-device memory bus.
 
 Every kernel a FIRE iteration launches, and what it moves (`n` = site count,
 `n5 = 5n`; derived directly from the kernel bodies in `kernels.rs`, not
@@ -255,25 +279,31 @@ estimated):
 | `zero_field` (reset iterations only) | 0 or 1 | `80n` |
 
 Total **1008n bytes/iteration** (1.008 GB at N=100) on a non-reset iteration,
-1088n (1.088 GB) on one that resets. At 336.6 GB/s that is a floor of
-**2.99 ms** (no reset) to **3.23 ms** (reset) per iteration.
+1088n (1.088 GB) on one that resets. At this pass's measured 323.0 GB/s that
+is a floor of **3.120 ms** (no reset) to **3.368 ms** (reset) per iteration.
 
-The measured scale-matched step time (open-Qmin defaults preset, before any
-tuning below) was 0.128 s over 43 steps: **2.98 ms/step**, inside the no-reset
-floor and at the low end of the reset floor. An independent check with
-`nsys` (real per-kernel GPU timing, not a probe kernel) on a short run gives
-the same picture from a different angle: `force`'s own effective throughput
-(bytes moved / measured kernel time) came out at **~668 GB/s, roughly double
-the flat copy-probe number**, only possible if a large fraction of the
-6-neighbour stencil's reads are served from L2 rather than DRAM, which is
-exactly the reuse a shared-memory tiling pass would try to manufacture by
-hand. The stencil's own access pattern is already getting that reuse from the
-cache.
+The tuned preset's measured scale-matched step time (below, **0.067 s over 19
+steps: 3.52 ms/step**) sits about 13% above the no-reset floor, and its
+literal-target step time (0.039 s over 8 steps: 4.93 ms/step) sits further
+above it; the gap is larger on the 8-step run because two fixed one-time
+costs -- the initial force evaluation before the FIRE loop starts, and the
+single final device-to-host readback of the converged field (symmetric with
+the 3.20 ms host-to-device upload measured above) -- are a much bigger
+fraction of an 8-step run's total time than of a 19-step run's. Both numbers
+read as close to the floor, not free of it: a prior pass's `nsys` run on the
+(then-untuned) ported preset found `force`'s own effective throughput at
+**~668 GB/s, roughly double the flat copy-probe number**, only possible if a
+large fraction of the 6-neighbour stencil's reads are served from L2 rather
+than DRAM. This pass corroborates that without `nsys`: `time_split_force`
+(below) times the actual `trq2`+`force` pair with no host round trip, at
+**0.644 ms mean for 408n bytes = 633 GB/s**, essentially the same reading --
+the split kernel already exceeds the flat-copy bandwidth by about 2x, so the
+reuse a shared-memory tiling pass would try to manufacture by hand is already
+happening in cache.
 
-**Conclusion: the kernel is already at the bandwidth floor.** There is little
-headroom on the kernel side, but two changes were cheap enough to write and
-check on CPU that they were done anyway; both are implemented and validated,
-with GPU timing pending the device:
+**Conclusion: the kernel is close to the bandwidth floor, and the fused
+kernel narrows the remaining gap rather than closing it.** Both changes
+proposed in the previous pass are now timed on the device, not left pending:
 
 - **Fusing `trq2` and `force`.** The naive fusion (keep one thread per
   (site, component), have each of the 5 threads independently re-read all 5
@@ -285,33 +315,42 @@ with GPU timing pending the device:
   thread per **site**, reading all 5 neighbour components per direction and
   writing all 5 outputs through `DisjointSlice<[f64; 5]>` (no `unsafe` --
   each thread's 5-wide output is exactly one disjoint-slice element). Moves
-  `320n` against the split design's `408n`, an ~9% cut to the total
-  per-iteration volume (1008n to ~920n, floor 2.99ms to ~2.73ms). Its
-  arithmetic is checked against `beris_edwards_rhs_3d_par_dry` on CPU
+  `320n` against the split design's `408n`, predicting a ~21.6% cut to that
+  pair's traffic. **Measured** (`Device::time_split_force` and
+  `Device::time_fused_aos_force`, N=100, 50 timed launches each with no host
+  round trip between launches, three independent runs): split
+  0.6487/0.6544/0.6302 ms (mean 0.644 ms), fused AoS 0.5695/0.5075/0.5165 ms
+  (mean 0.531 ms) -- **fused is faster by 12.2%, 22.5% and 18.0% across the
+  three runs (mean 17.6%)**, in the same direction as, and roughly consistent
+  with, the traffic-reduction prediction. Its arithmetic was already checked
+  against `beris_edwards_rhs_3d_par_dry` on CPU
   (`volterra-solver/tests/test_force_fused_formula.rs`, agreement `<1e-12`);
-  not yet wired into `Device::fire_minimize` or timed on the GPU.
-- **Tiling the stencil was not attempted**, for the reason the `nsys` number
-  above already answers: the reuse tiling exists to capture is measurably
-  already happening in L2.
+  it stays unwired from `Device::fire_minimize`'s own loop: the timed win at
+  this field size is real but modest, and answering the timing question this
+  pass set out to answer did not need wiring it in.
+- **Tiling the stencil was not attempted**, for the reason the roofline
+  numbers above already answer: the reuse tiling exists to capture is
+  measurably already happening in L2.
 - **Kernel launch overhead stays negligible.** ~7 launches/iteration x
-  19-43 iterations is 130-300 launches; at ~1.9 us each that is 0.25-0.6 ms
-  total, under 1% of a 43-128 ms run, matching the prediction that this
-  would be small enough to leave alone.
+  8-19 iterations (tuned preset) is 56-133 launches; at 1.45 us each that is
+  0.08-0.19 ms total, under 1% of a 39-67 ms run, matching the prediction
+  that this would be small enough to leave alone.
 - **Memory layout: AoS, confirmed from the source** (`QField3D::q: Vec<[f64;
   5]>`, `volterra-fields/src/qfield3d.rs`), one site's 5 components
-  contiguous. A full SoA rewrite of `QField3D` itself (every kernel, every
-  caller) was not attempted -- invasive, and the `nsys` finding above is the
-  "one measurement before you start" this needed: if AoS were costing
-  meaningful coalescing efficiency, `force`'s *effective* bandwidth would sit
-  at or below the flat copy-probe ceiling, not at 2x it. Rather than stop at
-  that inference, `force_fused_soa` (`kernels.rs`) is the same formula over 5
-  separate component planes, reachable via `Device::force_soa` (which does
-  the AoS<->SoA conversion at the boundary, so nothing else in
-  `volterra-cuda` needs to change layout to use it), checked against the same
-  CPU reference and against `force_fused_aos` bitwise
-  (`test_force_fused_formula.rs`, both `<1e-12`/`<1e-14`). Both layouts are
-  now one GPU timing run away from a direct, controlled answer to whether AoS
-  costs anything here, rather than resting on the `nsys` inference alone.
+  contiguous. `force_fused_soa` (`kernels.rs`) is the same fused formula over
+  5 separate component planes, timed the same way
+  (`Device::time_fused_soa_force`, same three runs): 0.6189/0.5827/0.5831 ms
+  (mean 0.595 ms) -- **faster than the split kernel by 4.6%, 11.0% and 7.5%
+  (mean 7.6%), but slower than the fused AoS kernel in every one of the three
+  runs.** This answers the memory-layout question directly rather than by
+  inference: AoS is not costing meaningful coalescing efficiency here, and
+  switching to SoA on top of the fusion gives back part of the fusion's own
+  gain rather than adding to it, consistent with the L2-reuse picture above
+  (SoA's five separately-indexed plane reads do not get to share the same
+  base-index arithmetic AoS's fused kernel shares across a site's five
+  components). `QField3D` itself stays AoS: the measurement above is the
+  answer a full SoA rewrite would have been chasing, and it argues against
+  making it.
 
 ### Accounting for startup as a fairness correction
 
@@ -358,27 +397,29 @@ that follows it) rather than assuming the parity holds:
 
 | Phase | Time |
 |---|---|
-| CUDA context + module load (`Device::new`) | measured below |
-| Validation (N=8, CPU+GPU cross-check, both presets) | measured below |
-| Warm-up run vs timed run, N=100 | measured below |
-| Total process wall-clock (args parse to exit) | measured below |
+| CUDA context + module load (`Device::new`) | 0.20-0.69 s across six runs in this pass (0.6921, 0.2115, 0.2788, 0.2000, 0.2490, 0.2582 s) |
+| Host-to-device upload, N=100 field (40 MB) | 3.20 ms mean, 20 reps (`Device::measure_h2d_upload`) |
+| Validation (N=8 and N=100, CPU+GPU cross-check, both presets, both N=100 targets) | 3.96 s total for all eight checks (`volterra-cuda validate`); every check passed, see **Validation** above |
+| Tuned preset GPU FIRE, literal target, N=100 | 0.0387-0.0401 s across six repeats (two batches of three) |
+| Tuned preset GPU FIRE, scale-matched target, N=100 | 0.0659-0.0687 s across six repeats (two batches of three) |
+| Total process wall-clock, `time-tuned` phase (validation + both targets, args parse to exit) | 4.15-4.31 s across two runs |
 
-The warm-up run is timed separately, not merely excluded, specifically to
-check this: if context/module load or any other one-time cost were leaking
-into the "timed" run, the warm-up (which pays first-touch costs the timed
-run does not) would measurably exceed it. It does not, within noise (delta
-measured at -4.4% and -1.0% to +1.4% across runs, i.e. the two are
-statistically indistinguishable). The timed numbers in the tables above and
-below already exclude context creation, module load, and first-touch
-allocator/JIT effects, on the same basis open-Qmin's own number does.
+Context + module load is noisy (0.20-0.69 s across six runs in this pass,
+matching the 0.14-0.69 s range a prior pass measured) but consistently well
+under a second, and consistently excluded from every timed FIRE run below by
+construction: each phase creates its own `Device` before doing anything
+timed, and every `time-tuned` measurement starts its clock only after that
+call returns. The host-to-device upload (3.20 ms) is the one piece of
+per-run setup that sits *inside* the timed region, exactly
+mirroring open-Qmin's own inclusion of its IC transfer (below); it is small
+against even the 8-step literal-target run (39 ms).
 
 **Fully-inclusive comparison** (both codes' total process wall-clock,
 including everything): open-Qmin's own GPU run, timed end to end with
 `/usr/bin/time`, is **2.72 s** (dominated by MPI_Init and CUDA context
 creation, ~2.5s of which its own reported 0.199s never counts). volterra's
-context + module load alone measured as low as 0.14-0.69s across runs
-(noisier than the bandwidth-bound numbers above; not yet root-caused, see
-caveats) plus one FIRE run (~0.04-0.07s), comfortably under open-Qmin's 2.72s
+context + module load alone measured 0.20-0.69s across runs in this pass plus
+one tuned-preset FIRE run (0.039-0.069s), comfortably under open-Qmin's 2.72s
 even at the high end of that range. The literal- and scale-matched
 margins reported in this section's headline tables already exclude startup
 on both sides, matching each code's own reported number; this
@@ -427,8 +468,25 @@ small, inefficiency `nsys` actually showed rather than a guessed one.
 
 ### After tuning: the number this document stands behind
 
-Both presets (`open_qmin_defaults` and `volterra_tuned`) validated (GPU
-against CPU FIRE, N=8) before either was timed, same tolerance as before.
+Both presets (`open_qmin_defaults` and `volterra_tuned`) validated before
+either was timed: GPU against CPU FIRE at N=8 (full convergence, `1e-9`
+tolerance, agreement `8.3e-17` to `9.7e-17`, well inside it) and, new in this
+pass, at N=100 -- the benchmark size itself -- at both the literal and
+scale-matched targets, for both presets (four checks: matching iteration
+counts, `force_max` agreeing to 15-16 significant figures, `max|Q_cpu -
+Q_gpu|` between `4.5e-17` and `3.3e-16`, all well inside the `1e-6` tolerance
+applied there). All eight checks passed (`volterra-cuda validate`); see
+**Validation** above for the tuned preset's own N=100 numbers. Nothing below
+was timed before this passed.
+
+The tuned preset was then timed three times at each target (`volterra-cuda
+time-tuned`), repeated twice (six measurements per target total) to give the
+spread across independent batches, not just within one:
+
+| Target | Steps | Wall-clock (s), six repeats | Min | Mean | Max |
+|---|---|---|---|---|---|
+| Literal (1e-3) | 8 | 0.0387, 0.0390, 0.0392, 0.0395, 0.0397, 0.0401 | 0.0387 | 0.0394 | 0.0401 |
+| Scale-matched (2.09e-5) | 19 | 0.0659, 0.0664, 0.0666, 0.0669, 0.0671, 0.0687 | 0.0659 | 0.0669 | 0.0687 |
 
 | Code | Configuration | Target | Steps | Time (s) |
 |------|---------------|--------|-------|----------|
@@ -436,10 +494,20 @@ against CPU FIRE, N=8) before either was timed, same tolerance as before.
 | open-Qmin | GPU, 1x RTX 5060 | ~55x reduction | 55 | 0.198 |
 | volterra | GPU, RTX 5060 (FIRE, ported constants) | 1e-3 | 20 | 0.070 |
 | volterra | GPU, RTX 5060 (FIRE, ported constants) | ~55x reduction | 43 | 0.128 |
-| volterra | GPU, RTX 5060 (FIRE, tuned constants) | 1e-3 | 8 | measured below |
-| volterra | GPU, RTX 5060 (FIRE, tuned constants) | ~55x reduction | 19 | measured below |
+| volterra | GPU, RTX 5060 (FIRE, tuned constants) | 1e-3 | 8 | **0.0394 (mean)** |
+| volterra | GPU, RTX 5060 (FIRE, tuned constants) | ~55x reduction | 19 | **0.0669 (mean)** |
 
-measured below
+**The tuned preset wins by a wider margin on both targets, and this is the
+number this document stands behind: 0.067 s against open-Qmin's 0.198 s on
+the scale-matched target, a 2.96x margin** -- up from the ported preset's own
+1.5x (0.128 s) reported earlier in this section, and from a step-count cut
+alone (19 against 43), without touching a kernel. On the literal `1e-3`
+target the margin is wider still, 0.039 s against 0.198 s, 5.0x, though that
+target is the one the **Scale mismatch** caveat below says not to lead with.
+Both figures beat volterra's own ported-preset numbers too (0.070 s and
+0.128 s respectively), by 1.8x and 1.9x: a saved FIRE step is still worth
+more here than anything found on the kernel side, exactly as the CPU sweep
+predicted before any of this was run on the device.
 
 ### Caveats
 
@@ -485,6 +553,24 @@ measured below
   anything concerning open-Qmin's native performance on this GPU; Section 8's
   own per-step-throughput numbers at small N are a different axis from the
   time-to-equilibrium claim here and are left as historical record.
+
+### The scale-matched comparison after this pass's measurements
+
+| Code | Configuration | Reduction from start | Steps | Time (s) |
+|------|---------------|----------------------|-------|----------|
+| open-Qmin | CPU, 1 rank | ~55x (to 1e-3) | 54 | 1.67 |
+| open-Qmin | GPU, 1x RTX 5060 | ~55x (to 1e-3) | 55 | 0.198 |
+| volterra | CPU, rayon (Euler) | ~55x (to 2.09e-5) | 191 | 4.70 |
+| volterra | CPU, rayon (FIRE, ported constants) | ~55x (to 2.09e-5) | 43 | 1.4-1.9 |
+| volterra | GPU, RTX 5060 (FIRE, ported constants) | ~55x (to 2.09e-5) | 43 | 0.128 |
+| volterra | GPU, RTX 5060 (FIRE, tuned constants) | ~55x (to 2.09e-5) | 19 | **0.067 (mean)** |
+
+volterra's GPU FIRE with the tuned preset reaches the scale-matched target in
+0.067 s against open-Qmin's 0.198 s: a **2.96x margin**, up from the ported
+preset's 1.5x. Both codes still walk down the same ~55x relative distance
+from their own starting disorder, so the comparison this table controls for
+holds exactly as it did before tuning; only the step count and the wall-clock
+changed.
 
 ---
 

@@ -415,6 +415,144 @@ impl Device {
         Ok(out)
     }
 
+    /// Mean host-to-device upload time (seconds) for a buffer of `elements`
+    /// `f64`s, via `DeviceBuffer::from_host` -- the same call
+    /// `fire_minimize`'s first statement makes for the initial condition.
+    /// One untimed warm-up (first-touch allocator effects), then `reps`
+    /// timed uploads, each a fresh allocation (`from_host` both allocates
+    /// and copies, matching what a real caller pays).
+    pub fn measure_h2d_upload(&self, elements: usize, reps: usize) -> Result<f64, CudaError> {
+        let stream = &self.stream;
+        let host = vec![1.0_f64; elements];
+        let _warm = DeviceBuffer::from_host(stream, &host)?;
+        stream.synchronize()?;
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            let _buf = DeviceBuffer::from_host(stream, &host)?;
+        }
+        stream.synchronize()?;
+        Ok(t0.elapsed().as_secs_f64() / reps as f64)
+    }
+
+    /// Pure kernel timing for the split `trq2`+`force` pipeline
+    /// `fire_minimize` actually uses: upload `q` once, launch `reps` times
+    /// back-to-back with no host round trip between launches, sync once at
+    /// the end. Comparable, same-conditions basis for
+    /// `time_fused_aos_force`/`time_fused_soa_force` below -- none of the
+    /// three read anything back from the device mid-loop.
+    pub fn time_split_force(&self, q0: &[f64], ldg: &LdgParams, reps: usize) -> Result<f64, CudaError> {
+        let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
+        let stream = &self.stream;
+        let q = DeviceBuffer::from_host(stream, q0)?;
+        let mut trq2 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut out = DeviceBuffer::<f64>::zeroed(stream, n_sites * 5)?;
+        let cfg_sites = LaunchConfig::for_num_elems(n_sites as u32);
+        let cfg_len5 = LaunchConfig::for_num_elems((n_sites * 5) as u32);
+
+        self.compute_force(&q, &mut trq2, &mut out, ldg, cfg_sites, cfg_len5)?;
+        stream.synchronize()?;
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            self.compute_force(&q, &mut trq2, &mut out, ldg, cfg_sites, cfg_len5)?;
+        }
+        stream.synchronize()?;
+        Ok(t0.elapsed().as_secs_f64() / reps as f64)
+    }
+
+    /// Pure kernel timing for `force_fused_aos`, same protocol as
+    /// `time_split_force`: one untimed warm-up launch, `reps` timed launches
+    /// with no host round trip, one final sync.
+    pub fn time_fused_aos_force(&self, q0: &[f64], ldg: &LdgParams, reps: usize) -> Result<f64, CudaError> {
+        let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
+        let stream = &self.stream;
+        let q = DeviceBuffer::from_host(stream, q0)?;
+        let mut out = DeviceBuffer::<[f64; 5]>::zeroed(stream, n_sites)?;
+        let cfg = LaunchConfig::for_num_elems(n_sites as u32);
+        let inv_dx2 = 1.0 / (ldg.dx * ldg.dx);
+
+        // SAFETY: as in `force_fused_aos` above -- `q` has length
+        // `n_sites * 5`, `out` has `n_sites` `[f64; 5]` slots, matching `cfg`.
+        unsafe {
+            self.module.force_fused_aos(
+                stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.c_landau, ldg.k_r,
+                ldg.gamma_r, inv_dx2, &mut out,
+            )?;
+        }
+        stream.synchronize()?;
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            unsafe {
+                self.module.force_fused_aos(
+                    stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.c_landau, ldg.k_r,
+                    ldg.gamma_r, inv_dx2, &mut out,
+                )?;
+            }
+        }
+        stream.synchronize()?;
+        Ok(t0.elapsed().as_secs_f64() / reps as f64)
+    }
+
+    /// Pure kernel timing for `force_fused_soa`, same protocol. The AoS->SoA
+    /// plane conversion happens once, untimed, before the warm-up launch
+    /// (matching `force_soa`'s own boundary conversion, but paid once here
+    /// rather than once per call, since the point is timing the kernel, not
+    /// the conversion).
+    pub fn time_fused_soa_force(&self, q0_aos: &[f64], ldg: &LdgParams, reps: usize) -> Result<f64, CudaError> {
+        let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
+        assert_eq!(q0_aos.len(), n_sites * 5, "q0_aos length must be n_sites * 5");
+        let stream = &self.stream;
+
+        let mut planes: [Vec<f64>; 5] = Default::default();
+        for plane in &mut planes {
+            *plane = vec![0.0; n_sites];
+        }
+        for s in 0..n_sites {
+            for c in 0..5 {
+                planes[c][s] = q0_aos[s * 5 + c];
+            }
+        }
+        let q11 = DeviceBuffer::from_host(stream, &planes[0])?;
+        let q12 = DeviceBuffer::from_host(stream, &planes[1])?;
+        let q13 = DeviceBuffer::from_host(stream, &planes[2])?;
+        let q22 = DeviceBuffer::from_host(stream, &planes[3])?;
+        let q23 = DeviceBuffer::from_host(stream, &planes[4])?;
+        let mut o11 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o12 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o13 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o22 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o23 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+
+        let cfg = LaunchConfig::for_num_elems(n_sites as u32);
+        let inv_dx2 = 1.0 / (ldg.dx * ldg.dx);
+
+        // SAFETY: as in `force_soa` above -- every plane has length
+        // `n_sites`, matching `cfg`.
+        unsafe {
+            self.module.force_fused_soa(
+                stream, cfg, &q11, &q12, &q13, &q22, &q23, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff,
+                ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
+                &mut o22, &mut o23,
+            )?;
+        }
+        stream.synchronize()?;
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            unsafe {
+                self.module.force_fused_soa(
+                    stream, cfg, &q11, &q12, &q13, &q22, &q23, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff,
+                    ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
+                    &mut o22, &mut o23,
+                )?;
+            }
+        }
+        stream.synchronize()?;
+        Ok(t0.elapsed().as_secs_f64() / reps as f64)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn compute_force(
         &self,
