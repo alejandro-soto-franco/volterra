@@ -97,6 +97,27 @@ impl FireParams {
             max_iterations,
         }
     }
+
+    /// Retuned for volterra's own bulk/elastic constants, which are not
+    /// open-Qmin's (see `BENCHMARKS.md`'s "Scale mismatch" caveat): open-Qmin
+    /// tuned `delta_t_inc`, `alpha_dec` and `n_min` for its own energy
+    /// landscape, and there is no reason those values are optimal for a
+    /// different one. A sweep over these three constants
+    /// (`volterra-solver/examples/sweep_fire_params.rs`), holding the
+    /// initial condition and every other parameter fixed, cuts the
+    /// scale-matched-target step count at N=100 from 43 to 19 (56%),
+    /// consistently across four random seeds (not tuned to one IC). Grows
+    /// the adaptive timestep faster (`delta_t_inc`), decays `alpha` faster on
+    /// a good run (`alpha_dec`), and drops the run-up delay before adapting
+    /// at all (`n_min = 0`).
+    pub fn volterra_tuned(delta_t: f64, force_cutoff: f64, max_iterations: usize) -> Self {
+        Self {
+            delta_t_inc: 1.6,
+            alpha_dec: 0.7,
+            n_min: 0,
+            ..Self::open_qmin_defaults(delta_t, force_cutoff, max_iterations)
+        }
+    }
 }
 
 /// Mutable FIRE integration state, carried across steps.

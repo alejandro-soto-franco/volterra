@@ -6,6 +6,7 @@
 //! exactly mirroring `volterra_solver::fire::FireState`.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use cuda_core::{CudaContext, CudaStream, DeviceBuffer, LaunchConfig};
 use cuda_device::atomic::DeviceAtomicF64;
@@ -47,6 +48,18 @@ impl FireParams {
             n_min: 4,
             force_cutoff,
             max_iterations,
+        }
+    }
+
+    /// Retuned for volterra's own energy landscape, matching
+    /// `volterra_solver::fire::FireParams::volterra_tuned` exactly (see that
+    /// constructor's doc comment for the sweep it comes from).
+    pub fn volterra_tuned(delta_t: f64, force_cutoff: f64, max_iterations: usize) -> Self {
+        Self {
+            delta_t_inc: 1.6,
+            alpha_dec: 0.7,
+            n_min: 0,
+            ..Self::open_qmin_defaults(delta_t, force_cutoff, max_iterations)
         }
     }
 }
@@ -111,13 +124,18 @@ impl Device {
         let mut f = DeviceBuffer::<f64>::zeroed(stream, len5)?;
         let mut f_new = DeviceBuffer::<f64>::zeroed(stream, len5)?;
         let mut trq2 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
-        // Kept as plain `f64` buffers between iterations (`DeviceAtomicF64`
-        // is not `DeviceCopy`, so it cannot be read back with `to_host_vec`
-        // directly); each reduction ping-pongs one `cast_elem` out to the
-        // atomic view for the kernel launch and one back for the read-back.
-        let mut force_acc = DeviceBuffer::<f64>::zeroed(stream, 1)?;
-        let mut vel_acc = DeviceBuffer::<f64>::zeroed(stream, 1)?;
-        let mut power_acc = DeviceBuffer::<f64>::zeroed(stream, 1)?;
+        // One 3-element accumulator (`[sum|f|^2, sum|v|^2, sum f.v]`), not
+        // three separate one-element buffers: three independent
+        // `to_host_vec` calls per iteration each carry their own implicit
+        // stream sync, which measurably costs more in host round-trip
+        // latency than the reduction itself (see `BENCHMARKS.md`'s
+        // "Optimisations tried"). Kept as a plain `f64` buffer between
+        // iterations (`DeviceAtomicF64` is not `DeviceCopy`, so it cannot be
+        // read back with `to_host_vec` directly); each reduction ping-pongs
+        // one `cast_elem` out to the atomic view for the kernel launch and
+        // one back for the read-back, a same-allocation reinterpret that
+        // costs nothing beyond the type change.
+        let mut acc = DeviceBuffer::<f64>::zeroed(stream, 3)?;
 
         let cfg_sites = LaunchConfig::for_num_elems(n_sites as u32);
         let cfg_len5 = LaunchConfig::for_num_elems(len5 as u32);
@@ -160,39 +178,23 @@ impl Device {
                     .axpy_inplace(stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v)?;
             }
 
-            // FIRE reduction: zero the three accumulators while still typed
-            // as plain `f64` (`DeviceAtomicF64` is not `DeviceCopy`, so
-            // neither `zero_async` nor `to_host_vec` accept that view), then
-            // cast to the atomic view for the launch and back to `f64` to
-            // read the result. `cast_elem` is a same-allocation reinterpret,
-            // not a copy, so this ping-pong costs nothing beyond the type change.
-            force_acc.zero_async(stream)?;
-            vel_acc.zero_async(stream)?;
-            power_acc.zero_async(stream)?;
-            let force_acc_atomic = force_acc.cast_elem::<DeviceAtomicF64>();
-            let vel_acc_atomic = vel_acc.cast_elem::<DeviceAtomicF64>();
-            let power_acc_atomic = power_acc.cast_elem::<DeviceAtomicF64>();
+            // FIRE reduction: zero the accumulator while still typed as
+            // plain `f64` (`DeviceAtomicF64` is not `DeviceCopy`, so neither
+            // `zero_async` nor `to_host_vec` accept that view), cast to the
+            // atomic view for the launch, cast back, and read all three
+            // reduced scalars in one `to_host_vec` call.
+            acc.zero_async(stream)?;
+            let acc_atomic = acc.cast_elem::<DeviceAtomicF64>();
             // SAFETY: `f` and `v` both have length `len5 = n_sites * 5`, the
-            // reduction reads exactly that extent under `n_sites`, and the
-            // three accumulators are single-element atomic buffers.
+            // reduction reads exactly that extent under `n_sites`, and `acc`
+            // holds the three atomic accumulators the kernel writes.
             unsafe {
-                self.module.reduce_fire(
-                    stream,
-                    cfg_sites,
-                    &f,
-                    &v,
-                    n_sites as u32,
-                    &force_acc_atomic,
-                    &vel_acc_atomic,
-                    &power_acc_atomic,
-                )?;
+                self.module
+                    .reduce_fire(stream, cfg_sites, &f, &v, n_sites as u32, &acc_atomic)?;
             }
-            force_acc = force_acc_atomic.cast_elem::<f64>();
-            vel_acc = vel_acc_atomic.cast_elem::<f64>();
-            power_acc = power_acc_atomic.cast_elem::<f64>();
-            let force_norm = force_acc.to_host_vec(stream)?[0];
-            let velocity_norm = vel_acc.to_host_vec(stream)?[0];
-            let power = power_acc.to_host_vec(stream)?[0];
+            acc = acc_atomic.cast_elem::<f64>();
+            let reduced = acc.to_host_vec(stream)?;
+            let (force_norm, velocity_norm, power) = (reduced[0], reduced[1], reduced[2]);
 
             force_max = force_norm.sqrt() / (n_sites as f64);
             let scaling = if force_norm > 0.0 {
@@ -235,6 +237,182 @@ impl Device {
             force_max,
             converged: force_max <= params.force_cutoff,
         })
+    }
+
+    /// Achieved bandwidth (GB/s) of a pure copy kernel (one read, one write,
+    /// nothing else), measured, not read off a spec sheet. `elements` should
+    /// be large enough that the kernel is bandwidth-bound rather than
+    /// latency-bound; `reps` timed copies, one untimed warm-up first.
+    pub fn measure_bandwidth(&self, elements: usize, reps: usize) -> Result<f64, CudaError> {
+        let stream = &self.stream;
+        let host = vec![1.0_f64; elements];
+        let x = DeviceBuffer::from_host(stream, &host)?;
+        let mut y = DeviceBuffer::<f64>::zeroed(stream, elements)?;
+        let cfg = LaunchConfig::for_num_elems(elements as u32);
+
+        // SAFETY: `x` and `y` both have length `elements`, matching `cfg`.
+        unsafe {
+            self.module
+                .bandwidth_copy(stream, cfg, &x, elements as u32, &mut y)?;
+        }
+        stream.synchronize()?;
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            // SAFETY: as above.
+            unsafe {
+                self.module
+                    .bandwidth_copy(stream, cfg, &x, elements as u32, &mut y)?;
+            }
+        }
+        stream.synchronize()?;
+        let elapsed = t0.elapsed().as_secs_f64();
+
+        let bytes_per_rep = 2 * elements * std::mem::size_of::<f64>(); // one read + one write
+        Ok((bytes_per_rep as f64 * reps as f64) / elapsed / 1e9)
+    }
+
+    /// Mean wall-clock per kernel launch (seconds), from a run of tiny
+    /// (1-element) launches where the kernel body itself is negligible, so
+    /// the measured time is overwhelmingly launch/dispatch overhead.
+    pub fn measure_launch_overhead(&self, reps: usize) -> Result<f64, CudaError> {
+        let stream = &self.stream;
+        let x = DeviceBuffer::from_host(stream, &[1.0_f64])?;
+        let mut y = DeviceBuffer::<f64>::zeroed(stream, 1)?;
+        let cfg = LaunchConfig::for_num_elems(1);
+
+        // SAFETY: `x` and `y` both have length 1, matching `cfg`.
+        unsafe {
+            self.module.bandwidth_copy(stream, cfg, &x, 1, &mut y)?;
+        }
+        stream.synchronize()?;
+
+        let t0 = Instant::now();
+        for _ in 0..reps {
+            // SAFETY: as above.
+            unsafe {
+                self.module.bandwidth_copy(stream, cfg, &x, 1, &mut y)?;
+            }
+        }
+        stream.synchronize()?;
+        let elapsed = t0.elapsed().as_secs_f64();
+        Ok(elapsed / reps as f64)
+    }
+
+    /// The fused, one-thread-per-site force kernel (`force_fused_aos`), AoS
+    /// layout. Not used by `fire_minimize`; exposed so it can be timed and
+    /// checked against the split `trq2`+`force` path once the GPU is free
+    /// (see `BENCHMARKS.md`'s "fuse the two passes"). `q` has length
+    /// `n_sites * 5`; returns the same length, gamma_r * H per site.
+    pub fn force_fused_aos(&self, q: &[f64], ldg: &LdgParams) -> Result<Vec<f64>, CudaError> {
+        let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
+        assert_eq!(q.len(), n_sites * 5, "q length must be n_sites * 5");
+        let stream = &self.stream;
+        let q_dev = DeviceBuffer::from_host(stream, q)?;
+        let mut out = DeviceBuffer::<[f64; 5]>::zeroed(stream, n_sites)?;
+        let cfg = LaunchConfig::for_num_elems(n_sites as u32);
+        let inv_dx2 = 1.0 / (ldg.dx * ldg.dx);
+
+        // SAFETY: `q_dev` has length `n_sites * 5`, the extent the kernel
+        // reads under `nx,ny,nz`; `out` has `n_sites` elements, one
+        // `[f64; 5]` slot per thread, matching `cfg`.
+        unsafe {
+            self.module.force_fused_aos(
+                stream,
+                cfg,
+                &q_dev,
+                ldg.nx,
+                ldg.ny,
+                ldg.nz,
+                ldg.a_eff,
+                ldg.c_landau,
+                ldg.k_r,
+                ldg.gamma_r,
+                inv_dx2,
+                &mut out,
+            )?;
+        }
+        let out_host = out.to_host_vec(stream)?;
+        Ok(out_host.into_iter().flatten().collect())
+    }
+
+    /// The fused force kernel over 5 separate component planes
+    /// (structure-of-arrays), `force_fused_soa`. Takes and returns AoS
+    /// (`n_sites * 5`, `QField3D`'s own layout) and does the plane
+    /// conversion on the host, so callers do not need to carry two layouts
+    /// themselves; the point of this method is measuring whether the
+    /// device-side layout change helps, not exposing SoA as a new format.
+    pub fn force_soa(&self, q_aos: &[f64], ldg: &LdgParams) -> Result<Vec<f64>, CudaError> {
+        let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
+        assert_eq!(q_aos.len(), n_sites * 5, "q_aos length must be n_sites * 5");
+        let stream = &self.stream;
+
+        let mut planes: [Vec<f64>; 5] = Default::default();
+        for plane in &mut planes {
+            *plane = vec![0.0; n_sites];
+        }
+        for s in 0..n_sites {
+            for c in 0..5 {
+                planes[c][s] = q_aos[s * 5 + c];
+            }
+        }
+        let q11 = DeviceBuffer::from_host(stream, &planes[0])?;
+        let q12 = DeviceBuffer::from_host(stream, &planes[1])?;
+        let q13 = DeviceBuffer::from_host(stream, &planes[2])?;
+        let q22 = DeviceBuffer::from_host(stream, &planes[3])?;
+        let q23 = DeviceBuffer::from_host(stream, &planes[4])?;
+        let mut o11 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o12 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o13 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o22 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+        let mut o23 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
+
+        let cfg = LaunchConfig::for_num_elems(n_sites as u32);
+        let inv_dx2 = 1.0 / (ldg.dx * ldg.dx);
+
+        // SAFETY: every plane (input and output) has length `n_sites`,
+        // matching `cfg`'s element count; the kernel bounds-checks its
+        // neighbour reads against `nx,ny,nz`.
+        unsafe {
+            self.module.force_fused_soa(
+                stream,
+                cfg,
+                &q11,
+                &q12,
+                &q13,
+                &q22,
+                &q23,
+                ldg.nx,
+                ldg.ny,
+                ldg.nz,
+                ldg.a_eff,
+                ldg.c_landau,
+                ldg.k_r,
+                ldg.gamma_r,
+                inv_dx2,
+                &mut o11,
+                &mut o12,
+                &mut o13,
+                &mut o22,
+                &mut o23,
+            )?;
+        }
+
+        let p11 = o11.to_host_vec(stream)?;
+        let p12 = o12.to_host_vec(stream)?;
+        let p13 = o13.to_host_vec(stream)?;
+        let p22 = o22.to_host_vec(stream)?;
+        let p23 = o23.to_host_vec(stream)?;
+
+        let mut out = vec![0.0; n_sites * 5];
+        for s in 0..n_sites {
+            out[s * 5] = p11[s];
+            out[s * 5 + 1] = p12[s];
+            out[s * 5 + 2] = p13[s];
+            out[s * 5 + 3] = p22[s];
+            out[s * 5 + 4] = p23[s];
+        }
+        Ok(out)
     }
 
     #[allow(clippy::too_many_arguments)]
