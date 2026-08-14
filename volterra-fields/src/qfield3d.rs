@@ -62,6 +62,55 @@ impl QField3D {
         Self { q, nx, ny, nz, dx }
     }
 
+    /// A fully randomised director field: at every vertex, a director drawn
+    /// uniformly on the unit sphere, with the Q-tensor set to `s0 * (nn -
+    /// I/3)` at that director (fixed magnitude, random orientation
+    /// site-to-site). This is volterra's analogue of open-Qmin's default
+    /// initial condition (`initializationSwitch == 0`,
+    /// `setNematicQTensorRandomly(noise, S0)`): every site starts at the
+    /// bulk equilibrium magnitude but with maximally disordered orientation,
+    /// so neighbouring sites disagree by O(1) and the elastic term has real
+    /// work to do. This is a materially harder starting point than
+    /// [`random_perturbation`](Self::random_perturbation), whose small
+    /// amplitude leaves the field close to the (also near-Q=0) unstable
+    /// state rather than at the true equilibrium magnitude.
+    pub fn random_director_field(
+        nx: usize,
+        ny: usize,
+        nz: usize,
+        dx: f64,
+        s0: f64,
+        seed: u64,
+    ) -> Self {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let q = (0..nx * ny * nz)
+            .map(|_| {
+                // Uniform direction on S^2 via normalised Gaussian components.
+                let mut nvec = [0.0f64; 3];
+                let norm = loop {
+                    for c in &mut nvec {
+                        *c = rng.random_range(-1.0..1.0);
+                    }
+                    let n2 = nvec[0] * nvec[0] + nvec[1] * nvec[1] + nvec[2] * nvec[2];
+                    if n2 > 1e-12 && n2 <= 1.0 {
+                        break n2.sqrt();
+                    }
+                };
+                let nx_ = nvec[0] / norm;
+                let ny_ = nvec[1] / norm;
+                let nz_ = nvec[2] / norm;
+                [
+                    s0 * (nx_ * nx_ - 1.0 / 3.0),
+                    s0 * nx_ * ny_,
+                    s0 * nx_ * nz_,
+                    s0 * (ny_ * ny_ - 1.0 / 3.0),
+                    s0 * ny_ * nz_,
+                ]
+            })
+            .collect();
+        Self { q, nx, ny, nz, dx }
+    }
+
     /// Number of vertices.
     #[inline]
     pub fn len(&self) -> usize {
@@ -273,6 +322,37 @@ mod tests {
         let q = QField3D::zeros(4, 4, 4, 1.0);
         assert_eq!(q.len(), 64);
         assert_eq!(q.q[0], [0.0; 5]);
+    }
+
+    #[test]
+    fn test_random_director_field_has_fixed_magnitude() {
+        let s0 = 0.53;
+        let q = QField3D::random_director_field(4, 4, 4, 1.0, s0, 7);
+        for k in 0..q.len() {
+            let m = q.embed_matrix3(k);
+            let tr = m[(0, 0)] + m[(1, 1)] + m[(2, 2)];
+            assert!(tr.abs() < 1e-10, "not traceless at site {k}");
+            // Tr(Q^2) = s0^2 * Tr((nn-I/3)^2) = s0^2 * 2/3 for a unit director.
+            let tr_q2: f64 = (0..3)
+                .map(|a| (0..3).map(|b| m[(a, b)] * m[(b, a)]).sum::<f64>())
+                .sum();
+            let expected = s0 * s0 * 2.0 / 3.0;
+            assert_abs_diff_eq!(tr_q2, expected, epsilon = 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_random_director_field_is_disordered() {
+        // Neighbouring sites should NOT generally agree (unlike a uniform
+        // texture); check the field is not constant.
+        let q = QField3D::random_director_field(4, 4, 4, 1.0, 0.53, 7);
+        let first = q.q[0];
+        let any_different = q.q.iter().any(|c| {
+            c.iter()
+                .zip(first.iter())
+                .any(|(a, b)| (a - b).abs() > 1e-6)
+        });
+        assert!(any_different, "random director field must not be uniform");
     }
 
     #[test]

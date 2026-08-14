@@ -1,0 +1,33 @@
+[package]
+name = "volterra-cuda"
+description = "Double-precision CUDA FIRE minimiser for volterra's passive Landau-de Gennes relaxation, via cuda-oxide"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Its own workspace, exactly as cartan-cuda: the pinned nightly and the
+# codegen backend must not leak into volterra's stable workspace, which is
+# why this crate is not a member of ../Cargo.toml.
+[workspace]
+
+[lib]
+name = "volterra_cuda"
+path = "src/lib.rs"
+
+# The validation + timing harness: fired at N small (CPU cross-check) and
+# N=100 (the benchmark), both against volterra_solver's CPU FIRE.
+[[bin]]
+name = "volterra-cuda"
+path = "src/main.rs"
+
+[dependencies]
+cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-core = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+
+# The CPU reference the GPU path is checked against, and the shared IC
+# generator so both sides start from bit-identical initial conditions.
+volterra-core = { path = "../volterra-core" }
+volterra-fields = { path = "../volterra-fields" }
+volterra-solver = { path = "../volterra-solver" }
