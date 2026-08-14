@@ -118,6 +118,45 @@ impl FireParams {
             ..Self::open_qmin_defaults(delta_t, force_cutoff, max_iterations)
         }
     }
+
+    /// Retuned again for the matched-physics landscape (`a_eff, b_landau,
+    /// c_landau, k_r` set to open-Qmin's own defaults under the mapping in
+    /// `mol_field_3d.rs`'s module header): `volterra_tuned` above was tuned
+    /// on volterra's pre-cubic-term landscape, a different energy surface,
+    /// so there is no reason it stays optimal on this one. The identical
+    /// sweep procedure (`examples/sweep_fire_params_matched.rs`), pushed as
+    /// far past its own swept ranges as the matching open-Qmin sweep was
+    /// (`the matching open-Qmin sweep`), found the CPU
+    /// sweep's own plateau near `delta_t_inc=3.5, alpha_dec=0.99` (10 steps
+    /// at the literal `1e-3` target). Every point with `alpha_dec` pushed
+    /// up near open-Qmin's own `alpha_start=0.99` (`2.2` through `3.5`) sits
+    /// close enough to a chaotic bifurcation in FIRE's own adaptive
+    /// timestep rule -- `alpha` barely decaying keeps the dynamics
+    /// inertia-dominated, i.e. closer to conservative MD, far longer, and
+    /// conservative MD is exponentially sensitive to rounding -- that the
+    /// GPU reduction's run-to-run atomic accumulation order (not fixed on
+    /// real hardware) flips the outcome of the N=8 tight-tolerance
+    /// GPU-vs-CPU correctness check between repeated runs of the *same*
+    /// binary (`2.2` passed on one run, failed the next five, CPU/GPU
+    /// iteration counts one apart either way, 2-4e-9 against the 1e-9
+    /// tolerance). A correctness check that nondeterministically passes
+    /// checks nothing. Holding `alpha_dec=0.7` fixed at `volterra_tuned`'s
+    /// own value (proven stable at N=8 across six repeated device runs,
+    /// agreement ~1e-16 every time) and pushing only `delta_t_inc` stays
+    /// stable up to at least `3.0`; `delta_t_inc=2.5` passed the N=8 check
+    /// on six repeated device runs with that same ~1e-16 margin and is used
+    /// here: 16 steps at the literal `1e-3` target (matched physics needs
+    /// no scale-matching
+    /// construction), against `volterra_tuned`'s own 20 and the untuned
+    /// baseline's 56, robust across the same four seeds.
+    pub fn matched_tuned(delta_t: f64, force_cutoff: f64, max_iterations: usize) -> Self {
+        Self {
+            delta_t_inc: 2.5,
+            alpha_dec: 0.7,
+            n_min: 0,
+            ..Self::open_qmin_defaults(delta_t, force_cutoff, max_iterations)
+        }
+    }
 }
 
 /// Mutable FIRE integration state, carried across steps.

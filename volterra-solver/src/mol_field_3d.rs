@@ -2,13 +2,73 @@
 //! Molecular field and co-rotation term for 3D active nematics.
 //!
 //! ## Molecular field
-//! H = K_r nabla^2 Q - a_eff Q - 2c Tr(Q^2) Q + H_mag(t)
+//! H = K_r nabla^2 Q - a_eff Q - 2c Tr(Q^2) Q - 3b [Q^2 - Tr(Q^2)/3 I] + H_mag(t)
 //! where a_eff = a_landau - zeta_eff/2 = (a - zeta_eff/2), so (zeta_eff/2 - a) = -a_eff.
 //!
 //! H_mag(t) = chi_a * b0^2 * [b_hat(t) otimes b_hat(t) - I/3]
 //! where b_hat(t) = (cos(omega_b t), sin(omega_b t), 0).
 //! chi_a = mu_0 * Delta_chi / 2. Gamma_r is NOT applied here;
 //! it is applied once in beris_edwards_rhs_3d.
+//!
+//! ## Cubic bulk term, derivation
+//!
+//! The bulk free energy density is `f = (a_eff/2) Tr(Q^2) + b Tr(Q^3) +
+//! (c/2) (Tr(Q^2))^2` (matching open-Qmin's raw convention `a Tr(Q^2) + b
+//! Tr(Q^3) + c (Tr(Q^2))^2` term for term: `a_eff = 2a`, `c_landau = 2c`,
+//! `b_landau = b`, verified by substitution -- both conventions give the
+//! identical equilibrium condition below). `H = -delta f / delta Q`, the
+//! variational derivative restricted to the traceless-symmetric subspace Q
+//! lives in.
+//!
+//! For the quadratic and quartic terms this restriction is free: the
+//! ordinary matrix-calculus gradient of any function of `Q` alone (`2Q` for
+//! `Tr(Q^2)`, `4 Tr(Q^2) Q` for `(Tr(Q^2))^2`) is already traceless whenever
+//! `Q` is, since both are proportional to `Q` itself.
+//!
+//! `Tr(Q^3)` does not have this property. The unconstrained matrix-calculus
+//! gradient of `Tr(Q^3)` is `3 Q^2`, and `Q^2` is generally **not**
+//! traceless even when `Q` is (`Tr(Q^2) != 0`). The physical variation `dQ`
+//! is constrained to the traceless-symmetric subspace, so the molecular
+//! field is the projection of the unconstrained gradient onto that
+//! subspace: subtract the trace part,
+//! `3 Q^2 - (1/3) Tr(3 Q^2) I = 3 Q^2 - Tr(Q^2) I`. With the free energy's
+//! `b Tr(Q^3)` term this gives
+//!
+//! ```text
+//! H_cubic = -b [3 Q^2 - Tr(Q^2) I] = -3b Q^2 + b Tr(Q^2) I
+//! ```
+//!
+//! Restricted to the 5 independent components `[q11, q12, q13, q22, q23]`
+//! (`q33 = -(q11+q22)`), with `Q^2` entries `qq11 = q11^2+q12^2+q13^2`,
+//! `qq12 = q11 q12 + q12 q22 + q13 q23`, `qq13 = q11 q13 + q12 q23 + q13
+//! q33`, `qq22 = q12^2+q22^2+q23^2`, `qq23 = q12 q13 + q22 q23 + q23 q33`:
+//!
+//! ```text
+//! H_cubic[q11] = -3b*qq11 + b*Tr(Q^2)
+//! H_cubic[q12] = -3b*qq12
+//! H_cubic[q13] = -3b*qq13
+//! H_cubic[q22] = -3b*qq22 + b*Tr(Q^2)
+//! H_cubic[q23] = -3b*qq23
+//! ```
+//!
+//! (`H_cubic[q33] = -3b*qq33 + b*Tr(Q^2)`, implied, sums to zero with the
+//! two stored diagonal entries: tracelessness is exact by construction, not
+//! approximate.)
+//!
+//! Setting `b_landau = 0` removes this term identically (every line above
+//! is multiplied through by `b`), so every result measured before this term
+//! existed is reproduced exactly, bit for bit.
+//!
+//! Validated against the closed-form uniaxial equilibrium
+//! (`volterra-solver/tests/test_cubic_bulk_equilibrium.rs`): for `Q =
+//! S(nn - I/3)`, `Tr(Q^2) = (2/3)S^2`, `Tr(Q^3) = (2/9)S^3`, so `dF/dS = 0`
+//! gives `3 a_eff + 3 b_landau S + 4 c_landau S^2 = 0`, matched against
+//! open-Qmin's own equilibrium condition (`inc/qTensorFunctions.h`'s
+//! `derivativeTrQ3`, evaluated directly at the uniaxial point) under the
+//! `a_eff=2a, b_landau=b, c_landau=2c` mapping above: both give the
+//! identical quadratic `6a + 3bM + 8cM^2 = 0` in the standard order
+//! parameter `M`, confirming the two codes' bulk equilibria agree exactly
+//! once their `(a,b,c)` are matched this way.
 //!
 //! ## Co-rotation tensor (FULL nonlinear Beris-Edwards form)
 //! S_ij = xi(D_ik Q_kj + Q_ik D_kj) - 2 xi Q_ij (Q_kl D_kl) + Omega_ik Q_kj - Q_ik Omega_kj
@@ -20,6 +80,39 @@ use nalgebra::SMatrix;
 use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
 use volterra_fields::{QField3D, VelocityField3D};
+
+/// Cubic bulk contribution to the molecular field, `H_cubic = -3b Q^2 + b
+/// Tr(Q^2) I`, restricted to the 5 independent components. See this module's
+/// header for the derivation (the traceless-projected variation of `b
+/// Tr(Q^3)`). `b_landau = 0.0` returns exactly `[0.0; 5]`.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn cubic_bulk_term(
+    q11: f64,
+    q12: f64,
+    q13: f64,
+    q22: f64,
+    q23: f64,
+    q33: f64,
+    tr_q2: f64,
+    b_landau: f64,
+) -> [f64; 5] {
+    if b_landau == 0.0 {
+        return [0.0; 5];
+    }
+    let qq11 = q11 * q11 + q12 * q12 + q13 * q13;
+    let qq12 = q11 * q12 + q12 * q22 + q13 * q23;
+    let qq13 = q11 * q13 + q12 * q23 + q13 * q33;
+    let qq22 = q12 * q12 + q22 * q22 + q23 * q23;
+    let qq23 = q12 * q13 + q22 * q23 + q23 * q33;
+    [
+        -3.0 * b_landau * qq11 + b_landau * tr_q2,
+        -3.0 * b_landau * qq12,
+        -3.0 * b_landau * qq13,
+        -3.0 * b_landau * qq22 + b_landau * tr_q2,
+        -3.0 * b_landau * qq23,
+    ]
+}
 
 /// Compute the active molecular field H at each vertex.
 ///
@@ -34,6 +127,7 @@ use volterra_fields::{QField3D, VelocityField3D};
 pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QField3D {
     let a_eff = p.a_eff();
     let c = p.c_landau;
+    let b_landau = p.b_landau;
     let k_r = p.k_r;
 
     let lap = q.laplacian();
@@ -58,10 +152,12 @@ pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QF
         let q33 = -(q11 + q22);
         let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
             + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+        let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
         for comp in 0..5 {
             out.q[k][comp] = k_r * lap.q[k][comp]
                 + (-a_eff) * q.q[k][comp]
                 - 2.0 * c * tr_q2 * q.q[k][comp]
+                + h_cubic[comp]
                 + h_mag[comp];
         }
     }
@@ -77,6 +173,7 @@ pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QF
 pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QField3D {
     let a_eff = p.a_eff();
     let c = p.c_landau;
+    let b_landau = p.b_landau;
     let k_r = p.k_r;
     let inv_dx2 = 1.0 / (q.dx * q.dx);
     let nx = q.nx;
@@ -124,6 +221,7 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
             let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
                 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
             let bulk = -a_eff - 2.0 * c * tr_q2;
+            let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
 
             let mut h = [0.0_f64; 5];
             for comp in 0..5 {
@@ -135,7 +233,7 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
                     + q_data[lm][comp]
                     - 6.0 * qk[comp])
                     * inv_dx2;
-                h[comp] = k_r * lap + bulk * qk[comp] + h_mag[comp];
+                h[comp] = k_r * lap + bulk * qk[comp] + h_cubic[comp] + h_mag[comp];
             }
             h
         })
@@ -159,6 +257,7 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
 pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64) {
     let a_eff = p.a_eff();
     let c_ldg = p.c_landau;
+    let b_landau = p.b_landau;
     let k_r = p.k_r;
     let gamma_r = p.gamma_r;
     let dt = p.dt;
@@ -226,9 +325,22 @@ pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64)
                 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
             let dt_bulk = dt_gr * (-a_eff - 2.0 * c_ldg * tr_q2);
 
+            // Cubic bulk term is not proportional to q_ij (unlike the a/c
+            // terms above), so it cannot fold into the self-coefficient
+            // `sc` below; it is added as its own dt*gamma_r-scaled term.
+            // Zero cost when b_landau == 0.0 (`cubic_bulk_term` short-circuits).
+            let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
+            let dt_cubic = [
+                dt_gr * h_cubic[0],
+                dt_gr * h_cubic[1],
+                dt_gr * h_cubic[2],
+                dt_gr * h_cubic[3],
+                dt_gr * h_cubic[4],
+            ];
+
             // Combined self-coefficient:
             // q_new[c] = q[c] * (1 + dt_bulk - 6*elastic_coeff)
-            //          + elastic_coeff * sum_neighbours + dt_hmag[c]
+            //          + elastic_coeff * sum_neighbours + dt_cubic[c] + dt_hmag[c]
             let sc = 1.0 + dt_bulk - 6.0 * elastic_coeff;
 
             // Load 6 neighbours.
@@ -236,13 +348,13 @@ pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64)
             let n2 = q_src[jp]; let n3 = q_src[jm];
             let n4 = q_src[lp]; let n5 = q_src[lm];
 
-            // Fused stencil + bulk + magnetic + Euler, unrolled.
+            // Fused stencil + bulk + cubic + magnetic + Euler, unrolled.
             [
-                qk[0]*sc + elastic_coeff*(n0[0]+n1[0]+n2[0]+n3[0]+n4[0]+n5[0]) + dt_hmag[0],
-                qk[1]*sc + elastic_coeff*(n0[1]+n1[1]+n2[1]+n3[1]+n4[1]+n5[1]) + dt_hmag[1],
-                qk[2]*sc + elastic_coeff*(n0[2]+n1[2]+n2[2]+n3[2]+n4[2]+n5[2]) + dt_hmag[2],
-                qk[3]*sc + elastic_coeff*(n0[3]+n1[3]+n2[3]+n3[3]+n4[3]+n5[3]) + dt_hmag[3],
-                qk[4]*sc + elastic_coeff*(n0[4]+n1[4]+n2[4]+n3[4]+n4[4]+n5[4]) + dt_hmag[4],
+                qk[0]*sc + elastic_coeff*(n0[0]+n1[0]+n2[0]+n3[0]+n4[0]+n5[0]) + dt_cubic[0] + dt_hmag[0],
+                qk[1]*sc + elastic_coeff*(n0[1]+n1[1]+n2[1]+n3[1]+n4[1]+n5[1]) + dt_cubic[1] + dt_hmag[1],
+                qk[2]*sc + elastic_coeff*(n0[2]+n1[2]+n2[2]+n3[2]+n4[2]+n5[2]) + dt_cubic[2] + dt_hmag[2],
+                qk[3]*sc + elastic_coeff*(n0[3]+n1[3]+n2[3]+n3[3]+n4[3]+n5[3]) + dt_cubic[3] + dt_hmag[3],
+                qk[4]*sc + elastic_coeff*(n0[4]+n1[4]+n2[4]+n3[4]+n4[4]+n5[4]) + dt_cubic[4] + dt_hmag[4],
             ]
         })
         .collect();

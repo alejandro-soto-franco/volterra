@@ -97,6 +97,7 @@ pub mod kernels {
         ny: u32,
         nz: u32,
         a_eff: f64,
+        b_landau: f64,
         c_landau: f64,
         k_r: f64,
         gamma_r: f64,
@@ -139,7 +140,29 @@ pub mod kernels {
             - 6.0 * qk)
             * inv_dx2;
         let bulk = -a_eff - 2.0 * c_landau * trq2[s];
-        let val = gamma_r * (k_r * lap + bulk * qk);
+
+        // Cubic bulk term (see `volterra_solver::mol_field_3d`'s module
+        // header for the derivation): not proportional to `qk` like the a/c
+        // terms above, so this thread reads its own site's other 4
+        // components to form it, same as `trq2` already does once per site.
+        let b = s * 5;
+        let q11 = q[b];
+        let q12 = q[b + 1];
+        let q13 = q[b + 2];
+        let q22 = q[b + 3];
+        let q23 = q[b + 4];
+        let q33 = -(q11 + q22);
+        let qq = [
+            q11 * q11 + q12 * q12 + q13 * q13,
+            q11 * q12 + q12 * q22 + q13 * q23,
+            q11 * q13 + q12 * q23 + q13 * q33,
+            q12 * q12 + q22 * q22 + q23 * q23,
+            q12 * q13 + q22 * q23 + q23 * q33,
+        ];
+        let trace_add = if c == 0 || c == 3 { trq2[s] } else { 0.0 };
+        let h_cubic = -3.0 * b_landau * qq[c] + b_landau * trace_add;
+
+        let val = gamma_r * (k_r * lap + bulk * qk + h_cubic);
 
         if let Some(slot) = out.get_mut(idx) {
             *slot = val;
@@ -168,6 +191,7 @@ pub mod kernels {
         ny: u32,
         nz: u32,
         a_eff: f64,
+        b_landau: f64,
         c_landau: f64,
         k_r: f64,
         gamma_r: f64,
@@ -208,6 +232,21 @@ pub mod kernels {
         let trq2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
         let bulk = -a_eff - 2.0 * c_landau * trq2;
 
+        // Cubic bulk term (see `volterra_solver::mol_field_3d`'s module
+        // header for the derivation): `H_cubic = -3b Q^2 + b Tr(Q^2) I`.
+        let qq11 = q11 * q11 + q12 * q12 + q13 * q13;
+        let qq12 = q11 * q12 + q12 * q22 + q13 * q23;
+        let qq13 = q11 * q13 + q12 * q23 + q13 * q33;
+        let qq22 = q12 * q12 + q22 * q22 + q23 * q23;
+        let qq23 = q12 * q13 + q22 * q23 + q23 * q33;
+        let h_cubic = [
+            -3.0 * b_landau * qq11 + b_landau * trq2,
+            -3.0 * b_landau * qq12,
+            -3.0 * b_landau * qq13,
+            -3.0 * b_landau * qq22 + b_landau * trq2,
+            -3.0 * b_landau * qq23,
+        ];
+
         let mut result = [0.0_f64; 5];
         for c in 0..5 {
             let lap = (q[ip * 5 + c]
@@ -218,7 +257,7 @@ pub mod kernels {
                 + q[lm * 5 + c]
                 - 6.0 * q[b + c])
                 * inv_dx2;
-            result[c] = gamma_r * (k_r * lap + bulk * q[b + c]);
+            result[c] = gamma_r * (k_r * lap + bulk * q[b + c] + h_cubic[c]);
         }
 
         if let Some(slot) = out.get_mut(idx) {
@@ -247,6 +286,7 @@ pub mod kernels {
         ny: u32,
         nz: u32,
         a_eff: f64,
+        b_landau: f64,
         c_landau: f64,
         k_r: f64,
         gamma_r: f64,
@@ -290,6 +330,18 @@ pub mod kernels {
         let trq2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
         let bulk = -a_eff - 2.0 * c_landau * trq2;
 
+        // Cubic bulk term, same formula as `force_fused_aos`.
+        let qq11 = q11 * q11 + q12 * q12 + q13 * q13;
+        let qq12 = q11 * q12 + q12 * q22 + q13 * q23;
+        let qq13 = q11 * q13 + q12 * q23 + q13 * q33;
+        let qq22 = q12 * q12 + q22 * q22 + q23 * q23;
+        let qq23 = q12 * q13 + q22 * q23 + q23 * q33;
+        let h11 = -3.0 * b_landau * qq11 + b_landau * trq2;
+        let h12 = -3.0 * b_landau * qq12;
+        let h13 = -3.0 * b_landau * qq13;
+        let h22 = -3.0 * b_landau * qq22 + b_landau * trq2;
+        let h23 = -3.0 * b_landau * qq23;
+
         #[inline(always)]
         fn stencil(
             plane: &[f64],
@@ -319,19 +371,19 @@ pub mod kernels {
         // (`threadIdx`/`blockIdx`/`blockDim`) do not change during a kernel
         // invocation, so every mint resolves to the same site `s`.
         if let Some(slot) = out11.get_mut(thread::index_1d()) {
-            *slot = gamma_r * (k_r * lap11 + bulk * q11);
+            *slot = gamma_r * (k_r * lap11 + bulk * q11 + h11);
         }
         if let Some(slot) = out12.get_mut(thread::index_1d()) {
-            *slot = gamma_r * (k_r * lap12 + bulk * q12);
+            *slot = gamma_r * (k_r * lap12 + bulk * q12 + h12);
         }
         if let Some(slot) = out13.get_mut(thread::index_1d()) {
-            *slot = gamma_r * (k_r * lap13 + bulk * q13);
+            *slot = gamma_r * (k_r * lap13 + bulk * q13 + h13);
         }
         if let Some(slot) = out22.get_mut(thread::index_1d()) {
-            *slot = gamma_r * (k_r * lap22 + bulk * q22);
+            *slot = gamma_r * (k_r * lap22 + bulk * q22 + h22);
         }
         if let Some(slot) = out23.get_mut(thread::index_1d()) {
-            *slot = gamma_r * (k_r * lap23 + bulk * q23);
+            *slot = gamma_r * (k_r * lap23 + bulk * q23 + h23);
         }
     }
 

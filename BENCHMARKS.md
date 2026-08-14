@@ -54,6 +54,49 @@ timing phase. The **After tuning** and roofline sections below carry the new
 numbers; the headline is the tuned preset's scale-matched time, now
 **0.067 s**, against open-Qmin's 0.198 s.
 
+**Revision (2026-08-16, fourth pass).** The previous pass conceded the
+literal comparison to a scale-matching construction: open-Qmin's default
+bulk constants put `1e-3` at a ~55x reduction from its own starting
+disorder, volterra's put it at a ~1.15x reduction, because volterra's 3D
+molecular field carried the quadratic and quartic Landau-de Gennes terms
+but not the cubic one open-Qmin's own default constants (`b=-2.12`) rely
+on. This pass adds that term, derives it from the same free-energy
+convention open-Qmin uses (`a Tr(Q^2) + b Tr(Q^3) + c (Tr(Q^2))^2`), and
+validates it against a closed-form uniaxial equilibrium with `b` non-zero
+before trusting it for anything (see **The cubic bulk term** below). With
+volterra's `(a_eff, b_landau, c_landau, k_r)` set to open-Qmin's own default
+`(a, b, c, L1)` under the derived mapping, `1e-3` is the literal target on
+both sides and the scale-matching construction the previous three passes
+needed is no longer necessary; it is kept below as a historical, superseded
+comparison, not the one this pass leads with.
+
+Two further items follow the same "measure it, don't assume it" discipline
+this document has kept throughout. First, open-Qmin's own FIRE constants
+were never tuned -- only volterra's were, in the previous pass -- so the
+2.96x margin that pass reported compared volterra at its best against
+open-Qmin as its authors left it, not against its best. open-Qmin's FIRE
+constants (`deltaTInc`, `alphaDec`, `nMin`) are hardcoded in `openQmin.cpp`,
+not CLI-exposed; a local, benchmark-only patch on a scratch branch
+(`benchmark/fire-tuning-cli` in the `~/open-Qmin` checkout, never the three
+submitted-PR branches) adds three flags exposing them, changing no physics.
+The identical sweep procedure applied to volterra in the previous pass --
+the same three constants, the same swept ranges, the same seeds, the same
+one-at-a-time-then-combined acceptance rule -- is applied to open-Qmin
+through those flags. It found a large improvement (55 steps down to 15).
+Applying that same tuned open-Qmin against volterra's *previous* tuned
+preset (which was swept on volterra's pre-cubic-term landscape, a different
+energy surface from the matched one) showed the margin reverse: open-Qmin
+tuned beat volterra's stale tuning. Re-running the identical sweep procedure
+on volterra for the *matched* landscape found a faster preset there too
+(20 steps down to 16), recovering a narrow lead. Both directions are
+reported below, in order, rather than only the second: **the reversal is a
+real, reproducible finding about what happens when one side is retuned and
+the other is not**, not a mistake to quietly correct before publishing.
+Second, `force_fused_aos` (measured 17.6% faster than the split `trq2`+
+`force` pair as a kernel in the previous pass, never wired in) is now
+`Device::fire_minimize`'s actual force computation, not just a measured
+alternative to it.
+
 **Machine for this section:** Fedora 44, AMD Ryzen 9 8940HX (16 cores, 32
 threads), NVIDIA RTX 5060 Laptop GPU (8 GiB, compute capability 12.0, driver
 610.57.04), CUDA Toolkit 13.3, Open MPI 5.0.9. Differs from the machine line at
@@ -92,10 +135,23 @@ against CUDA 13.3 on this hardware unmodified:
    `cudaDeviceGetAttribute(cudaDevAttrMemoryClockRate, ...)`.
 
 Each is a minimal, independent fix, kept on its own branch with a staged pull
-request (not yet submitted; see the accompanying report). None changes
-open-Qmin's physics or numerics. The resulting binary reports the correct GPU
-name, clock rate and residual force at runtime, and MPI multi-rank runs
-communicate correctly (verified below).
+request. None changes open-Qmin's physics or numerics. The resulting binary
+reports the correct GPU name, clock rate and residual force at runtime, and
+MPI multi-rank runs communicate correctly (verified below).
+
+**A fourth patch, benchmark-only, on a separate scratch branch
+(`benchmark/fire-tuning-cli`, never the three PR branches above and not
+itself submitted anywhere).** FIRE's own tuning constants (`deltaTInc`,
+`alphaDec`, `nMin`) are hardcoded in `openQmin.cpp`'s `main()`, not
+CLI-exposed; sweeping them the same way volterra's were swept (**Matched
+physics**, below) needed them reachable without editing source for every
+trial. Three `TCLAP::ValueArg` flags (`--fireDeltaTInc`, `--fireAlphaDec`,
+`--fireNMin`), defaulting to open-Qmin's own existing hardcoded values so an
+unpatched invocation is unaffected, plus one `printf` of
+`Fminimizer->iterations` (a public field already on `baseUpdater`, just
+never printed) so a step count is readable without instrumenting the source
+per trial. Neither changes a computation open-Qmin performs; both are
+scaffolding one is either allowed or not, spelled out here since it is.
 
 **MPI domain decomposition.** open-Qmin's `-l`/`--Lx`/`--Ly`/`--Lz` flags set
 the PER-RANK lattice size, not the global size (its own `README.md`, "moving
@@ -118,9 +174,11 @@ field `beris_edwards_rhs_3d_par_dry` (`k_r=1`, `a_landau=-0.5`, `c_landau=4.5`,
 - **GPU FIRE** (`volterra-cuda`), the same algorithm on CUDA in double
   precision via cuda-oxide (`rustc-codegen-cuda`, kernels written in ordinary
   Rust, following the pattern `cartan-cuda` establishes), targeting `sm_120a`
-  native compilation for this GPU. Six kernels: `Tr(Q^2)` then the fused
-  6-point-stencil-plus-bulk force (the same `Tr(Q^2)`-then-apply split
-  `cartan-cuda` uses for its own per-point reductions), the velocity-Verlet
+  native compilation for this GPU. Five kernels: the fused one-thread-per-site
+  `force_fused_aos` (`Tr(Q^2)` and the 6-point-stencil-plus-bulk force in one
+  pass, wired into `Device::fire_minimize` this pass -- see **The cheap
+  volterra gains** below; the previous passes' split `trq2`-then-`force` pair
+  stays available for the side-by-side kernel timing), the velocity-Verlet
   position and half-kick updates, the FIRE velocity mix, and a
   warp-reduction-plus-device-atomic reduction for the three FIRE dot products.
   Validated against the CPU result before any timing run; see **Validation**
@@ -131,7 +189,213 @@ now scored on the identical metric and initial condition as FIRE, since it
 remains volterra's only time-accurate integrator even though it is not built
 for pure minimisation.
 
-### Time to reach a target residual force at N=100 (1M sites)
+### The cubic bulk term
+
+open-Qmin's Landau-de Gennes phase energy is `a Tr(Q^2) + b Tr(Q^3) + c
+(Tr(Q^2))^2` (`src/forces/landauDeGennesLC.cpp:234`); volterra's 3D molecular
+field carried the `a` and `c` terms but not `b` (`SUBSUMPTION.md` section 1's
+"gap, additive"). Derivation, in full, lives in `mol_field_3d.rs`'s module
+header; summarised here.
+
+volterra's existing bulk free energy is `(a_eff/2) Tr(Q^2) + (c_landau/2)
+(Tr(Q^2))^2`, matching open-Qmin's convention with `a_eff = 2a`, `c_landau =
+2c` (confirmed by matching gradients directly, not asserted). Adding `b_landau
+Tr(Q^3)` in the same convention needs its variational derivative restricted
+to the traceless-symmetric subspace `Q` lives in. The unconstrained
+matrix-calculus gradient of `Tr(Q^3)` is `3 Q^2`; unlike `Tr(Q^2)` and
+`(Tr(Q^2))^2`, `Q^2` is generally **not** traceless even when `Q` is, so the
+raw gradient is not automatically a valid variation. The traceless-symmetric
+projection subtracts the trace part:
+
+```text
+H_cubic = -b_landau [3 Q^2 - Tr(Q^2) I] = -3 b_landau Q^2 + b_landau Tr(Q^2) I
+```
+
+restricted to the 5 independent components with `q33 = -(q11+q22)`. This is
+the standard literature form (de Gennes and Prost; Mottram and Newton's
+Q-tensor review), consistent with volterra's own matrix-calculus convention
+for the existing `a`/`c` terms, and independently confirmed against
+open-Qmin's own chain-rule reduced-coordinate gradient (`derivativeTrQ3` in
+`inc/qTensorFunctions.h`): the two formalisms differ in the per-component
+force during a run (different, but each internally consistent, metrics on
+the reduced 5-parameter space), but both give the **identical** equilibrium
+condition on the uniaxial order parameter `M` (`Q = M(nn-I/3)`), `6a + 3bM +
+8cM^2 = 0`, checked by direct substitution both ways -- the physical content
+is basis-independent, as it has to be for a critical point of a scalar free
+energy.
+
+**Validated before it was used for anything.** With `b_landau` non-zero
+(`volterra-solver/tests/test_cubic_bulk_equilibrium.rs`), FIRE and a
+200,000-step Euler run both converge to the closed-form uniaxial equilibrium
+`S0 = [-3b_landau + sqrt(9b_landau^2 - 48 a_eff c_landau)] / (8 c_landau)`
+(the positive, stable root, `F''(S0) > 0` checked directly) to within `1e-4`
+(FIRE) and `1e-3` (Euler), and to each other to within `1e-3`; the molecular
+field at the converged state is below `1e-6` in magnitude. Setting
+`b_landau = 0` reduces this formula exactly to the existing `S0 =
+sqrt(-3 a_eff / (4 c_landau))` (`test_b_zero_reduces_to_the_existing_formula`,
+agreement `<1e-14`), and the existing `b=0` equilibrium test
+(`test_fire_matches_euler_equilibrium.rs`) still passes unchanged: every
+result measured before this term existed is reproduced exactly, since
+`b_landau=0` multiplies the entire new term through to zero, in the CPU
+implementation, in `force_fused_aos`/`force_fused_soa`, and in the split
+`force` kernel alike. All 40 `volterra-solver` tests pass, including the two
+new ones above and the pre-existing CUDA-formula cross-checks
+(`test_force_fused_formula.rs`, re-run with `b_landau=-1.5` to exercise the
+new term, agreement with the CPU reference `<1e-12` as before).
+
+**Elastic constant.** The same matching argument extends to the elastic
+term: open-Qmin's `L1` (its own chain-rule reduced-coordinate elastic force,
+`lcForce::bulkL1Force`) and volterra's `k_r` (its own matrix-calculus
+`k_r * nabla^2 Q`) are the identical physical constant with no rescaling,
+confirmed the same way -- substituting `k_r = L1'` into the chain-rule
+transform of volterra's own elastic-term formula reproduces open-Qmin's
+actual per-component force exactly, including the factor-2 asymmetry
+between diagonal and off-diagonal components that formula shows and
+volterra's own `k_r * lap(Q_ij)` does not need, because that asymmetry is an
+artefact of open-Qmin's reduced-coordinate parametrisation, not a distinct
+physical constant.
+
+**Matched-physics mapping**, used throughout the rest of this section:
+volterra's `a_landau` (`= a_eff` here, since `zeta_eff=0`), `b_landau`,
+`c_landau`, `k_r` set to `2a`, `b`, `2c`, `L1` using open-Qmin's own CLI
+defaults (`a=-0.172, b=-2.12, c=1.73, L1=4.64`), giving `a_landau=-0.344,
+b_landau=-2.12, c_landau=3.46, k_r=4.64`. The uniaxial equilibrium this
+implies, `S0=0.5866`, is the same value either code's own equilibrium
+condition gives (checked directly, both ways, above). `dt=0.0005`, matching
+open-Qmin's own `-e`/`deltaT` default rather than volterra's usual `0.005`:
+`k_r=4.64` is 4.64x volterra's usual `k_r=1`, and `0.005` is unstable
+against the stiffer elastic term (diverges to NaN within a handful of `N=8`
+iterations) -- using open-Qmin's own default timestep for its own elastic
+constant is the matched choice, not a stability patch bolted on afterwards.
+
+### The cheap volterra gains
+
+`force_fused_aos` -- measured 17.6% faster than the split `trq2`+`force`
+pair as a kernel in the previous pass (**Is anything left on the table?**
+below) but never wired into the timed FIRE loop -- is now
+`Device::fire_minimize`'s own force computation (`Device::compute_force_fused`,
+`volterra-cuda/src/device.rs`): the split path stays available only for
+`time_split_force`'s own side-by-side kernel timing. Re-measured after this
+pass's other changes (both kernels now also carry the cubic bulk term,
+N=100, 50 timed launches, no host round trip mid-loop): split 1.404 ms
+(up from the previous pass's 0.644 ms -- the split `force` kernel now reads
+a site's other four components too, to form the cubic term, where before it
+only read its own; `trq2` already paid that cost once per site, `force`
+now pays it again, redundantly, once per component), fused AoS 0.737 ms
+(up from 0.531 ms, the same new term's cost, paid once per site rather than
+five times) -- **fused is faster by 47.5%, a wider margin than the previous
+pass's 17.6%**, because the split path's own regression is larger than the
+fused path's. Structure-of-arrays (`force_fused_soa`) stays unwired, as the
+previous pass concluded: fused SoA (0.767 ms) is slower than fused AoS in
+this pass's measurement too, consistent with the previous pass's finding
+that AoS is not costing meaningful coalescing efficiency here.
+
+Regression check: `fire_minimize` reproduces the previous pass's own
+`open_qmin_defaults`/`volterra_tuned` step counts and `force_max` values
+exactly (`volterra-cuda validate`, non-matched physics, `b_landau=0`) --
+20/43 steps for the ported preset, 8/19 for `volterra_tuned`, CPU-GPU
+agreement to 15-16 significant figures throughout, unchanged from the
+previous pass's own numbers. Wiring the fused kernel in changed which
+kernel computes the force; it did not change the answer.
+
+### Matched physics: the comparison this section leads with
+
+Both codes at `a_landau=-0.344, b_landau=-2.12, c_landau=3.46, k_r=4.64,
+dt=0.0005` (the mapping above), `N=100`, literal target `1e-3`, no
+scale-matching construction. GPU rows: `nvidia-smi --query-compute-apps`
+confirmed free immediately before every timing run; `volterra-cuda matched`
+validates GPU against CPU FIRE (`N=8` to full `1e-9` convergence, `N=100` at
+the literal target, both presets) before timing anything, refusing to time
+if any check fails -- every row below passed. Six repeats across two
+independent batches for every GPU row; three repeats for CPU rows.
+
+**Step one: neither side's FIRE constants retuned for the matched
+landscape** (open-Qmin's own defaults on both sides, since volterra's
+`(a,b,c,L1)` now equal open-Qmin's):
+
+| Code | Configuration | Steps | Time (s) |
+|------|---------------|-------|----------|
+| open-Qmin | CPU, 1 rank | 54 | 1.56 (mean of 3: 1.588, 1.548, 1.539) |
+| open-Qmin | GPU | 55 | 0.193 (mean of 6, min 0.192, max 0.196) |
+| volterra | CPU, rayon | 56 | 1.93 (mean of 3: 1.942, 1.903, 1.950) |
+| volterra | GPU | 56 | 0.1743 (mean of 6, min 0.1623, max 0.2008) |
+
+Close on CPU (open-Qmin slightly ahead, fewer steps), volterra ahead on GPU
+by construction of the same margin the earlier, non-matched sections found
+at the kernel level -- neither side's FIRE constants have been touched yet.
+
+**Step two: open-Qmin's FIRE constants tuned, volterra's left at the
+(stale, pre-cubic-term) `volterra_tuned` preset from the previous pass.**
+This is the check the applicant asked for explicitly: what happens when one
+side is retuned and the other is not.
+
+| Code | Configuration | FIRE constants | Steps | Time (s) |
+|------|---------------|-----------------|-------|----------|
+| open-Qmin | GPU | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 15 | 0.0641 (mean of 6, min 0.0638, max 0.0652) |
+| volterra | GPU | `volterra_tuned` (stale: `1.6, 0.7, 0`) | 20 | 0.0725 (mean of 6) |
+
+**open-Qmin's tuned configuration reverses the gap: 0.0641 s against
+volterra's 0.0725 s, open-Qmin 1.13x faster.** This is real and reproducible
+(seed-checked, six-repeat spread on both sides), not a measurement artefact:
+`volterra_tuned` was swept on volterra's own pre-cubic-term default
+constants, a different energy landscape from the matched one, and there is
+no reason it stays optimal here. Reported before correcting it, per the
+applicant's own instruction to report the outcome whichever way it falls.
+
+**Step three: the identical sweep procedure applied to volterra for the
+matched landscape.** `examples/sweep_fire_params_matched.rs`: the same three
+constants, the same swept ranges (`delta_t_inc` 1.05-1.3, `alpha_dec`
+0.8-0.99, `n_min` 1-8), the same one-at-a-time-then-combined rule, pushed
+past its own swept range by the same amount the open-Qmin sweep was. Two
+points in the pushed region (`delta_t_inc=3.5` and `2.2`, both with
+`alpha_dec=0.99`) sit close enough to a chaotic bifurcation in FIRE's own
+adaptive-timestep rule -- barely-decaying `alpha` keeps the dynamics
+inertia-dominated, closer to conservative MD, for far longer, and
+conservative MD is exponentially sensitive to rounding -- that the GPU
+reduction's run-to-run atomic accumulation order (not fixed on real
+hardware) flipped the outcome of the `N=8` tight-tolerance GPU-vs-CPU
+correctness check between repeated runs of the *same* binary: `2.2` passed
+once and failed the next five times, CPU and GPU landing one iteration apart
+either way, 2-4e-9 apart against the `1e-9` tolerance. **A correctness check
+that nondeterministically passes checks nothing**, so neither point is used,
+even though both are faster (10 and 12 steps) than the value that replaced
+them. Holding `alpha_dec=0.7` fixed at `volterra_tuned`'s own,
+already-proven-stable value and pushing only `delta_t_inc` stayed stable to
+at least `3.0`; `delta_t_inc=2.5, alpha_dec=0.7, n_min=0` (`matched_tuned`)
+passed the `N=8` check on six repeated device runs with the same ~1e-16
+CPU/GPU agreement every other preset in this document gets, and is robust
+across four random seeds on CPU (16 steps on all four).
+
+| Code | Configuration | FIRE constants | Steps | Time (s) |
+|------|---------------|-----------------|-------|----------|
+| open-Qmin | GPU | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 15 | 0.0641 (mean of 6, min 0.0638, max 0.0652) |
+| volterra | GPU | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.0617 (mean of 6, min 0.0604, max 0.0651) |
+| open-Qmin | CPU, 1 rank | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 17 | 0.497 (mean of 3: 0.499, 0.497, 0.496) |
+| volterra | CPU, rayon | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.573 (mean of 3: 0.565, 0.583, 0.572) |
+
+**With both sides retuned by the identical procedure, volterra's GPU FIRE
+leads again, narrowly: 0.0617 s against open-Qmin's 0.0641 s, a 1.04x
+margin** -- recovered from step two's 0.89x (1/1.13), not restored to the
+non-matched comparison's 2.96x. On CPU the two codes are close enough
+(0.573 s against 0.497 s, open-Qmin 1.15x ahead) that this document does not
+call a GPU-shaped win on the CPU number; open-Qmin's CPU path takes one more
+step (17 against 16) but costs less per step here.
+
+**This is the number this document now stands behind: parity, not a
+decisive win either way, at matched physics with both sides tuned by the
+same procedure.** The 2.96x figure from the non-matched, scale-matched
+comparison earlier in this section is real on its own terms (a correct
+measurement of each code's own default constants at the literal residual
+each considers "close to equilibrium") but should not be read as volterra's
+margin over open-Qmin *at the same physics*; this section is.
+
+### Historical non-matched-physics time to reach a target residual force at N=100 (1M sites)
+
+**Superseded by the matched-physics comparison further down this section**,
+which needs no scale-matching construction; kept for its own record and
+because the per-step-throughput and roofline analysis below it (measured on
+volterra's own, non-matched, default constants) still stands on its own
+terms.
 
 Residual is open-Qmin's own `getMaxForce()` quantity, `sqrt(sum_i|f_i|^2)/N`,
 computed identically for volterra (`volterra_solver::fire::force_max_metric`,
@@ -325,9 +589,14 @@ proposed in the previous pass are now timed on the device, not left pending:
   with, the traffic-reduction prediction. Its arithmetic was already checked
   against `beris_edwards_rhs_3d_par_dry` on CPU
   (`volterra-solver/tests/test_force_fused_formula.rs`, agreement `<1e-12`);
-  it stays unwired from `Device::fire_minimize`'s own loop: the timed win at
-  this field size is real but modest, and answering the timing question this
-  pass set out to answer did not need wiring it in.
+  it stayed unwired from `Device::fire_minimize`'s own loop in that pass
+  (the timed win at this field size was real but modest, and answering the
+  timing question that pass set out to answer did not need wiring it in) --
+  now wired in, see **The cheap volterra gains** below. Both kernels also
+  carry the cubic bulk term added this pass, which needs more of a site's
+  own components than the split kernel's `force` half used to read; the
+  split path's own numbers above have moved as a result and are re-measured
+  in that section too, since they are no longer what `fire_minimize` uses.
 - **Tiling the stencil was not attempted**, for the reason the roofline
   numbers above already answer: the reuse tiling exists to capture is
   measurably already happening in L2.
@@ -426,7 +695,12 @@ on both sides, matching each code's own reported number; this
 fully-inclusive comparison is reported for completeness and does not change
 which comparison this document leads with.
 
-### Retuning FIRE's constants for volterra's own energy landscape
+### Historical non-matched-physics retuning of FIRE's constants for volterra's own energy landscape
+
+**Superseded by "Matched physics" above**, which retunes both codes' FIRE
+constants by the identical procedure (open-Qmin's own constants were never
+retuned in this pass; that gap is closed there) on the matched, not the
+default, energy landscape. Kept for its own record.
 
 open-Qmin tuned `delta_t_inc`, `alpha_dec` and `n_min` for its own energy
 landscape; volterra's bulk/elastic constants differ (see **Scale mismatch**
@@ -466,7 +740,13 @@ overhead), kept because it was cheap, safe (same reduction kernel, same
 atomics, only the buffer shape changed) and directly answered a real, if
 small, inefficiency `nsys` actually showed rather than a guessed one.
 
-### After tuning: the number this document stands behind
+### After tuning (historical, non-matched physics): superseded by "Matched physics" above
+
+The number this document stands behind is now the matched-physics one
+further up this section (1.04x, both sides tuned). This subsection's own
+2.96x remains an accurate measurement of the same non-matched, scale-matched
+comparison it always was; kept for the record, not as the document's
+headline.
 
 Both presets (`open_qmin_defaults` and `volterra_tuned`) validated before
 either was timed: GPU against CPU FIRE at N=8 (full convergence, `1e-9`
@@ -511,8 +791,10 @@ predicted before any of this was run on the device.
 
 ### Caveats
 
-- **Scale mismatch: the two codes' own default constants put "1e-3" at
-  different relative distances from equilibrium.** open-Qmin's default bulk
+- **Scale mismatch (resolved this pass; kept as the historical record of
+  why the scale-matching construction below existed).** The two codes' own
+  default constants put "1e-3" at different relative distances from
+  equilibrium. open-Qmin's default bulk
   constants (`a=-0.172, b=-2.12, c=1.73`) and volterra's (`a_landau=-0.5,
   c_landau=4.5`, no cubic `b` term in the 3D molecular field at all) are each
   code's own convention. Measured directly: open-Qmin's own residual starts
@@ -522,13 +804,16 @@ predicted before any of this was run on the device.
   identical formula on both sides and a disordered initial
   condition on volterra's side, checked directly (`test_random_director_field_is_disordered`,
   `test_random_director_field_has_fixed_magnitude`), not a trivially-converged
-  one. It should still be read alongside the scale-matched table, which is the
-  fairer race and the one this document leads with in its own framing. Closing
-  the mismatch properly needs volterra's 3D molecular field to carry the cubic
-  bulk term it currently lacks (`SUBSUMPTION.md` section 1, "gap, additive");
-  that is future work, not attempted in this dispatch.
-- **Not a matched parameter set**, for the reason directly above; a
-  parameter-matched run remains future work.
+  one. At the time this caveat was written, closing the mismatch needed
+  volterra's 3D molecular field to carry the cubic bulk term it lacked
+  (`SUBSUMPTION.md` section 1, "gap, additive"); that term now exists (**The
+  cubic bulk term** above), volterra's constants are set to open-Qmin's own
+  under the derived mapping, and the **Matched physics** section above is
+  the comparison this document actually leads with. The scale-matched table
+  remains a correct measurement of each code's own unmatched defaults, not a
+  substitute for a matched-physics run, which now exists.
+- **Now a matched parameter set** (superseded): see **Matched physics**
+  above.
 - **GPU state checked before every timing run** with `nvidia-smi
   --query-compute-apps=pid,used_memory --format=csv`, confirming no other
   process held the device; a prior timing pass on this machine was invalidated
@@ -818,9 +1103,10 @@ defect count -- golden (3 defects) and silver (4 defects) are within noise:
 - [ ] Active nematic with flow: volterra (FFT Stokes) vs Ludwig (LBM)
 - [ ] Saturn ring defect: volterra vs open-Qmin (passive, colloidal sphere)
 - [ ] DEC solver convergence order: error vs mesh spacing on S^2
-- [ ] Matched bulk LdG parameters (needs volterra's 3D molecular field to
-      gain the cubic `b` term it currently lacks) so "reach residual X" means
-      the same relative distance to equilibrium on both codes without the
-      scale-matching correction Section 1 applies by hand
+- [x] Matched bulk LdG parameters: the cubic `b` term now exists in
+      volterra's 3D molecular field, derived and validated (Section 1, "The
+      cubic bulk term"); "reach residual X" means the same relative distance
+      to equilibrium on both codes without the scale-matching correction
+      Section 1 used to need
 - [ ] volterra GPU FIRE at N=50 and N=200, to check the margin over
       open-Qmin's GPU holds away from N=100

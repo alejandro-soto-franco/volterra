@@ -62,6 +62,18 @@ impl FireParams {
             ..Self::open_qmin_defaults(delta_t, force_cutoff, max_iterations)
         }
     }
+
+    /// Retuned for the matched-physics landscape, matching
+    /// `volterra_solver::fire::FireParams::matched_tuned` exactly (see that
+    /// constructor's doc comment for the sweep it comes from).
+    pub fn matched_tuned(delta_t: f64, force_cutoff: f64, max_iterations: usize) -> Self {
+        Self {
+            delta_t_inc: 2.5,
+            alpha_dec: 0.7,
+            n_min: 0,
+            ..Self::open_qmin_defaults(delta_t, force_cutoff, max_iterations)
+        }
+    }
 }
 
 /// Physical parameters the force kernel needs (the passive-dry subset of
@@ -73,6 +85,10 @@ pub struct LdgParams {
     pub nz: u32,
     pub dx: f64,
     pub a_eff: f64,
+    /// Cubic bulk coefficient. `0.0` reproduces every result measured before
+    /// this term existed exactly, bit for bit (see
+    /// `volterra_solver::mol_field_3d`'s module header for the derivation).
+    pub b_landau: f64,
     pub c_landau: f64,
     pub k_r: f64,
     pub gamma_r: f64,
@@ -108,6 +124,13 @@ impl Device {
     /// device-resident except the three reduced scalars, copied back each
     /// step because the adaptive rule needs them on the host (exactly as
     /// open-Qmin's own `sim->sumUpdaterData` does across MPI ranks).
+    ///
+    /// The force computation is `force_fused_aos` (one thread per site, no
+    /// separate `trq2` pass), not the split `trq2`+`force` pipeline: fused
+    /// measured 17.6% faster as a kernel (`BENCHMARKS.md`'s "fuse the two
+    /// passes"), and this loop is where that saving is realised. The split
+    /// path stays available via `compute_force`/`time_split_force` for the
+    /// side-by-side kernel comparison.
     pub fn fire_minimize(
         &self,
         q0: &[f64],
@@ -123,7 +146,6 @@ impl Device {
         let mut v = DeviceBuffer::<f64>::zeroed(stream, len5)?;
         let mut f = DeviceBuffer::<f64>::zeroed(stream, len5)?;
         let mut f_new = DeviceBuffer::<f64>::zeroed(stream, len5)?;
-        let mut trq2 = DeviceBuffer::<f64>::zeroed(stream, n_sites)?;
         // One 3-element accumulator (`[sum|f|^2, sum|v|^2, sum f.v]`), not
         // three separate one-element buffers: three independent
         // `to_host_vec` calls per iteration each carry their own implicit
@@ -141,7 +163,7 @@ impl Device {
         let cfg_len5 = LaunchConfig::for_num_elems(len5 as u32);
 
         // Initial force at q0.
-        self.compute_force(&q, &mut trq2, &mut f, ldg, cfg_sites, cfg_len5)?;
+        f = self.compute_force_fused(&q, f, ldg, cfg_sites)?;
 
         let mut delta_t = params.delta_t;
         let mut alpha = params.alpha_start;
@@ -169,7 +191,7 @@ impl Device {
             }
 
             // Recompute the force at the new q.
-            self.compute_force(&q, &mut trq2, &mut f_new, ldg, cfg_sites, cfg_len5)?;
+            f_new = self.compute_force_fused(&q, f_new, ldg, cfg_sites)?;
             std::mem::swap(&mut f, &mut f_new);
 
             // half-kick #2, against the NEW force.
@@ -325,6 +347,7 @@ impl Device {
                 ldg.ny,
                 ldg.nz,
                 ldg.a_eff,
+                ldg.b_landau,
                 ldg.c_landau,
                 ldg.k_r,
                 ldg.gamma_r,
@@ -386,6 +409,7 @@ impl Device {
                 ldg.ny,
                 ldg.nz,
                 ldg.a_eff,
+                ldg.b_landau,
                 ldg.c_landau,
                 ldg.k_r,
                 ldg.gamma_r,
@@ -476,7 +500,7 @@ impl Device {
         // `n_sites * 5`, `out` has `n_sites` `[f64; 5]` slots, matching `cfg`.
         unsafe {
             self.module.force_fused_aos(
-                stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.c_landau, ldg.k_r,
+                stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.b_landau, ldg.c_landau, ldg.k_r,
                 ldg.gamma_r, inv_dx2, &mut out,
             )?;
         }
@@ -486,7 +510,7 @@ impl Device {
         for _ in 0..reps {
             unsafe {
                 self.module.force_fused_aos(
-                    stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.c_landau, ldg.k_r,
+                    stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.b_landau, ldg.c_landau, ldg.k_r,
                     ldg.gamma_r, inv_dx2, &mut out,
                 )?;
             }
@@ -533,7 +557,7 @@ impl Device {
         unsafe {
             self.module.force_fused_soa(
                 stream, cfg, &q11, &q12, &q13, &q22, &q23, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff,
-                ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
+                ldg.b_landau, ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
                 &mut o22, &mut o23,
             )?;
         }
@@ -544,7 +568,7 @@ impl Device {
             unsafe {
                 self.module.force_fused_soa(
                     stream, cfg, &q11, &q12, &q13, &q22, &q23, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff,
-                    ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
+                    ldg.b_landau, ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
                     &mut o22, &mut o23,
                 )?;
             }
@@ -584,6 +608,7 @@ impl Device {
                 ldg.ny,
                 ldg.nz,
                 ldg.a_eff,
+                ldg.b_landau,
                 ldg.c_landau,
                 ldg.k_r,
                 ldg.gamma_r,
@@ -592,5 +617,51 @@ impl Device {
             )?;
         }
         Ok(())
+    }
+
+    /// The fused, one-thread-per-site force kernel (`force_fused_aos`),
+    /// wired into `fire_minimize`'s hot loop (`BENCHMARKS.md`'s "the cheap
+    /// volterra gains": measured 17.6% faster than the split `trq2`+`force`
+    /// pair as a kernel). Takes `out` by value and returns it: the kernel
+    /// writes through `DisjointSlice<[f64; 5]>`, so `out` (allocated flat,
+    /// `n_sites * 5` `f64`s, to match every other kernel in the loop) is
+    /// reinterpreted via `cast_chunks` for the launch and back to flat `f64`
+    /// on return -- a pointer/length reinterpretation of the same
+    /// allocation, no device copy, exactly the `acc`/`acc_atomic` pattern
+    /// `fire_minimize`'s reduction already uses for the same reason.
+    fn compute_force_fused(
+        &self,
+        q: &DeviceBuffer<f64>,
+        out: DeviceBuffer<f64>,
+        ldg: &LdgParams,
+        cfg_sites: LaunchConfig,
+    ) -> Result<DeviceBuffer<f64>, CudaError> {
+        let inv_dx2 = 1.0 / (ldg.dx * ldg.dx);
+        let mut out5 = out.cast_chunks::<[f64; 5]>().unwrap_or_else(|_| {
+            panic!("n_sites*5 f64 buffer must reinterpret as n_sites [f64;5] (same alignment)")
+        });
+        // SAFETY: `q` has length `n_sites * 5`, the extent the kernel reads
+        // under `nx,ny,nz`; `out5` has `n_sites` `[f64; 5]` slots, matching
+        // `cfg_sites`.
+        unsafe {
+            self.module.force_fused_aos(
+                &self.stream,
+                cfg_sites,
+                q,
+                ldg.nx,
+                ldg.ny,
+                ldg.nz,
+                ldg.a_eff,
+                ldg.b_landau,
+                ldg.c_landau,
+                ldg.k_r,
+                ldg.gamma_r,
+                inv_dx2,
+                &mut out5,
+            )?;
+        }
+        Ok(out5.cast_chunks::<f64>().unwrap_or_else(|_| {
+            panic!("n_sites [f64;5] buffer must reinterpret back to n_sites*5 f64")
+        }))
     }
 }

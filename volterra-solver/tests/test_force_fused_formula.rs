@@ -31,6 +31,7 @@ fn force_fused_aos_reference(
     ny: usize,
     nz: usize,
     a_eff: f64,
+    b_landau: f64,
     c_landau: f64,
     k_r: f64,
     gamma_r: f64,
@@ -63,6 +64,19 @@ fn force_fused_aos_reference(
         let trq2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
         let bulk = -a_eff - 2.0 * c_landau * trq2;
 
+        let qq11 = q11 * q11 + q12 * q12 + q13 * q13;
+        let qq12 = q11 * q12 + q12 * q22 + q13 * q23;
+        let qq13 = q11 * q13 + q12 * q23 + q13 * q33;
+        let qq22 = q12 * q12 + q22 * q22 + q23 * q23;
+        let qq23 = q12 * q13 + q22 * q23 + q23 * q33;
+        let h_cubic = [
+            -3.0 * b_landau * qq11 + b_landau * trq2,
+            -3.0 * b_landau * qq12,
+            -3.0 * b_landau * qq13,
+            -3.0 * b_landau * qq22 + b_landau * trq2,
+            -3.0 * b_landau * qq23,
+        ];
+
         for c in 0..5 {
             let lap = (q[ip * 5 + c]
                 + q[im * 5 + c]
@@ -72,7 +86,7 @@ fn force_fused_aos_reference(
                 + q[lm * 5 + c]
                 - 6.0 * q[b + c])
                 * inv_dx2;
-            out[s][c] = gamma_r * (k_r * lap + bulk * q[b + c]);
+            out[s][c] = gamma_r * (k_r * lap + bulk * q[b + c] + h_cubic[c]);
         }
     }
     out
@@ -91,6 +105,11 @@ fn fused_aos_formula_matches_cpu_reference() {
     p.nz = n;
     p.zeta_eff = 0.0;
     p.noise_amp = 0.0;
+    // Nonzero, exercising the cubic bulk term the fused kernel must also
+    // carry; the initial field below is still built from the b=0 magnitude
+    // (an arbitrary off-equilibrium state for a formula check, not an
+    // equilibrium claim).
+    p.b_landau = -1.5;
     // chi_a = 0 in default_test, so the magnetic torque term the reference
     // also carries is exactly zero and the fused kernel's simpler formula
     // (no magnetic term at all, matching the existing split force/trq2
@@ -110,6 +129,7 @@ fn fused_aos_formula_matches_cpu_reference() {
         n,
         n,
         p.a_eff(),
+        p.b_landau,
         p.c_landau,
         p.k_r,
         p.gamma_r,
@@ -141,6 +161,7 @@ fn fused_soa_formula_matches_cpu_reference_and_aos() {
     p.nz = n;
     p.zeta_eff = 0.0;
     p.noise_amp = 0.0;
+    p.b_landau = -1.5;
 
     let s0 = analytic_s0(&p);
     let q = QField3D::random_director_field(n, n, n, p.dx, s0, 11);
@@ -161,6 +182,7 @@ fn fused_soa_formula_matches_cpu_reference_and_aos() {
     let inv_dx2 = 1.0 / (p.dx * p.dx);
     let nynz = n * n;
     let a_eff = p.a_eff();
+    let b_landau = p.b_landau;
     let c_landau = p.c_landau;
     let k_r = p.k_r;
     let gamma_r = p.gamma_r;
@@ -192,13 +214,26 @@ fn fused_soa_formula_matches_cpu_reference_and_aos() {
         let trq2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
         let bulk = -a_eff - 2.0 * c_landau * trq2;
 
+        let qq11 = q11 * q11 + q12 * q12 + q13 * q13;
+        let qq12 = q11 * q12 + q12 * q22 + q13 * q23;
+        let qq13 = q11 * q13 + q12 * q23 + q13 * q33;
+        let qq22 = q12 * q12 + q22 * q22 + q23 * q23;
+        let qq23 = q12 * q13 + q22 * q23 + q23 * q33;
+        let h_cubic = [
+            -3.0 * b_landau * qq11 + b_landau * trq2,
+            -3.0 * b_landau * qq12,
+            -3.0 * b_landau * qq13,
+            -3.0 * b_landau * qq22 + b_landau * trq2,
+            -3.0 * b_landau * qq23,
+        ];
+
         let centres = [q11, q12, q13, q22, q23];
         for c in 0..5 {
             let plane = &planes[c];
             let lap = (plane[ip] + plane[im] + plane[jp] + plane[jm] + plane[lp] + plane[lm]
                 - 6.0 * centres[c])
                 * inv_dx2;
-            soa_out[c][s] = gamma_r * (k_r * lap + bulk * centres[c]);
+            soa_out[c][s] = gamma_r * (k_r * lap + bulk * centres[c] + h_cubic[c]);
         }
     }
 
@@ -216,7 +251,9 @@ fn fused_soa_formula_matches_cpu_reference_and_aos() {
     );
 
     let q_flat: Vec<f64> = q.q.iter().flat_map(|c| c.iter().copied()).collect();
-    let aos = force_fused_aos_reference(&q_flat, n, n, n, a_eff, c_landau, k_r, gamma_r, inv_dx2);
+    let aos = force_fused_aos_reference(
+        &q_flat, n, n, n, a_eff, b_landau, c_landau, k_r, gamma_r, inv_dx2,
+    );
     let mut max_diff_aos = 0.0_f64;
     for s in 0..n_sites {
         for c in 0..5 {
