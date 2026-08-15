@@ -282,6 +282,27 @@ structure to get wrong), so it functions as a sanity check on the new
 circular-boundary and variable-net_charge code rather than as a demonstration
 of the paper's more detailed golden/silver claims.
 
+### The same braids off the GPU
+
+`volterra-cgpo-cuda` ports every stage of the step to CUDA through cuda-oxide,
+each kernel checked against its CPU counterpart. Running the two trajectories
+on the device and extracting the braid from its own frames:
+
+| Run | CPU | GPU | Extracted period | Entropy |
+|---|---|---|---|---|
+| golden, 750,000 steps | 483.7 s | **60.4 s** | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` | 0.962424 |
+| silver, 500,000 steps | 378.7 s | **41.0 s** | `{sigma_2 sigma_1^-1 sigma_3^-1 sigma_2^-1 sigma_1 sigma_3}` | 1.762747 |
+
+8.0x and 9.2x, and both extractions agree with the CPU's character for
+character: the same sampling window, the same defect count, the same word, the
+same entropy to six decimals, and the same whole-window figure.
+
+That last point is the one worth stating. The device and the CPU agree to about
+`1e-15` of each field's range over five thousand steps, which says nothing on
+its own about a run a hundred and fifty times longer through a regime the paper
+calls chaotic. Extracting the braid is what settles it, and the braid is a
+topological quantity, so it survives the trajectories parting.
+
 ### golden and silver reproduce, and what the earlier failure was
 
 Both runs hold the correct defect count throughout the trailing window (3 for
