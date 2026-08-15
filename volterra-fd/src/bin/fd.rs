@@ -14,8 +14,17 @@
 //! | `FD_OUT`        | ./output/fd                                | Root output directory              |
 //! | `FD_SEED`       | 0                                            | RNG seed (u64) for IC              |
 //! | `FD_THETA_IC`   | (unset)                                      | Path to flat theta grid (optional) |
-//! | `FD_BOUNDARY`   | nephroid                                     | `nephroid` or `circular`           |
+//! | `FD_BOUNDARY`   | nephroid                                     | `circular`, `cardioid`, `nephroid`, `trefoiloid` |
 //! | `FD_NET_CHARGE` | 1.0                                          | Boundary winding charge q          |
+//! | `FD_ELL_A`      | (unset)                                      | Dimensionless active length; overrides `FD_ALS`  |
+//! | `FD_ELL_C`      | (unset)                                      | Dimensionless coherence length; overrides `FD_NCL` |
+//!
+//! `FD_ELL_A` and `FD_ELL_C` are the quantities arXiv:2503.10880 reports:
+//! lengths divided by `sqrt(A_sys)`, the square root of the confined area in
+//! lattice sites (p. 3). Setting them converts to the pixel values `FD_ALS` and
+//! `FD_NCL` want using the built boundary's own interior count, which is the
+//! only way to get the conversion right for a domain whose area depends on the
+//! geometry rather than on the grid.
 
 use std::fs;
 use std::path::Path;
@@ -26,7 +35,7 @@ use rand::{RngExt, SeedableRng};
 use serde_json::json;
 
 use volterra_fd::{
-    boundary::{circular_boundary, nephroid_boundary},
+    boundary::{cardioid_boundary, circular_boundary, nephroid_boundary, trefoiloid_boundary},
     index::{si, vi},
     output::write_state_frame,
     sim_step::FdStep,
@@ -198,15 +207,58 @@ fn main() -> FdResult<()> {
     let theta_ic_path = env_string("FD_THETA_IC");
     let boundary_kind = std::env::var("FD_BOUNDARY").unwrap_or_else(|_| "nephroid".to_string());
     let net_charge = env_f64("FD_NET_CHARGE", 1.0);
+    let ell_a = env_string("FD_ELL_A").and_then(|v| v.parse::<f64>().ok());
+    let ell_c = env_string("FD_ELL_C").and_then(|v| v.parse::<f64>().ok());
 
     // derived
     let ly = lx; // square grid
     let n = lx * ly;
 
-    println!("fd: lx={lx} als={als} ncl={ncl} lambda={lambda} dt={dt} max_p_iters={max_p_iters}");
+    println!("fd: lx={lx} lambda={lambda} dt={dt} max_p_iters={max_p_iters}");
     println!("  max_steps={max_steps} save_every={save_every}");
     println!("  out_root={out_root}  seed={seed}");
     println!("  boundary={boundary_kind} net_charge={net_charge}");
+
+    // build boundary first: the dimensionless-length conversion needs its area
+    println!("Building {boundary_kind} boundary (lx={lx})...");
+    let t_bnd = Instant::now();
+    let boundary = match boundary_kind.as_str() {
+        "circular" => circular_boundary(lx, ly),
+        "cardioid" => cardioid_boundary(lx, ly),
+        "nephroid" => nephroid_boundary(lx, ly),
+        "trefoiloid" => trefoiloid_boundary(lx, ly),
+        other => {
+            return Err(FdError::Config(format!(
+                "unknown FD_BOUNDARY={other}, expected 'circular', 'cardioid', \
+                 'nephroid' or 'trefoiloid'"
+            )));
+        }
+    };
+    let n_interior = boundary.interior_count();
+    let sqrt_area = boundary.sqrt_area();
+    println!(
+        "  boundary built in {:.2}s -- {n_interior} interior cells, sqrt(A_sys)={sqrt_area:.3}",
+        t_bnd.elapsed().as_secs_f64()
+    );
+
+    // Dimensionless lengths, if given, set the pixel values.
+    let als = match ell_a {
+        Some(e) => {
+            let px = e * sqrt_area;
+            println!("  FD_ELL_A={e} -> als={px:.4} px");
+            px
+        }
+        None => als,
+    };
+    let ncl = match ell_c {
+        Some(e) => {
+            let px = e * sqrt_area;
+            println!("  FD_ELL_C={e} -> ncl={px:.4} px");
+            px
+        }
+        None => ncl,
+    };
+    println!("  als={als} ncl={ncl}");
 
     // build params
     let params = Params::new(lx, als, ncl, lambda, dt, max_p_iters).with_net_charge(net_charge);
@@ -215,27 +267,24 @@ fn main() -> FdResult<()> {
         params.k_elastic, params.zeta, params.c_landau, params.s0, params.eta
     );
 
-    // build boundary
-    println!("Building {boundary_kind} boundary (lx={lx})...");
-    let t_bnd = Instant::now();
-    let boundary = match boundary_kind.as_str() {
-        "circular" => circular_boundary(lx, ly),
-        "nephroid" => nephroid_boundary(lx, ly),
-        other => {
-            return Err(FdError::Config(format!(
-                "unknown FD_BOUNDARY={other}, expected 'circular' or 'nephroid'"
-            )));
-        }
-    };
-    let n_interior = boundary.interior_count();
-    println!("  boundary built in {:.2}s -- {n_interior} interior cells", t_bnd.elapsed().as_secs_f64());
-
     // output directories
-    let run_label = format!("als_{als}_ncl_{ncl}");
+    let run_label = format!("als_{als:.4}_ncl_{ncl:.4}");
     let run_dir = Path::new(&out_root).join(&run_label);
     for sub in &["Q", "u", "p"] {
         io_ctx(&run_dir.join(sub), fs::create_dir_all(run_dir.join(sub)))?;
     }
+
+    // The interior mask, one 0/1 per line in x*ly+y order. Defect detection
+    // needs it to know which cells are in the domain, and for a geometry whose
+    // interior test is a root solve per cell, recomputing it downstream would
+    // mean reimplementing that solve. Writing it once is the alternative.
+    let mask_path = run_dir.join("mask.txt");
+    let mask: String = boundary
+        .inside
+        .iter()
+        .map(|&b| if b { "1\n" } else { "0\n" })
+        .collect();
+    io_ctx(&mask_path, fs::write(&mask_path, mask))?;
 
     // allocate state
     let mut state = State::new(lx, ly);

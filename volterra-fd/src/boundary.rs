@@ -1,15 +1,18 @@
-/// Nephroid (epitrochoid k=2) boundary construction.
+/// Epitrochoid boundary construction (cardioid, nephroid, trefoiloid).
 ///
-/// Faithfully ports the `'epitrochoid'` branch of `set_boundary` from
-/// `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`, with the task-specified
-/// parameters d=0.99, k=2 (2-cusp nephroid).
+/// Ports the `'epitrochoid'` branch of `set_boundary` from
+/// `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`, generalised from that
+/// script's fixed 2-cusp nephroid to the whole epitrochoid family of
+/// arXiv:2503.10880 Eq. SI.6.
 ///
 /// Index convention: flat index = x * ly + y  (row-major over (x,y)),
 /// matching Python's `obj[:,:,i].flatten()` with C-order (x is the outer axis).
 use std::f64::consts::PI;
+use rayon::prelude::*;
 
-const D: f64 = 0.99;
-const K: f64 = 2.0; // number-of-cusps variable in the epitrochoid formula
+/// Default cusp regularisation. arXiv:2503.10880 SI: "We use d = 0.99 to
+/// approximate the epicycloids near their sharp limit."
+pub const EPITROCHOID_D: f64 = 0.99;
 
 /// Full boundary description for a nephroid-confined grid.
 ///
@@ -38,28 +41,136 @@ pub struct Boundary {
 }
 
 impl Boundary {
-    /// Number of cells in `sim_points` (interior of the nephroid).
+    /// Number of cells in `sim_points` (the confined interior).
     pub fn interior_count(&self) -> usize {
         self.inside.iter().filter(|&&b| b).count()
     }
 
+    /// `sqrt(A_sys)` in lattice units, the length arXiv:2503.10880 divides by
+    /// to report a dimensionless active or coherence length (p. 3).
+    ///
+    /// `A_sys` is the confined area measured as a count of interior lattice
+    /// sites, so a dimensionless `ell_tilde` converts to raw pixels as
+    /// `ell_tilde * sqrt_area()`.
+    pub fn sqrt_area(&self) -> f64 {
+        (self.interior_count() as f64).sqrt()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Epitrochoid geometry
+// ---------------------------------------------------------------------------
+
+/// An epitrochoid confinement boundary, arXiv:2503.10880 Eq. SI.6:
+///
+/// ```text
+/// x(u) = r/(2q) [(2q-1) cos(u) + d cos((2q-1) u)]
+/// y(u) = r/(2q) [(2q-1) sin(u) + d sin((2q-1) u)]
+/// ```
+///
+/// The curve carries `2(q - 1)` cusps, each of which pins a `-1/2` defect under
+/// strong tangential anchoring, so the interior holds net topological charge
+/// `q`. `q = 3/2` is the cardioid, `q = 2` the nephroid, `q = 5/2` the
+/// trefoiloid. `d` interpolates between the circle (`d = 0`) and the sharp
+/// epicycloid (`d = 1`); the paper uses `d = 0.99`, which keeps the curve
+/// `C^1`-continuous so the finite-difference normals stay well defined.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Epitrochoid {
+    /// Net topological charge the boundary imposes on the interior, a
+    /// half-integer at or above `3/2`.
+    pub q: f64,
+    /// Cusp regularisation. See [`EPITROCHOID_D`].
+    pub d: f64,
+}
+
+impl Epitrochoid {
+    /// A boundary with the paper's regularisation.
+    pub fn new(q: f64) -> Self {
+        Self { q, d: EPITROCHOID_D }
+    }
+
+    /// The cardioid, `q = 3/2`, one cusp.
+    pub fn cardioid() -> Self {
+        Self::new(1.5)
+    }
+
+    /// The nephroid, `q = 2`, two cusps.
+    pub fn nephroid() -> Self {
+        Self::new(2.0)
+    }
+
+    /// The trefoiloid, `q = 5/2`, three cusps.
+    pub fn trefoiloid() -> Self {
+        Self::new(2.5)
+    }
+
+    /// Number of cusps, `2(q - 1)`.
+    pub fn cusps(&self) -> f64 {
+        2.0 * (self.q - 1.0)
+    }
+
+    /// The curve point at parameter `u`, for scale `r`. Eq. SI.6.
+    pub fn point(&self, u: f64, r: f64) -> [f64; 2] {
+        let m = 2.0 * self.q - 1.0;
+        let a = r / (2.0 * self.q);
+        [
+            a * (m * u.cos() + self.d * (m * u).cos()),
+            a * (m * u.sin() + self.d * (m * u).sin()),
+        ]
+    }
+
+    /// The unit outward normal at parameter `u`, independent of scale.
+    ///
+    /// The normal winds through `2 pi q` over one circuit, which is what makes
+    /// the tangential anchoring built on it impose net charge `q` on the
+    /// interior. Its magnitude before normalisation falls to `1 - d` at a cusp,
+    /// so `d < 1` is what keeps the direction defined there.
+    pub fn normal(&self, u: f64) -> [f64; 2] {
+        let m = 2.0 * self.q - 1.0;
+        let k = self.cusps();
+        let norm = (1.0 + self.d * self.d + 2.0 * self.d * (k * u).cos()).sqrt();
+        [
+            (u.cos() + self.d * (m * u).cos()) / norm,
+            (u.sin() + self.d * (m * u).sin()) / norm,
+        ]
+    }
+
+    /// Enclosed area for scale `r`, in the same units as `r` squared.
+    ///
+    /// From Green's theorem on Eq. SI.6:
+    /// `A = pi m (m + d^2) (r / 2q)^2` with `m = 2q - 1`. At `d = 0` this
+    /// reduces to the area of the circle of radius `m r / 2q`, as it must.
+    pub fn area(&self, r: f64) -> f64 {
+        let m = 2.0 * self.q - 1.0;
+        let a = r / (2.0 * self.q);
+        std::f64::consts::PI * m * (m + self.d * self.d) * a * a
+    }
+}
+
+impl Default for Epitrochoid {
+    fn default() -> Self {
+        Self::nephroid()
+    }
 }
 
 // ---------------------------------------------------------------------------
 // u-solver: find u ∈ (-π, π] such that
-//   atan2((k+1)sin(u)+d*sin((k+1)u), (k+1)cos(u)+d*cos((k+1)u)) == theta
+//   atan2((2q-1)sin(u)+d*sin((2q-1)u), (2q-1)cos(u)+d*cos((2q-1)u)) == theta
 //
-// The epitrochoid tangent angle phi(u) is monotone enough over (-π,π] that a
-// coarse scan + Newton refinement is robust at all grid positions.
+// The polar angle phi(u) of the curve is strictly increasing in u whenever
+// d < 2q-1, so the root is unique on (-π, π]. A coarse scan locates it and
+// Newton refines; `solve_u` checks the residual and falls back to bisection on
+// the bracketing scan interval when Newton stalls, which it can near a cusp,
+// where phi'(u) drops to O(1 - d).
 // ---------------------------------------------------------------------------
 
-/// Evaluate the epitrochoid angle for parameter u.
+/// Evaluate the epitrochoid's polar angle for parameter u.
 #[inline]
-fn epi_angle(u: f64) -> f64 {
-    let kp1 = K + 1.0;
+fn epi_angle(u: f64, epi: &Epitrochoid) -> f64 {
+    let m = 2.0 * epi.q - 1.0;
     f64::atan2(
-        kp1 * u.sin() + D * (kp1 * u).sin(),
-        kp1 * u.cos() + D * (kp1 * u).cos(),
+        m * u.sin() + epi.d * (m * u).sin(),
+        m * u.cos() + epi.d * (m * u).cos(),
     )
 }
 
@@ -80,25 +191,34 @@ fn wrap(a: f64) -> f64 {
 /// Strategy:
 ///   1. Coarse scan of N_SCAN equally-spaced u values; pick best candidate.
 ///   2. Newton refinement (up to MAX_NEWTON steps) from that candidate.
+///   3. Bisection on the scan interval bracketing the root, if Newton left a
+///      residual above `TOL_ACCEPT`.
 ///
-/// This matches scipy fsolve(f, 0.1) in the Python code: the coarse scan
-/// handles the non-trivial structure near the two cusps of the nephroid (k=2).
-fn solve_u(theta: f64) -> f64 {
+/// Steps 1 and 2 match scipy fsolve(f, 0.1) in the Python code. Step 3 is
+/// this port's addition: `phi` is strictly increasing, so the sign of the
+/// wrapped residual brackets the root between adjacent scan points, and
+/// bisection converges there unconditionally. Newton alone is enough for the
+/// nephroid, and stalls for a fraction of the parameter circle at `q = 3/2`,
+/// where `phi'` falls to 0.02 next to the single cusp.
+fn solve_u(theta: f64, epi: &Epitrochoid) -> f64 {
     const N_SCAN: usize = 2000;
     const MAX_NEWTON: usize = 30;
     const TOL: f64 = 1e-12;
+    /// Residual above which Newton's answer is rejected for bisection's.
+    const TOL_ACCEPT: f64 = 1e-9;
 
     // coarse scan
-    let mut best_u = 0.0_f64;
+    let mut best_i = 0usize;
     let mut best_err = f64::INFINITY;
+    let scan_u = |i: usize| -PI + (2.0 * PI) * (i as f64) / (N_SCAN as f64);
     for i in 0..N_SCAN {
-        let u = -PI + (2.0 * PI) * (i as f64) / (N_SCAN as f64);
-        let err = wrap(epi_angle(u) - theta).abs();
+        let err = wrap(epi_angle(scan_u(i), epi) - theta).abs();
         if err < best_err {
             best_err = err;
-            best_u = u;
+            best_i = i;
         }
     }
+    let best_u = scan_u(best_i);
 
     // Newton refinement
     // f(u)  = epi_angle(u) - theta  (wrapped)
@@ -106,11 +226,12 @@ fn solve_u(theta: f64) -> f64 {
     let h = 1e-7_f64;
     let mut u = best_u;
     for _ in 0..MAX_NEWTON {
-        let fu = wrap(epi_angle(u) - theta);
+        let fu = wrap(epi_angle(u, epi) - theta);
         if fu.abs() < TOL {
             break;
         }
-        let fp = (wrap(epi_angle(u + h) - theta) - wrap(epi_angle(u - h) - theta)) / (2.0 * h);
+        let fp = (wrap(epi_angle(u + h, epi) - theta) - wrap(epi_angle(u - h, epi) - theta))
+            / (2.0 * h);
         if fp.abs() < 1e-15 {
             break;
         }
@@ -121,63 +242,111 @@ fn solve_u(theta: f64) -> f64 {
             u -= 2.0 * PI;
         }
     }
-    u
+    if wrap(epi_angle(u, epi) - theta).abs() <= TOL_ACCEPT {
+        return u;
+    }
+
+    // Bisection fallback. phi is increasing, so the root lies in whichever of
+    // the two intervals adjoining the best scan point has a sign change.
+    // The bracket is taken in unwrapped u, not modulo the scan index, so that
+    // a root next to u = ±π still gets an interval with lo < hi. epi_angle is
+    // 2π-periodic in u, so evaluating outside (-π, π] is well defined.
+    let residual = |u: f64| wrap(epi_angle(u, epi) - theta);
+    let step = 2.0 * PI / N_SCAN as f64;
+    let mut lo = best_u - step;
+    let mut hi = best_u + step;
+    if residual(lo) * residual(best_u) <= 0.0 {
+        hi = best_u;
+    } else if residual(best_u) * residual(hi) <= 0.0 {
+        lo = best_u;
+    } else {
+        // No sign change adjoining the scan minimum: keep Newton's answer.
+        return u;
+    }
+    for _ in 0..80 {
+        let mid = 0.5 * (lo + hi);
+        if residual(lo) * residual(mid) <= 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    0.5 * (lo + hi)
 }
 
 /// Compute the unit outward normal for a boundary cell at grid position (x, y).
 ///
-/// Matches Python:
+/// Matches Python, with `k = 2(q-1)` cusps and `k + 1 = 2q - 1`:
 ///   norm = sqrt(1 + d^2 + 2*d*cos(k*u))
 ///   nx = (cos(u) + d*cos((k+1)*u)) / norm
 ///   ny = (sin(u) + d*sin((k+1)*u)) / norm
 #[inline]
-fn boundary_normal(x: usize, y: usize, radius: usize) -> [f64; 2] {
+fn boundary_normal(x: usize, y: usize, radius: usize, epi: &Epitrochoid) -> [f64; 2] {
     let r = radius as f64;
     let dx = x as f64 - r;
     let dy = y as f64 - r;
     let theta = dy.atan2(dx);
-    let u = solve_u(theta);
-    let kp1 = K + 1.0;
-    let norm = (1.0 + D * D + 2.0 * D * (K * u).cos()).sqrt();
-    let nx = (u.cos() + D * (kp1 * u).cos()) / norm;
-    let ny = (u.sin() + D * (kp1 * u).sin()) / norm;
-    [nx, ny]
+    epi.normal(solve_u(theta, epi))
 }
 
-/// Test whether grid cell (x, y) is inside the nephroid.
+/// Test whether grid cell (x, y) is inside the epitrochoid.
 ///
 /// Matches Python:
-///   (x-r)^2 + (y-r)^2 <= r^2/(k+2)^2 * ((k+1)^2 + d^2 + 2*(k+1)*d*cos(k*u))
-fn is_inside(x: usize, y: usize, radius: usize) -> bool {
+///   (x-r)^2 + (y-r)^2 <= r^2/(2q)^2 * ((2q-1)^2 + d^2 + 2*(2q-1)*d*cos(k*u))
+fn is_inside(x: usize, y: usize, radius: usize, epi: &Epitrochoid) -> bool {
     let r = radius as f64;
     let dx = x as f64 - r;
     let dy = y as f64 - r;
     let lhs = dx * dx + dy * dy;
     let theta = dy.atan2(dx);
-    let u = solve_u(theta);
-    let kp1 = K + 1.0;
-    let rhs = (r * r) / ((K + 2.0) * (K + 2.0))
-        * (kp1 * kp1 + D * D + 2.0 * kp1 * D * (K * u).cos());
+    let u = solve_u(theta, epi);
+    let k = epi.cusps();
+    let m = 2.0 * epi.q - 1.0;
+    let d = epi.d;
+    let two_q = 2.0 * epi.q;
+    let rhs = (r * r) / (two_q * two_q) * (m * m + d * d + 2.0 * m * d * (k * u).cos());
     lhs <= rhs
 }
 
-/// Build the nephroid boundary for an `lx × ly` grid.
-///
-/// Parameters match the Python epitrochoid branch: d=0.99, k=2.
-/// `radius = lx / 2 - 1` (integer division, as in Python).
+/// Build the nephroid (`q = 2`) boundary for an `lx × ly` grid.
 pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
+    epitrochoid_boundary(lx, ly, Epitrochoid::nephroid())
+}
+
+/// Build the cardioid (`q = 3/2`) boundary for an `lx × ly` grid.
+pub fn cardioid_boundary(lx: usize, ly: usize) -> Boundary {
+    epitrochoid_boundary(lx, ly, Epitrochoid::cardioid())
+}
+
+/// Build the trefoiloid (`q = 5/2`) boundary for an `lx × ly` grid.
+pub fn trefoiloid_boundary(lx: usize, ly: usize) -> Boundary {
+    epitrochoid_boundary(lx, ly, Epitrochoid::trefoiloid())
+}
+
+/// Build an epitrochoid boundary for an `lx × ly` grid.
+///
+/// `radius = lx / 2 - 1` (integer division, as in Python).
+///
+/// The interior test and the normals each solve for the curve parameter `u`
+/// from a cell's polar angle, at a couple of thousand trigonometric
+/// evaluations per cell, so both passes go through rayon regardless of grid
+/// size. [`crate::par_gate`] governs the per-step kernels, where the tradeoff
+/// against spawn overhead is a real one; it does not apply to a construction
+/// this heavy that runs once.
+pub fn epitrochoid_boundary(lx: usize, ly: usize, epi: Epitrochoid) -> Boundary {
     let n = lx * ly;
     let radius = lx / 2 - 1;
 
     // Pass 1: determine sim_points (inside)
     let mut inside = vec![false; n];
-    for x in 0..lx {
-        for y in 0..ly {
-            if is_inside(x, y, radius) {
-                inside[x * ly + y] = true;
+    inside
+        .par_chunks_mut(ly)
+        .enumerate()
+        .for_each(|(x, row)| {
+            for (y, cell) in row.iter_mut().enumerate() {
+                *cell = is_inside(x, y, radius, &epi);
             }
-        }
-    }
+        });
 
     // Pass 2: outer boundary (inside cells with a non-inside 4-neighbour)
     let mut is_outer = vec![false; n];
@@ -230,17 +399,24 @@ pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
     let mut outer_normals = vec![zero; n];
     let mut inner_normals = vec![zero; n];
 
-    for x in 0..lx {
-        for y in 0..ly {
-            let idx = x * ly + y;
-            if is_outer[idx] {
-                outer_normals[idx] = boundary_normal(x, y, radius);
+    outer_normals
+        .par_chunks_mut(ly)
+        .zip(inner_normals.par_chunks_mut(ly))
+        .enumerate()
+        .for_each(|(x, (outer_row, inner_row))| {
+            for y in 0..ly {
+                let idx = x * ly + y;
+                if is_outer[idx] || is_inner[idx] {
+                    let normal = boundary_normal(x, y, radius, &epi);
+                    if is_outer[idx] {
+                        outer_row[y] = normal;
+                    }
+                    if is_inner[idx] {
+                        inner_row[y] = normal;
+                    }
+                }
             }
-            if is_inner[idx] {
-                inner_normals[idx] = boundary_normal(x, y, radius);
-            }
-        }
-    }
+        });
 
     Boundary {
         lx,

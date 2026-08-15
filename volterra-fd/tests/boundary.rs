@@ -123,3 +123,122 @@ fn outer_cells_have_non_inside_neighbour() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The epitrochoid family: cardioid (q=3/2), nephroid (q=2), trefoiloid (q=5/2)
+//
+// arXiv:2503.10880 Eq. SI.6. The nephroid cases above pin the ported behaviour
+// against the Python reference; these pin the generalisation that carries it to
+// the other members of the family.
+// ---------------------------------------------------------------------------
+
+use std::f64::consts::PI;
+use volterra_fd::{cardioid_boundary, epitrochoid_boundary, trefoiloid_boundary, Epitrochoid};
+
+/// The regularised outward normal winds through exactly `2 pi`, at every `q`.
+///
+/// This is worth pinning because it is the opposite of the natural guess. The
+/// normal is `e^{iu} (1 + d e^{i k u})` up to scale, and for `d < 1` the second
+/// factor never encircles the origin, so the winding is one turn whatever the
+/// cusp count `k`. Only the sharp epicycloid at `d = 1` winds `q` times, by
+/// picking up a jump of `pi` at each cusp.
+///
+/// So the boundary condition these normals build is a charge-1 condition, the
+/// same as a disk's, and `net_charge` must be `1.0` for an epitrochoid run. The
+/// excess defects are not imposed: each regularised cusp pins a `-1/2` defect
+/// dynamically, and `n(+1/2) - k(-1/2) = 1` gives `n = 2 + k = 2q` mobile
+/// defects, three in the cardioid and four in the nephroid. That count is a
+/// result of a run, not a property of the mesh, so this test cannot check it.
+#[test]
+fn regularised_normal_winds_once() {
+    for q in [1.5_f64, 2.0, 2.5] {
+        let epi = Epitrochoid::new(q);
+        let n_samples = 200_000;
+        let mut total = 0.0_f64;
+        let mut prev = f64::atan2(epi.normal(0.0)[1], epi.normal(0.0)[0]);
+        for i in 1..=n_samples {
+            let u = 2.0 * PI * i as f64 / n_samples as f64;
+            let n = epi.normal(u);
+            let angle = f64::atan2(n[1], n[0]);
+            let mut delta = angle - prev;
+            while delta > PI {
+                delta -= 2.0 * PI;
+            }
+            while delta < -PI {
+                delta += 2.0 * PI;
+            }
+            total += delta;
+            prev = angle;
+        }
+        let turns = total / (2.0 * PI);
+        assert!(
+            (turns - 1.0).abs() < 1e-6,
+            "q={q}: normal winds {turns} turns, expected 1"
+        );
+    }
+}
+
+/// The counted interior agrees with the closed-form area of Eq. SI.6.
+///
+/// A lattice count and a continuum area differ by a boundary term of order the
+/// perimeter, so the tolerance is a percent rather than a rounding error. What
+/// this catches is a wrong `q`, a wrong `d`, or an interior test that traces
+/// some other curve, all of which move the area by tens of percent.
+#[test]
+fn interior_count_matches_closed_form_area() {
+    for (label, q, lx) in [("cardioid", 1.5_f64, 200_usize), ("nephroid", 2.0, 100), ("trefoiloid", 2.5, 200)] {
+        let epi = Epitrochoid::new(q);
+        let b = epitrochoid_boundary(lx, lx, epi);
+        let counted = b.interior_count() as f64;
+        let closed_form = epi.area((lx / 2 - 1) as f64);
+        let rel = (counted - closed_form).abs() / closed_form;
+        println!(
+            "{label} lx={lx}: counted {counted}, closed form {closed_form:.1}, \
+             rel {rel:.4}, sqrt(A_sys) {:.2}",
+            b.sqrt_area()
+        );
+        assert!(
+            rel < 0.01,
+            "{label}: counted {counted} against closed form {closed_form:.1}, rel {rel:.4}"
+        );
+    }
+}
+
+/// Every boundary normal is a unit vector for every member of the family.
+///
+/// At `q = 3/2` the pre-normalisation magnitude drops to `1 - d = 0.01` beside
+/// the single cusp, where the polar-angle solve is at its worst conditioned; a
+/// normal that failed to come back unit there would mean `solve_u` returned a
+/// parameter for the wrong point on the curve.
+#[test]
+fn family_normals_are_unit() {
+    for (label, b) in [
+        ("cardioid", cardioid_boundary(100, 100)),
+        ("trefoiloid", trefoiloid_boundary(100, 100)),
+    ] {
+        for idx in 0..b.lx * b.ly {
+            for (layer, n) in [("outer", b.outer_normals[idx]), ("inner", b.inner_normals[idx])] {
+                let on_layer = if layer == "outer" { b.is_outer[idx] } else { b.is_inner[idx] };
+                if !on_layer {
+                    continue;
+                }
+                let mag = (n[0] * n[0] + n[1] * n[1]).sqrt();
+                assert!(
+                    (mag - 1.0).abs() < 1e-9,
+                    "{label} {layer} normal at flat index {idx} has |n|={mag}"
+                );
+            }
+        }
+    }
+}
+
+/// `d = 0` degenerates to a disk, whatever `q` is.
+#[test]
+fn zero_regularisation_is_a_disk() {
+    let epi = Epitrochoid { q: 2.0, d: 0.0 };
+    let b = epitrochoid_boundary(100, 100, epi);
+    // The disk this reduces to has radius (2q-1) r / 2q = 3 * 49 / 4.
+    let expected = PI * (3.0 * 49.0 / 4.0_f64).powi(2);
+    let rel = (b.interior_count() as f64 - expected).abs() / expected;
+    assert!(rel < 0.01, "counted {}, expected ~{expected:.1}", b.interior_count());
+}

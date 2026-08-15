@@ -15,11 +15,14 @@
 //! This crate is a complete Rust port of the solver in
 //! `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`. Every kernel matches the
 //! Python numba reference to rounding (the golden-data tests under `tests/ref/`
-//! are the contract). It provides the simulation parameters, the nephroid
-//! boundary construction, the physics kernels, and a hardened run harness.
+//! are the contract). It provides the simulation parameters, the confinement
+//! boundary constructions, the physics kernels, and a hardened run harness.
 
 pub mod boundary;
-pub use boundary::{circular_boundary, nephroid_boundary, Boundary};
+pub use boundary::{
+    Boundary, Epitrochoid, cardioid_boundary, circular_boundary, epitrochoid_boundary,
+    nephroid_boundary, trefoiloid_boundary,
+};
 
 pub mod index;
 
