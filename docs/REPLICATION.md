@@ -537,11 +537,12 @@ FD_LX=100 FD_BOUNDARY=circular FD_NET_CHARGE=1.5 FD_ALS=3.99 \
   FD_NCL=0.975 FD_LAMBDA=1.0 FD_MAX_P_ITERS=50 FD_MAX_STEPS=750000 \
   FD_SAVE_EVERY=750 FD_OUT=/tmp/fd-golden-dense FD_SEED=0 \
   ./target/release/fd
-python3 extract_braid.py /tmp/fd-golden-dense/als_3.99_ncl_0.975 100 3
+python3 volterra-braid/oracle/extract_braid.py \
+  /tmp/fd-golden-dense/als_3.99_ncl_0.975 100 3
 ```
 
 Swap `FD_NET_CHARGE=2.0`, `FD_MAX_STEPS=500000`, `FD_SAVE_EVERY=500`
-for silver. `extract_braid.py` lives outside this repository during this
-dispatch; see the accompanying report for its path. See `docs/SUBSUMPTION.md`
+for silver. `extract_braid.py` ships in `volterra-braid/oracle/` alongside the tracker it
+imports, so the reproduce path needs nothing outside the repository. See `docs/SUBSUMPTION.md`
 for how this boundary condition and its validation status are recorded in
 the coverage matrix.
