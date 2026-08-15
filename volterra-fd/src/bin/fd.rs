@@ -11,6 +11,7 @@
 //! | `FD_MAX_P_ITERS`| 50                                           | Max pressure Jacobi iters per step |
 //! | `FD_MAX_STEPS`  | 400000                                       | Total simulation steps             |
 //! | `FD_SAVE_EVERY` | 1000                                         | Steps between frame saves          |
+//! | `FD_SAVE_FROM`  | 0                                            | First step to write a frame for    |
 //! | `FD_OUT`        | ./output/fd                                | Root output directory              |
 //! | `FD_SEED`       | 0                                            | RNG seed (u64) for IC              |
 //! | `FD_THETA_IC`   | (unset)                                      | Path to flat theta grid (optional) |
@@ -160,12 +161,17 @@ struct FdObserver<'a> {
     t_start: Instant,
     last_report: Instant,
     max_steps: usize,
+    /// First step to write a frame for. Frames before this are dropped.
+    save_from: usize,
     guard_err: Option<FdError>,
 }
 
 impl<'a> Observer<State> for FdObserver<'a> {
     fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
         if self.guard_err.is_some() {
+            return;
+        }
+        if step < self.save_from {
             return;
         }
         if let Err(e) = write_state_frame(self.run_dir, step, state, self.boundary) {
@@ -204,6 +210,7 @@ fn main() -> FdResult<()> {
     let save_every = env_usize("FD_SAVE_EVERY", 1_000);
     let out_root = env_string("FD_OUT").unwrap_or_else(|| "./output/fd".to_string());
     let seed = env_u64("FD_SEED", 0);
+    let save_from = env_usize("FD_SAVE_FROM", 0);
     let theta_ic_path = env_string("FD_THETA_IC");
     let boundary_kind = std::env::var("FD_BOUNDARY").unwrap_or_else(|_| "nephroid".to_string());
     let net_charge = env_f64("FD_NET_CHARGE", 1.0);
@@ -215,7 +222,7 @@ fn main() -> FdResult<()> {
     let n = lx * ly;
 
     println!("fd: lx={lx} lambda={lambda} dt={dt} max_p_iters={max_p_iters}");
-    println!("  max_steps={max_steps} save_every={save_every}");
+    println!("  max_steps={max_steps} save_every={save_every} save_from={save_from}");
     println!("  out_root={out_root}  seed={seed}");
     println!("  boundary={boundary_kind} net_charge={net_charge}");
 
@@ -349,6 +356,7 @@ fn main() -> FdResult<()> {
         t_start,
         last_report: t_start,
         max_steps,
+        save_from,
         guard_err: None,
     };
 

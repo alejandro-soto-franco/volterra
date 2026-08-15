@@ -142,10 +142,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    let Some(&(start, end, count)) = trailing_runs(&pos_counts)
-        .iter()
-        .find(|&&(s, e, c)| e - s + 1 >= min_window && c >= 2)
-    else {
+    // The longest stable-count stretch past the initial transient, rather than
+    // the latest one. arXiv:2503.10880 reports most epitrochoid braids as
+    // interrupted: a +1/2 defect is pair-annihilated at a cusp and re-emitted a
+    // moment later, so the count dips for a frame or two mid-cycle and the last
+    // stable stretch can be a short tail that happens to end the run. Ties go to
+    // the later stretch.
+    let transient = frames.len() / 4;
+    let mut candidates: Vec<(usize, usize, usize)> = trailing_runs(&pos_counts)
+        .into_iter()
+        .filter(|&(s, e, c)| e >= transient && e - s + 1 >= min_window && c >= 2)
+        .collect();
+    candidates.sort_by_key(|&(s, e, _)| (e - s, e));
+    let Some(&(start, end, count)) = candidates.last() else {
         println!("no run of >={min_window} frames with a stable +1/2 count of at least 2");
         std::process::exit(3);
     };
@@ -154,7 +163,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         end - start + 1
     );
 
-    let worldlines: Vec<Worldline> = track(&positive[start..=end]);
+    let window = &positive[start..=end];
+
+    // The braid word depends on the projection direction; the topological
+    // entropy of a genuinely pseudo-Anosov stirring does not, as long as the
+    // projection is generic. A degenerate direction, one along which two
+    // strands stay nearly collinear, drops crossings and reads low. Scanning
+    // the angle separates the two: a real braid holds its entropy over a range
+    // of angles, and an artefact of one projection does not.
+    if args.iter().any(|a| a == "--axis-scan") {
+        println!("  projection scan (angle, period length, entropy per period):");
+        for k in 0..12 {
+            let theta = std::f64::consts::PI * k as f64 / 12.0;
+            let rotated: Vec<Vec<Defect>> = window.iter().map(|f| rotate(f, theta)).collect();
+            let w = extract_braidword(&track(&rotated));
+            let p = w.period_word();
+            println!(
+                "    {:>5.1} deg  {:>3} gens  h = {:.6}  {{{}}}",
+                theta.to_degrees(),
+                p.gens.len(),
+                w.entropy_per_period(),
+                format_word(&p)
+            );
+        }
+    }
+
+    let worldlines: Vec<Worldline> = track(window);
     let word: BraidWord = extract_braidword(&worldlines);
     let period = word.period_word();
 
@@ -193,4 +227,23 @@ fn format_word(w: &BraidWord) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// Rotate a frame's defect positions by `theta` about the origin.
+///
+/// `extract_braidword` projects onto the first coordinate, so rotating the
+/// positions is how the projection direction is chosen. Tracking is by distance
+/// and so is unaffected.
+fn rotate(frame: &[Defect], theta: f64) -> Vec<Defect> {
+    let (s, c) = theta.sin_cos();
+    frame
+        .iter()
+        .map(|d| Defect {
+            pos: [
+                c * d.pos[0] + s * d.pos[1],
+                -s * d.pos[0] + c * d.pos[1],
+            ],
+            charge: d.charge,
+        })
+        .collect()
 }
