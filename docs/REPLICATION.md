@@ -538,7 +538,7 @@ FD_LX=100 FD_BOUNDARY=circular FD_NET_CHARGE=1.5 FD_ALS=3.99 \
   FD_SAVE_EVERY=750 FD_OUT=/tmp/fd-golden-dense FD_SEED=0 \
   ./target/release/fd
 python3 volterra-braid/oracle/extract_braid.py \
-  /tmp/fd-golden-dense/als_3.99_ncl_0.975 100 3
+  /tmp/fd-golden-dense/als_3.9900_ncl_0.9750 100 3
 ```
 
 Swap `FD_NET_CHARGE=2.0`, `FD_MAX_STEPS=500000`, `FD_SAVE_EVERY=500`

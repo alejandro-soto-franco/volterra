@@ -39,8 +39,15 @@ fn read_frame(path: &Path) -> Result<(Vec<f64>, Vec<f64>), Box<dyn Error>> {
         let (Some(a), Some(b)) = (it.next(), it.next()) else {
             continue;
         };
-        qxx.push(a.parse::<f64>()?);
-        qxy.push(b.parse::<f64>()?);
+        // Naming the file matters: pointed at a run still in flight, this hits
+        // the frame currently being written, and the failure should say so
+        // rather than read as a diverged field.
+        let parse = |t: &str| -> Result<f64, Box<dyn Error>> {
+            t.parse::<f64>()
+                .map_err(|e| format!("{}: {e} on {t:?}", path.display()).into())
+        };
+        qxx.push(parse(a)?);
+        qxy.push(parse(b)?);
     }
     Ok((qxx, qxy))
 }
@@ -92,8 +99,20 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut positive: Vec<Vec<Defect>> = Vec::with_capacity(frames.len());
     let mut negative: Vec<Vec<Defect>> = Vec::with_capacity(frames.len());
-    for f in &frames {
-        let (qxx, qxy) = read_frame(f)?;
+    for (i, f) in frames.iter().enumerate() {
+        let (qxx, qxy) = match read_frame(f) {
+            Ok(v) => v,
+            // Only the newest frame is allowed to be unreadable, and only
+            // because pointing this at a run still in flight catches the frame
+            // being written. Anywhere earlier, an unreadable frame is a
+            // corrupted one and the run should be looked at, not analysed.
+            Err(e) if i + 1 == frames.len() => {
+                println!("  dropping the newest frame, still being written: {e}");
+                frames.pop();
+                break;
+            }
+            Err(e) => return Err(e),
+        };
         let found = detect_defects_winding(&qxx, &qxy, lx, ly, &mask);
         positive.push(found.iter().copied().filter(|d| d.charge > 0).collect());
         negative.push(found.into_iter().filter(|d| d.charge < 0).collect());
@@ -142,28 +161,69 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    // The longest stable-count stretch past the initial transient, rather than
-    // the latest one. arXiv:2503.10880 reports most epitrochoid braids as
-    // interrupted: a +1/2 defect is pair-annihilated at a cusp and re-emitted a
-    // moment later, so the count dips for a frame or two mid-cycle and the last
-    // stable stretch can be a short tail that happens to end the run. Ties go to
-    // the later stretch.
     let transient = frames.len() / 4;
-    let mut candidates: Vec<(usize, usize, usize)> = trailing_runs(&pos_counts)
-        .into_iter()
-        .filter(|&(s, e, c)| e >= transient && e - s + 1 >= min_window && c >= 2)
-        .collect();
-    candidates.sort_by_key(|&(s, e, _)| (e - s, e));
-    let Some(&(start, end, count)) = candidates.last() else {
-        println!("no run of >={min_window} frames with a stable +1/2 count of at least 2");
-        std::process::exit(3);
-    };
+
+    // Two ways to choose the frames the braid is read from.
+    //
+    // The default is the longest stable-count stretch past the initial
+    // transient, rather than the latest one: the last stable stretch can be a
+    // short tail that happens to end the run. Ties go to the later stretch.
+    //
+    // --bridge-interruptions instead keeps every post-transient frame whose
+    // count equals the modal count and drops the rest. arXiv:2503.10880 reports
+    // most epitrochoid braids as interrupted, each +1/2 defect being
+    // pair-annihilated at a cusp and re-emitted at the same place a moment
+    // later, and rectifies this by "permitting that the newly created defect
+    // carries on the same braid strands as the recently annihilated defect".
+    // Dropping the frames where the count dips and letting the tracker resume
+    // is that rectification: the nearest previous strand to a defect emitted at
+    // a cusp is the one that vanished into it. The count of dropped frames is
+    // printed, since the rectification is only defensible while it stays small.
+    let (window, start, end, count): (Vec<Vec<Defect>>, usize, usize, usize) =
+        if args.iter().any(|a| a == "--bridge-interruptions") {
+            let mut modal: BTreeMap<usize, usize> = BTreeMap::new();
+            for &c in &pos_counts[transient..] {
+                if c >= 2 {
+                    *modal.entry(c).or_default() += 1;
+                }
+            }
+            let Some((&c, &held)) = modal.iter().max_by_key(|&(_, n)| *n) else {
+                println!("no post-transient frame carries two or more +1/2 defects");
+                std::process::exit(3);
+            };
+            let kept: Vec<usize> = (transient..pos_counts.len())
+                .filter(|&i| pos_counts[i] == c)
+                .collect();
+            let dropped = pos_counts.len() - transient - kept.len();
+            println!(
+                "  bridging interruptions: {held} frames at the modal count {c}, \
+                 {dropped} dropped ({:.0}% of the post-transient run)",
+                100.0 * dropped as f64 / (pos_counts.len() - transient) as f64
+            );
+            (
+                kept.iter().map(|&i| positive[i].clone()).collect(),
+                kept[0],
+                *kept.last().unwrap(),
+                c,
+            )
+        } else {
+            let mut candidates: Vec<(usize, usize, usize)> = trailing_runs(&pos_counts)
+                .into_iter()
+                .filter(|&(s, e, c)| e >= transient && e - s + 1 >= min_window && c >= 2)
+                .collect();
+            candidates.sort_by_key(|&(s, e, _)| (e - s, e));
+            let Some(&(s, e, c)) = candidates.last() else {
+                println!("no run of >={min_window} frames with a stable +1/2 count of at least 2");
+                std::process::exit(3);
+            };
+            (positive[s..=e].to_vec(), s, e, c)
+        };
     println!(
         "  braiding frames [{start}, {end}] ({} frames), {count} mobile +1/2 defects",
-        end - start + 1
+        window.len()
     );
 
-    let window = &positive[start..=end];
+    let window = &window[..];
 
     // The braid word depends on the projection direction; the topological
     // entropy of a genuinely pseudo-Anosov stirring does not, as long as the
