@@ -411,8 +411,9 @@ across four random seeds on CPU (16 steps on all four).
 | open-Qmin | GPU | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 15 | 0.0638 (mean of 6, min 0.0634, max 0.0643) |
 | volterra | GPU, fused bookkeeping | `matched_tuned` (`2.5, 0.7, 0`) | 16 | **0.0471** (mean of 6, min 0.0466, max 0.0477) |
 | volterra | GPU, split bookkeeping | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.0591 (mean of 6 x 3 runs: 0.0599, 0.0591, 0.0587) |
-| open-Qmin | CPU, 1 rank | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 17 | 0.497 (mean of 3: 0.499, 0.497, 0.496) |
-| volterra | CPU, rayon | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.573 (mean of 3: 0.565, 0.583, 0.572) |
+| open-Qmin | CPU, 1 rank (its best) | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 17 | 0.4748 (mean of 3: 0.4752, 0.4733, 0.4760) |
+| volterra | CPU, 16 threads (its best) | `matched_tuned` (`2.5, 0.7, 0`) | 16 | **0.1911** (mean of 5, min 0.1893, max 0.1921) |
+| volterra | CPU, 1 thread | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.4134 (mean of 5, min 0.4094, max 0.4214) |
 
 **With both sides retuned by the identical procedure and volterra's FIRE
 bookkeeping fused, volterra's GPU FIRE leads by 1.35x: 0.0471 s against
@@ -424,11 +425,31 @@ fields agreeing at 1e-16. The open-Qmin row was re-measured in the
 same sitting rather than carried over, and reads 0.0638 s against the fourth
 pass's 0.0641 s.
 
-On CPU the two codes are close enough (0.573 s against 0.497 s, open-Qmin 1.15x
-ahead) that this document does not call a GPU-shaped win on the CPU number;
-open-Qmin's CPU path takes one more step (17 against 16) but costs less per step
-here. **The fusion is a GPU-path change and the CPU numbers are unaffected by
-it.**
+**volterra leads on the CPU as well, by 2.48x**: 0.1911 s against 0.4748 s, each
+code in its own fastest configuration. Held to a single thread it still leads,
+0.4134 s against 0.4748 s. This reverses the fourth pass, which had open-Qmin
+ahead by 1.15x there and said so; what changed is allocation traffic, not
+arithmetic. The CPU minimiser had been allocating three 40 MB fields per
+iteration at N=100 and taking a full extra pass over the field for a scalar
+multiply, so most of its time went on faulting in fresh pages, and the same
+bookkeeping fusion the GPU path got was then applied to it. Both changes are
+checked against the GPU: same step counts, `max|Q_cpu - Q_gpu|` at 1e-16.
+
+open-Qmin is given its own fastest CPU configuration above. Its MPI
+decomposition costs more than it saves on a 100^3 grid, monotonically: 1 rank
+0.475 s, 2 ranks 0.810 s, 4 ranks 1.384 s, 8 ranks 2.771 s, 16 ranks 5.367 s.
+
+volterra's own CPU scaling stays poor and the rows say so: 0.4134 s at one
+thread against 0.1911 s at sixteen is 2.16x for sixteen times the cores, and
+thirty-two threads is slower than sixteen. The kernel is bandwidth-bound, which
+is what the GPU roofline concludes for the same physics.
+
+**Every row in this table was measured on an idle box.**
+`the benchmark launcher` waits for the one-minute load average
+to hold under 3.0 across six consecutive checks before starting and re-checks
+between rows; it began this run at load 0.23. An earlier attempt at these CPU
+rows was taken while four unrelated jobs were on the machine at load 44, and
+those numbers were discarded rather than reported.
 
 **This is the number this document now stands behind: 1.35x on the GPU and
 open-Qmin ahead on the CPU, at matched physics with both sides tuned by the
