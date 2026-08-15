@@ -969,16 +969,28 @@ pub mod kernels {
     /// order into its own slot, and the caller adds those slots up in index
     /// order too, so the result is the same every time.
     ///
-    /// The result is deterministic but not the CPU's association: the CPU sums
-    /// the grid element by element, this sums spans and then adds the spans.
+    /// The convergence measure's two sums, one pair per span.
+    ///
+    /// The pressure loop stops when `sum|p_aux - p| / (1e-7 + sum p_aux)` falls
+    /// under its target, so the sweep count depends on this sum. Accumulating
+    /// it through device atomics would make the order of accumulation, and so
+    /// the sweep count, vary between runs of the same binary. Each thread
+    /// instead owns a fixed, contiguous span of the grid and sums it in index
+    /// order into its own slot, and the caller adds those slots up in index
+    /// order too, so the result is the same every time. It is a different
+    /// association from the CPU's element-by-element sum, not a random one.
+    ///
+    /// Both sums go in one 2-wide slot so the host reads them back in a single
+    /// transfer. That transfer is the only synchronisation inside a step, and
+    /// two of them cost about as much as everything else the step does.
     #[kernel]
-    pub fn pressure_diff_partials(
+    pub fn pressure_partials(
         p: &[f64],
         p_aux: &[f64],
         len: u32,
         span: u32,
         n_blocks: u32,
-        mut partials: DisjointSlice<f64>,
+        mut partials: DisjointSlice<[f64; 2]>,
     ) {
         let tid = thread::index_1d();
         let b = tid.get();
@@ -991,43 +1003,15 @@ pub mod kernels {
             end = len as usize;
         }
         let mut diff = 0.0_f64;
-        let mut i = start;
-        while i < end {
-            diff += (p_aux[i] - p[i]).abs();
-            i += 1;
-        }
-        if let Some(slot) = partials.get_mut(tid) {
-            *slot = diff;
-        }
-    }
-
-    /// The `p_aux` sum, to the same span decomposition.
-    #[kernel]
-    pub fn pressure_sum_partials(
-        p_aux: &[f64],
-        len: u32,
-        span: u32,
-        n_blocks: u32,
-        mut partials: DisjointSlice<f64>,
-    ) {
-        let tid = thread::index_1d();
-        let b = tid.get();
-        if b >= n_blocks as usize {
-            return;
-        }
-        let start = b * (span as usize);
-        let mut end = start + (span as usize);
-        if end > len as usize {
-            end = len as usize;
-        }
         let mut old = 0.0_f64;
         let mut i = start;
         while i < end {
+            diff += (p_aux[i] - p[i]).abs();
             old += p_aux[i];
             i += 1;
         }
         if let Some(slot) = partials.get_mut(tid) {
-            *slot = old;
+            *slot = [diff, old];
         }
     }
 

@@ -29,6 +29,20 @@ pub struct StepParams {
     pub s0: f64,
     pub net_charge: f64,
     pub max_p_iters: i64,
+    /// Run exactly this many Jacobi sweeps and never read the convergence
+    /// measure back.
+    ///
+    /// The measure is the only synchronisation inside a step, and it costs
+    /// about as much as everything else the step does. The census in
+    /// `volterra-cgpo/examples/jacobi_census.rs` measures the golden
+    /// configuration at 1.45 sweeps per step, with every one of the 41 steps
+    /// that reach the cap inside the first hundred: after the transient the
+    /// solve converges in a single sweep, for the rest of a 750,000-step run.
+    ///
+    /// `None` keeps the adaptive rule and the readback, and is what the
+    /// comparisons against the CPU use. `Some(k)` is a different algorithm on
+    /// the transient and the same one after it.
+    pub fixed_sweeps: Option<usize>,
 }
 
 impl StepParams {
@@ -47,6 +61,7 @@ impl StepParams {
             s0: p.s0,
             net_charge: p.net_charge,
             max_p_iters: p.max_p_iters,
+            fixed_sweeps: None,
         }
     }
 }
@@ -64,9 +79,13 @@ pub struct DeviceState {
     pub dudt: DeviceBuffer<f64>,
     pub pi_s: DeviceBuffer<f64>,
     pub pi_a: DeviceBuffer<f64>,
-    /// Per-span partial sums for the pressure convergence measure.
-    diff_partials: DeviceBuffer<f64>,
-    sum_partials: DeviceBuffer<f64>,
+    /// Per-span partial sums for the pressure convergence measure, each span's
+    /// two sums in one 2-wide slot so the host reads them in one transfer.
+    partials: DeviceBuffer<f64>,
+    /// The stream this simulation's work is queued on. Separate states get
+    /// separate streams so their kernels may overlap, which is what fills a
+    /// device that one 10,000-cell grid cannot.
+    pub stream: Arc<CudaStream>,
     n: usize,
     /// How many spans the convergence measure is cut into, and how long each
     /// is. Fixed at construction so the summation order never varies.
@@ -77,6 +96,7 @@ pub struct DeviceState {
 impl DeviceState {
     /// Allocate every field zeroed, for a grid of `lx * ly` cells.
     pub fn zeroed(stream: &Arc<CudaStream>, lx: usize, ly: usize) -> Result<Self, CudaError> {
+        let own = stream.clone();
         let n = lx * ly;
         let n2 = n * 2;
         // 256 spans over the grid: enough threads to occupy the device on the
@@ -95,8 +115,8 @@ impl DeviceState {
             dudt: DeviceBuffer::zeroed(stream, n2)?,
             pi_s: DeviceBuffer::zeroed(stream, n2)?,
             pi_a: DeviceBuffer::zeroed(stream, n)?,
-            diff_partials: DeviceBuffer::zeroed(stream, n_blocks)?,
-            sum_partials: DeviceBuffer::zeroed(stream, n_blocks)?,
+            partials: DeviceBuffer::zeroed(stream, n_blocks * 2)?,
+            stream: own,
             n,
             n_blocks,
             span,
@@ -141,7 +161,7 @@ impl Device {
         p: &StepParams,
         target_rel_change: f64,
     ) -> Result<usize, CudaError> {
-        let stream = self.stream();
+        let stream = &st.stream.clone();
         let n = st.n;
         let n2 = n * 2;
         let cells = LaunchConfig::for_num_elems(n as u32);
@@ -294,7 +314,7 @@ impl Device {
         p: &StepParams,
         target_rel_change: f64,
     ) -> Result<usize, CudaError> {
-        let stream = self.stream();
+        let stream = &st.stream.clone();
         let n = st.n;
         let cells = LaunchConfig::for_num_elems(n as u32);
         let blocks = LaunchConfig::for_num_elems(st.n_blocks as u32);
@@ -309,6 +329,27 @@ impl Device {
             m.pressure_terms(
                 stream, cells, &st.u, &st.pi_s, &bnd.inside, lx, ly, p.rho, &mut st.rhs,
             )?;
+        }
+
+        // A fixed sweep count needs no convergence measure, so the step runs
+        // with no host interaction at all.
+        if let Some(k) = p.fixed_sweeps {
+            for _ in 0..k {
+                // SAFETY: as below.
+                unsafe {
+                    m.copy_scalar(stream, cells, &st.p, n as u32, &mut st.p_aux)?;
+                    m.jacobi_sweep(
+                        stream, cells, &st.p_aux, &st.rhs, &bnd.inside, lx, ly, &mut st.p,
+                    )?;
+                    m.apply_p_bc(
+                        stream, cells, &st.p_aux, &st.u, &st.pi_s, &st.pi_a,
+                        &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
+                        lx, ly, p.rho, p.eta, &mut st.p,
+                    )?;
+                }
+            }
+            let _ = blocks;
+            return Ok(k);
         }
 
         let mut p_iters = 0usize;
@@ -333,22 +374,36 @@ impl Device {
                     &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
                     lx, ly, p.rho, p.eta, &mut st.p,
                 )?;
-                m.pressure_diff_partials(
-                    stream, blocks, &st.p, &st.p_aux, n as u32, st.span as u32,
-                    st.n_blocks as u32, &mut st.diff_partials,
-                )?;
-                m.pressure_sum_partials(
-                    stream, blocks, &st.p_aux, n as u32, st.span as u32,
-                    st.n_blocks as u32, &mut st.sum_partials,
-                )?;
+            }
+            {
+                let mut pr = std::mem::replace(&mut st.partials, DeviceBuffer::zeroed(stream, 0)?)
+                    .cast_chunks::<[f64; 2]>()
+                    .unwrap_or_else(|_| panic!("partials as [f64;2]"));
+                // SAFETY: `p` and `p_aux` hold `n`, bounds-checked against
+                // `len`, and `pr` holds `n_blocks` 2-wide slots matching
+                // `blocks`.
+                let r = unsafe {
+                    m.pressure_partials(
+                        stream, blocks, &st.p, &st.p_aux, n as u32, st.span as u32,
+                        st.n_blocks as u32, &mut pr,
+                    )
+                };
+                st.partials = pr.cast_chunks::<f64>().unwrap_or_else(|_| panic!("partials back"));
+                r?;
             }
 
-            // The only host round trip in a step. Both vectors are summed in
-            // index order, so the measure is the same on every run.
-            let diffs = st.diff_partials.to_host_vec(stream)?;
-            let sums = st.sum_partials.to_host_vec(stream)?;
-            let sum_diff: f64 = diffs.iter().sum();
-            let sum_old: f64 = sums.iter().sum();
+            // The only host round trip in a step, and one transfer rather than
+            // two. Both sums are added in index order, so the measure is the
+            // same on every run.
+            let flat = st.partials.to_host_vec(stream)?;
+            let mut sum_diff = 0.0_f64;
+            let mut sum_old = 0.0_f64;
+            for b in 0..st.n_blocks {
+                sum_diff += flat[b * 2];
+            }
+            for b in 0..st.n_blocks {
+                sum_old += flat[b * 2 + 1];
+            }
             rel_change = sum_diff / (1e-7 + sum_old);
 
             p_iters += 1;

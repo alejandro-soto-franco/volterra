@@ -630,12 +630,272 @@ fn random_theta_ic(q: &mut [f64], s0: f64, lx: usize, ly: usize, inside: &[bool]
     }
 }
 
+/// Wall clock for the same run on each side.
+///
+/// The CPU side is `volterra_cgpo` as the braid runs use it, which at 100x100
+/// is the serial path: `par_gate::PAR_THRESHOLD` is 250,000 cells and the grid
+/// is 10,000, so rayon never engages.
+fn phase_time(steps: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let dev = Device::new(0)?;
+    let bnd = boundary::circular_boundary(LX, LX);
+    let d_bnd = DeviceBoundary::upload_full(dev.stream(), &bnd)?;
+    let params = volterra_cgpo::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50).with_net_charge(1.5);
+    let step_params = StepParams::from_cpu(&params);
+    let target = 1e-3;
+
+    let fresh = || {
+        let mut st = volterra_cgpo::step::State::new(LX, LX);
+        let mut rng = StdRng::seed_from_u64(0);
+        random_theta_ic(&mut st.q, params.s0, LX, LX, &bnd.inside, &mut rng);
+        st
+    };
+
+    // Warm up both, so neither pays a first-touch cost inside the timing.
+    {
+        let mut w = fresh();
+        for _ in 0..64 {
+            volterra_cgpo::step::update_step_inner(&mut w, &params, &bnd, target);
+        }
+        let mut g = DeviceState::zeroed(dev.stream(), LX, LX)?;
+        g.upload_from(dev.stream(), &w.q, &w.u, &w.p)?;
+        for _ in 0..64 {
+            dev.step(&mut g, &d_bnd, &step_params, target)?;
+        }
+    }
+
+    let mut cpu = fresh();
+    let t0 = std::time::Instant::now();
+    for _ in 0..steps {
+        volterra_cgpo::step::update_step_inner(&mut cpu, &params, &bnd, target);
+    }
+    let cpu_s = t0.elapsed().as_secs_f64();
+
+    let mut gpu_times = Vec::new();
+    for fixed in [None, Some(1usize)] {
+        let mut sp = step_params;
+        sp.fixed_sweeps = fixed;
+        let start = fresh();
+        let mut gpu = DeviceState::zeroed(dev.stream(), LX, LX)?;
+        gpu.upload_from(dev.stream(), &start.q, &start.u, &start.p)?;
+        // Warm the queue for this mode before timing it.
+        for _ in 0..64 {
+            dev.step(&mut gpu, &d_bnd, &sp, target)?;
+        }
+        let _ = gpu.download(dev.stream())?;
+        let t1 = std::time::Instant::now();
+        for _ in 0..steps {
+            dev.step(&mut gpu, &d_bnd, &sp, target)?;
+        }
+        // Reading a field back forces the queue to drain, so the timing covers
+        // the work rather than the launches that queued it.
+        let _ = gpu.download(dev.stream())?;
+        gpu_times.push(t1.elapsed().as_secs_f64());
+    }
+    let gpu_s = gpu_times[0];
+    let gpu_fixed_s = gpu_times[1];
+
+    println!("{steps} steps at {LX}x{LX}, golden parameters");
+    println!(
+        "  CPU  {cpu_s:.3} s total, {:.1} us/step",
+        cpu_s / steps as f64 * 1e6
+    );
+    println!(
+        "  GPU, adaptive sweeps   {gpu_s:.3} s total, {:.1} us/step, {:.2}x",
+        gpu_s / steps as f64 * 1e6,
+        cpu_s / gpu_s
+    );
+    println!(
+        "  GPU, one fixed sweep   {gpu_fixed_s:.3} s total, {:.1} us/step, {:.2}x",
+        gpu_fixed_s / steps as f64 * 1e6,
+        cpu_s / gpu_fixed_s
+    );
+    println!(
+        "  the convergence readback costs {:.1} us/step, the only sync in a step",
+        (gpu_s - gpu_fixed_s) / steps as f64 * 1e6
+    );
+    Ok(())
+}
+
+/// Many configurations at once, one stream each.
+///
+/// This is the shape the work actually has. One 100x100 grid is 10,000 cells
+/// and leaves most of the device idle, so a single run is bound by launch
+/// latency rather than by arithmetic. A sweep over `q` and seeds has as many
+/// independent runs as the sweep is wide, and they share nothing but the
+/// boundary, so they can be in flight together.
+fn phase_batch(runs: usize, steps: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let dev = Device::new(0)?;
+    let bnd = boundary::circular_boundary(LX, LX);
+    let d_bnd = DeviceBoundary::upload_full(dev.stream(), &bnd)?;
+    let target = 1e-3;
+
+    // A sweep over the winding, which is what the paper's own regime map is
+    // drawn against, cycled so the batch is as wide as asked for.
+    let charges = [1.0_f64, 1.5, 2.0, 2.5];
+
+    let mut states = Vec::with_capacity(runs);
+    let mut params = Vec::with_capacity(runs);
+    for r in 0..runs {
+        let charge = charges[r % charges.len()];
+        let cpu_params = volterra_cgpo::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50)
+            .with_net_charge(charge);
+        let mut sp = StepParams::from_cpu(&cpu_params);
+        sp.fixed_sweeps = Some(1);
+        let mut init = volterra_cgpo::step::State::new(LX, LX);
+        let mut rng = StdRng::seed_from_u64(r as u64);
+        random_theta_ic(&mut init.q, cpu_params.s0, LX, LX, &bnd.inside, &mut rng);
+
+        let stream = dev.new_stream()?;
+        let mut st = DeviceState::zeroed(&stream, LX, LX)?;
+        st.upload_from(&stream, &init.q, &init.u, &init.p)?;
+        states.push(st);
+        params.push(sp);
+    }
+
+    // Warm every stream before timing any of them.
+    for (st, sp) in states.iter_mut().zip(&params) {
+        for _ in 0..32 {
+            dev.step(st, &d_bnd, sp, target)?;
+        }
+    }
+    for st in &states {
+        let _ = st.download(&st.stream.clone())?;
+    }
+
+    let t0 = std::time::Instant::now();
+    for _ in 0..steps {
+        for (st, sp) in states.iter_mut().zip(&params) {
+            dev.step(st, &d_bnd, sp, target)?;
+        }
+    }
+    for st in &states {
+        let _ = st.download(&st.stream.clone())?;
+    }
+    let wall = t0.elapsed().as_secs_f64();
+
+    let run_steps = (runs * steps) as f64;
+    println!(
+        "{runs} runs x {steps} steps at {LX}x{LX}"
+    );
+    println!(
+        "  GPU, one stream each   {wall:.3} s, {:.1} us per run-step, {:.0} run-step/s",
+        wall / run_steps * 1e6,
+        run_steps / wall
+    );
+
+    // The comparison a sweep deserves. `volterra_cgpo` is single threaded at
+    // this grid size, so a sweep on the CPU runs its configurations in parallel
+    // processes across the cores rather than one after another. Comparing a
+    // batched device against one core would flatter the device by the core
+    // count.
+    let t1 = std::time::Instant::now();
+    std::thread::scope(|scope| {
+        for r in 0..runs {
+            let bnd = &bnd;
+            scope.spawn(move || {
+                let charge = charges[r % charges.len()];
+                let cpu_params = volterra_cgpo::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50)
+                    .with_net_charge(charge);
+                let mut st = volterra_cgpo::step::State::new(LX, LX);
+                let mut rng = StdRng::seed_from_u64(r as u64);
+                random_theta_ic(&mut st.q, cpu_params.s0, LX, LX, &bnd.inside, &mut rng);
+                for _ in 0..steps {
+                    volterra_cgpo::step::update_step_inner(&mut st, &cpu_params, bnd, target);
+                }
+            });
+        }
+    });
+    let cpu_wall = t1.elapsed().as_secs_f64();
+    println!(
+        "  CPU, one thread each   {cpu_wall:.3} s, {:.1} us per run-step, {:.0} run-step/s",
+        cpu_wall / run_steps * 1e6,
+        run_steps / cpu_wall
+    );
+    println!("  {:.2}x", cpu_wall / wall);
+    Ok(())
+}
+
+/// The golden trajectory end to end on the device, writing the same frames
+/// `cgpo_fd` writes, so the published braid can be extracted from them.
+///
+/// The topology is what the paper claims and what the CPU run reproduces. A
+/// device that agrees to `1e-15` for five thousand steps says nothing on its
+/// own about a run a hundred and fifty times longer through a chaotic regime;
+/// only extracting the braid does.
+fn phase_golden(
+    steps: usize,
+    save_every: usize,
+    charge: f64,
+    out: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+
+    let dev = Device::new(0)?;
+    let bnd = boundary::circular_boundary(LX, LX);
+    let d_bnd = DeviceBoundary::upload_full(dev.stream(), &bnd)?;
+    let params = volterra_cgpo::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50).with_net_charge(charge);
+    let step_params = StepParams::from_cpu(&params);
+    let target = 1e-3;
+
+    let dir = format!("{out}/Q");
+    std::fs::create_dir_all(&dir)?;
+
+    let mut init = volterra_cgpo::step::State::new(LX, LX);
+    let mut rng = StdRng::seed_from_u64(0);
+    random_theta_ic(&mut init.q, params.s0, LX, LX, &bnd.inside, &mut rng);
+
+    let stream = dev.stream().clone();
+    let mut st = DeviceState::zeroed(&stream, LX, LX)?;
+    st.upload_from(&stream, &init.q, &init.u, &init.p)?;
+
+    println!("golden trajectory on the device: {steps} steps, q={charge}, saving every {save_every}");
+    let t0 = std::time::Instant::now();
+    let mut saved = 0usize;
+    for step in 0..=steps {
+        if step % save_every == 0 {
+            let (q, _, _) = st.download(&stream)?;
+            let mut f = std::io::BufWriter::new(std::fs::File::create(format!(
+                "{dir}/Q_{step:08}.txt"
+            ))?);
+            for c in 0..LX * LX {
+                writeln!(f, "{:.17e} {:.17e}", q[c * 2], q[c * 2 + 1])?;
+            }
+            saved += 1;
+        }
+        if step < steps {
+            dev.step(&mut st, &d_bnd, &step_params, target)?;
+        }
+    }
+    let wall = t0.elapsed().as_secs_f64();
+    println!(
+        "  {steps} steps in {wall:.1} s, {:.1} us/step, {saved} frames under {dir}",
+        wall / steps as f64 * 1e6
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str).unwrap_or("all") {
         "step" => {
             let steps = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
             phase_step(steps)?;
+        }
+        "time" => {
+            let steps = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2000);
+            phase_time(steps)?;
+        }
+        "batch" => {
+            let runs = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(16);
+            let steps = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(2000);
+            phase_batch(runs, steps)?;
+        }
+        "golden" => {
+            let steps = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(750_000);
+            let every = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(750);
+            let charge: f64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1.5);
+            let out = args.get(5).cloned().unwrap_or_else(|| "/tmp/cgpo-gpu-golden".into());
+            phase_golden(steps, every, charge, &out)?;
         }
         "validate" => phase_validate()?,
         "all" => {

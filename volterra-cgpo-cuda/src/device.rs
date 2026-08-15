@@ -79,7 +79,7 @@ impl DeviceBoundary {
 }
 
 pub struct Device {
-    _ctx: Arc<CudaContext>,
+    pub(crate) _ctx: Arc<CudaContext>,
     stream: Arc<CudaStream>,
     module: kernels::LoadedModule,
 }
@@ -98,6 +98,15 @@ impl Device {
 
     pub fn stream(&self) -> &Arc<CudaStream> {
         &self.stream
+    }
+
+    /// A stream of this context's own.
+    ///
+    /// Work queued on separate streams may overlap. One 100x100 grid is 10,000
+    /// cells and leaves most of this device idle, so a parameter sweep runs its
+    /// configurations on a stream each rather than one after another.
+    pub fn new_stream(&self) -> Result<Arc<CudaStream>, CudaError> {
+        Ok(self._ctx.new_stream()?)
     }
 
     /// The loaded module, for the device-resident step in `state.rs`.
