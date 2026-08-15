@@ -270,6 +270,116 @@ impl Device {
         Ok((d_pi_s.to_host_vec(stream)?, d_pi_a.to_host_vec(stream)?))
     }
 
+    /// One Jacobi sweep of the pressure Poisson stencil.
+    pub fn jacobi_sweep(
+        &self,
+        p_aux: &[f64],
+        rhs: &[f64],
+        bnd: &DeviceBoundary,
+        p_seed: &[f64],
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let d_aux = DeviceBuffer::from_host(stream, p_aux)?;
+        let d_rhs = DeviceBuffer::from_host(stream, rhs)?;
+        let mut d_p = DeviceBuffer::from_host(stream, p_seed)?;
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: every input holds `n` elements, bounds-checked in the kernel
+        // against `lx * ly`, and `d_p` holds `n` slots matching `cfg`.
+        unsafe {
+            self.module.jacobi_sweep(
+                stream,
+                cfg,
+                &d_aux,
+                &d_rhs,
+                &bnd.inside,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                &mut d_p,
+            )?;
+        }
+        Ok(d_p.to_host_vec(stream)?)
+    }
+
+    /// The non-divergence part of the pressure right-hand side, accumulated.
+    pub fn pressure_terms(
+        &self,
+        u: &[f64],
+        pi_s: &[f64],
+        bnd: &DeviceBoundary,
+        rho: f64,
+        rhs_seed: &[f64],
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let d_u = DeviceBuffer::from_host(stream, u)?;
+        let d_pi_s = DeviceBuffer::from_host(stream, pi_s)?;
+        let mut d_rhs = DeviceBuffer::from_host(stream, rhs_seed)?;
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: as above.
+        unsafe {
+            self.module.pressure_terms(
+                stream,
+                cfg,
+                &d_u,
+                &d_pi_s,
+                &bnd.inside,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                rho,
+                &mut d_rhs,
+            )?;
+        }
+        Ok(d_rhs.to_host_vec(stream)?)
+    }
+
+    /// The velocity time derivative.
+    #[allow(clippy::too_many_arguments)]
+    pub fn u_update(
+        &self,
+        u: &[f64],
+        p: &[f64],
+        pi_s: &[f64],
+        pi_a: &[f64],
+        bnd: &DeviceBoundary,
+        rho: f64,
+        nu: f64,
+        dudt_seed: &[f64],
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let d_u = DeviceBuffer::from_host(stream, u)?;
+        let d_p = DeviceBuffer::from_host(stream, p)?;
+        let d_pi_s = DeviceBuffer::from_host(stream, pi_s)?;
+        let d_pi_a = DeviceBuffer::from_host(stream, pi_a)?;
+        let mut d_dudt = DeviceBuffer::from_host(stream, dudt_seed)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("dudt must reinterpret as [f64;2]"));
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: as above; `d_dudt` holds `n` 2-wide slots matching `cfg`.
+        let launched = unsafe {
+            self.module.u_update(
+                stream,
+                cfg,
+                &d_u,
+                &d_p,
+                &d_pi_s,
+                &d_pi_a,
+                &bnd.inside,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                rho,
+                nu,
+                &mut d_dudt,
+            )
+        };
+        let d_dudt = d_dudt
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("dudt back to f64"));
+        launched?;
+        Ok(d_dudt.to_host_vec(stream)?)
+    }
+
     /// Second-order upwind advection, accumulated into `out_seed`.
     pub fn upwind_advective(
         &self,

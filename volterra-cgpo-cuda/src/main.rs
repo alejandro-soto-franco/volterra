@@ -354,6 +354,70 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // The Stokes tranche, on the smooth Q and the fields it produces.
+    {
+        let mut h = vec![0.0; n * 2];
+        let mut s = vec![0.0; n * 2];
+        volterra_cgpo::nematic::h_s_from_q(
+            &velocity, &smooth, &mut h, &mut s,
+            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+        );
+        let mut pi_s = vec![0.0; n * 2];
+        let mut pi_a = vec![0.0; n];
+        volterra_cgpo::nematic::calculate_pi(
+            &mut pi_s, &mut pi_a, &h, &smooth,
+            params.lambda, params.zeta, params.k_elastic, &bnd,
+        );
+
+        {
+            let rhs_seed = random_scalar(n, &mut rng);
+            let mut cpu = rhs_seed.clone();
+            volterra_cgpo::stokes::calculate_pressure_terms(
+                &velocity, params.rho, &pi_s, &mut cpu, &bnd,
+            );
+            let gpu = dev.pressure_terms(&velocity, &pi_s, &d_bnd, params.rho, &rhs_seed)?;
+            all_ok &= report("pressure_terms", &compare(&cpu, &gpu), n, 4.0);
+        }
+
+        {
+            let p_aux = random_scalar(n, &mut rng);
+            let rhs = random_scalar(n, &mut rng);
+            let p_seed = random_scalar(n, &mut rng);
+            let mut cpu = p_seed.clone();
+            volterra_cgpo::stokes::relax_pressure_inner_loop(&mut cpu, &p_aux, &rhs, &bnd);
+            let gpu = dev.jacobi_sweep(&p_aux, &rhs, &d_bnd, &p_seed)?;
+            all_ok &= report("jacobi_sweep", &compare(&cpu, &gpu), n, 0.0);
+        }
+
+        {
+            // A smooth velocity, for the same reason Q is smooth above: the
+            // viscous term is `nu lap u` at `nu = sqrt(10 K) ~ 405`, and a
+            // Laplacian of uncorrelated noise cancels to far below the terms
+            // that formed it.
+            let smooth_u: Vec<f64> = (0..n * 2)
+                .map(|i| {
+                    let cell = i / 2;
+                    let (x, y) = ((cell / LX) as f64, (cell % LX) as f64);
+                    if i % 2 == 0 {
+                        0.02 * (0.08 * x - 0.05 * y).sin()
+                    } else {
+                        0.02 * (0.06 * x + 0.11 * y).cos()
+                    }
+                })
+                .collect();
+            let p = random_scalar(n, &mut rng);
+            let dudt_seed = random_scalar(n * 2, &mut rng);
+            let mut cpu = dudt_seed.clone();
+            volterra_cgpo::stokes::get_u_update(
+                &mut cpu, &smooth_u, &p, params.rho, &pi_s, &pi_a, params.eta, &bnd,
+            );
+            let gpu = dev.u_update(
+                &smooth_u, &p, &pi_s, &pi_a, &d_bnd, params.rho, params.eta, &dudt_seed,
+            )?;
+            all_ok &= report("u_update", &compare(&cpu, &gpu), n * 2, 4.0);
+        }
+    }
+
     if all_ok {
         println!("ALL VALIDATION PASSED");
         Ok(())

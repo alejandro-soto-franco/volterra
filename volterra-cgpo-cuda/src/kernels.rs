@@ -405,6 +405,202 @@ pub mod kernels {
             *slot = 2.0 * (q0 * h1 - h0 * q1);
         }
     }
+
+    /// One Jacobi sweep of the 9-point pressure Poisson stencil.
+    ///
+    /// Ports `volterra_cgpo::stokes::relax_pressure_inner_loop`. Reads only
+    /// `p_aux` and writes only `p`, which is what makes the sweep Jacobi and
+    /// what makes one thread per cell safe with no ordering between them.
+    #[kernel]
+    pub fn jacobi_sweep(
+        p_aux: &[f64],
+        rhs: &[f64],
+        inside: &[u8],
+        lx: u32,
+        ly: u32,
+        mut p: DisjointSlice<f64>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        if inside[idx] == 0 {
+            return;
+        }
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let xup = (x + 1) % lxu;
+        let xdn = (x + lxu - 1) % lxu;
+        let yup = (y + 1) % lyu;
+        let ydn = (y + lyu - 1) % lyu;
+        let s = |a: usize, b: usize| a * lyu + b;
+
+        let v = 0.05
+            * (-6.0 * rhs[idx]
+                + 4.0 * (p_aux[s(xup, y)] + p_aux[s(x, yup)] + p_aux[s(x, ydn)] + p_aux[s(xdn, y)])
+                + p_aux[s(xup, yup)]
+                + p_aux[s(xup, ydn)]
+                + p_aux[s(xdn, yup)]
+                + p_aux[s(xdn, ydn)]);
+
+        if let Some(slot) = p.get_mut(tid) {
+            *slot = v;
+        }
+    }
+
+    /// The non-divergence part of the pressure Poisson right-hand side.
+    ///
+    /// Ports `volterra_cgpo::stokes::calculate_pressure_terms`, which
+    /// accumulates `div F - rho * (d_i u_j)(d_j u_i)` onto `rhs`.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn pressure_terms(
+        u: &[f64],
+        pi_s: &[f64],
+        inside: &[u8],
+        lx: u32,
+        ly: u32,
+        rho: f64,
+        mut rhs: DisjointSlice<f64>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        if inside[idx] == 0 {
+            return;
+        }
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let xup = (x + 1) % lxu;
+        let xdn = (x + lxu - 1) % lxu;
+        let yup = (y + 1) % lyu;
+        let ydn = (y + lyu - 1) % lyu;
+        let v = |a: usize, b: usize, c: usize| (a * lyu + b) * 2 + c;
+
+        let dudx = 0.5 * (u[v(xup, y, 0)] - u[v(xdn, y, 0)]);
+        let dvdy = 0.5 * (u[v(x, yup, 1)] - u[v(x, ydn, 1)]);
+        let dyux = 0.5 * (u[v(x, yup, 0)] - u[v(x, ydn, 0)]);
+        let dxuy = 0.5 * (u[v(xup, y, 1)] - u[v(xdn, y, 1)]);
+
+        let div_f = (pi_s[v(xup, y, 0)] + pi_s[v(xdn, y, 0)]
+            - pi_s[v(x, yup, 0)]
+            - pi_s[v(x, ydn, 0)])
+            + 0.5
+                * (pi_s[v(xup, yup, 1)] - pi_s[v(xup, ydn, 1)] - pi_s[v(xdn, yup, 1)]
+                    + pi_s[v(xdn, ydn, 1)]);
+
+        let conv = rho * (dudx * dudx + dvdy * dvdy + dyux * 2.0 * dxuy);
+
+        if let Some(slot) = rhs.get_mut(tid) {
+            *slot += div_f - conv;
+        }
+    }
+
+    /// The velocity time derivative, in one pass.
+    ///
+    /// Ports `volterra_cgpo::stokes::get_u_update`, which the CPU runs as three
+    /// passes accumulating into `dudt`: the viscous term `nu lap u`, the
+    /// convective term by upwind advection, and the pressure and stress
+    /// gradients. They accumulate in that order, which this keeps.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn u_update(
+        u: &[f64],
+        p: &[f64],
+        pi_s: &[f64],
+        pi_a: &[f64],
+        inside: &[u8],
+        lx: u32,
+        ly: u32,
+        rho: f64,
+        nu: f64,
+        mut dudt: DisjointSlice<[f64; 2]>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        if inside[idx] == 0 {
+            return;
+        }
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let xup = (x + 1) % lxu;
+        let xdn = (x + lxu - 1) % lxu;
+        let xupup = (x + 2) % lxu;
+        let xdndn = (x + lxu - 2) % lxu;
+        let yup = (y + 1) % lyu;
+        let ydn = (y + lyu - 1) % lyu;
+        let yupup = (y + 2) % lyu;
+        let ydndn = (y + lyu - 2) % lyu;
+        let s = |a: usize, b: usize| a * lyu + b;
+        let v = |a: usize, b: usize, c: usize| (a * lyu + b) * 2 + c;
+
+        // 1. viscous, the same 9-point stencil `laplacian_vector` applies.
+        let kk = nu / 6.0;
+        let mut d = [0.0_f64; 2];
+        for c in 0..2 {
+            d[c] = kk
+                * (-20.0 * u[v(x, y, c)]
+                    + 4.0
+                        * (u[v(xup, y, c)] + u[v(xdn, y, c)] + u[v(x, yup, c)] + u[v(x, ydn, c)])
+                    + u[v(xup, yup, c)]
+                    + u[v(xup, ydn, c)]
+                    + u[v(xdn, yup, c)]
+                    + u[v(xdn, ydn, c)]);
+        }
+
+        // 2. convective, upwind with coeff = -1, advecting u by itself. The x
+        // contribution lands before the y one, as on the CPU.
+        let ux = u[v(x, y, 0)];
+        let uy = u[v(x, y, 1)];
+        let tmp_x = -0.5 * ux;
+        let tmp_y = -0.5 * uy;
+        for c in 0..2 {
+            d[c] += if ux > 0.0 {
+                tmp_x * (3.0 * u[v(x, y, c)] - 4.0 * u[v(xdn, y, c)] + u[v(xdndn, y, c)])
+            } else {
+                tmp_x * (-3.0 * u[v(x, y, c)] + 4.0 * u[v(xup, y, c)] - u[v(xupup, y, c)])
+            };
+        }
+        for c in 0..2 {
+            d[c] += if uy > 0.0 {
+                tmp_y * (3.0 * u[v(x, y, c)] - 4.0 * u[v(x, ydn, c)] + u[v(x, ydndn, c)])
+            } else {
+                tmp_y * (-3.0 * u[v(x, y, c)] + 4.0 * u[v(x, yup, c)] - u[v(x, yupup, c)])
+            };
+        }
+
+        // 3. pressure and stress gradients.
+        let inv_rho = 0.5 / rho;
+        d[0] += inv_rho
+            * (-(p[s(xup, y)] - p[s(xdn, y)])
+                + (pi_s[v(xup, y, 0)] - pi_s[v(xdn, y, 0)])
+                + ((pi_s[v(x, yup, 1)] + pi_a[s(x, yup)])
+                    - (pi_s[v(x, ydn, 1)] + pi_a[s(x, ydn)])));
+        d[1] += inv_rho
+            * (-(p[s(x, yup)] - p[s(x, ydn)])
+                + ((pi_s[v(xup, y, 1)] - pi_a[s(xup, y)])
+                    - (pi_s[v(xdn, y, 1)] - pi_a[s(xdn, y)]))
+                - (pi_s[v(x, yup, 0)] - pi_s[v(x, ydn, 0)]));
+
+        if let Some(slot) = dudt.get_mut(tid) {
+            *slot = d;
+        }
+    }
 }
 
 // `#[cuda_module]` generates its `load`/`LoadedModule` inside the `kernels`
