@@ -248,6 +248,85 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
     }
 }
 
+/// `scale * H` written into an existing buffer, allocating nothing.
+///
+/// [`molecular_field_3d_par`] returns a fresh `QField3D`, which is a 40 MB
+/// allocation per call at `N = 100`. Called once per FIRE iteration, and
+/// followed by a second full pass and a second allocation to apply `gamma_r`,
+/// that dominated the CPU minimiser: the pages are new mappings every time, so
+/// each iteration faults them in again, and page faults serialise where the
+/// arithmetic does not. Passing `scale = gamma_r` here gives the dry
+/// Beris-Edwards right-hand side in one pass with no allocation at all.
+///
+/// `out` must already have `q`'s dimensions.
+pub fn molecular_field_3d_par_into(
+    q: &QField3D,
+    p: &ActiveNematicParams3D,
+    t: f64,
+    scale: f64,
+    out: &mut QField3D,
+) {
+    assert_eq!(out.q.len(), q.q.len(), "out must match q's grid");
+    let a_eff = p.a_eff();
+    let c = p.c_landau;
+    let b_landau = p.b_landau;
+    let k_r = p.k_r;
+    let inv_dx2 = 1.0 / (q.dx * q.dx);
+    let (nx, ny, nz) = (q.nx, q.ny, q.nz);
+
+    let cos_t = (p.omega_b * t).cos();
+    let sin_t = (p.omega_b * t).sin();
+    let b2 = p.chi_a * p.b0 * p.b0;
+    let h_mag = [
+        b2 * (cos_t * cos_t - 1.0 / 3.0),
+        b2 * cos_t * sin_t,
+        0.0,
+        b2 * (sin_t * sin_t - 1.0 / 3.0),
+        0.0,
+    ];
+
+    let q_data = &q.q;
+    let nynz = ny * nz;
+
+    out.q
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(k, out_k)| {
+            let l = k % nz;
+            let ij = k / nz;
+            let j = ij % ny;
+            let i = ij / ny;
+
+            let ip = ((i + 1) % nx) * nynz + j * nz + l;
+            let im = ((i + nx - 1) % nx) * nynz + j * nz + l;
+            let jp = i * nynz + ((j + 1) % ny) * nz + l;
+            let jm = i * nynz + ((j + ny - 1) % ny) * nz + l;
+            let lp = i * nynz + j * nz + (l + 1) % nz;
+            let lm = i * nynz + j * nz + (l + nz - 1) % nz;
+
+            let qk = q_data[k];
+            let [q11, q12, q13, q22, q23] = qk;
+            let q33 = -(q11 + q22);
+            let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
+                + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+            let bulk = -a_eff - 2.0 * c * tr_q2;
+            let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
+
+            for comp in 0..5 {
+                let lap = (q_data[ip][comp]
+                    + q_data[im][comp]
+                    + q_data[jp][comp]
+                    + q_data[jm][comp]
+                    + q_data[lp][comp]
+                    + q_data[lm][comp]
+                    - 6.0 * qk[comp])
+                    * inv_dx2;
+                out_k[comp] =
+                    scale * (k_r * lap + bulk * qk[comp] + h_cubic[comp] + h_mag[comp]);
+            }
+        });
+}
+
 /// Fused Euler step: computes the molecular field and applies the Euler
 /// update `Q <- Q + dt * gamma_r * H` in a single parallel pass.
 ///

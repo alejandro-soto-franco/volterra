@@ -168,6 +168,20 @@ fn add_scaled(q: &QField3D, dq: &QField3D, scale: f64) -> QField3D {
 /// the Laplacian stencil and bulk LdG terms in a single parallel pass.
 /// For the wet case (with flow), use [`beris_edwards_rhs_3d`] which handles
 /// advection and co-rotation.
+/// The dry right-hand side written into an existing buffer, allocating nothing.
+///
+/// `gamma_r * H` in a single pass. [`beris_edwards_rhs_3d_par_dry`] allocates
+/// twice for the same result, once for the molecular field and once more to
+/// scale it, which is 80 MB per call at `N = 100`.
+pub fn beris_edwards_rhs_3d_par_dry_into(
+    q: &QField3D,
+    p: &ActiveNematicParams3D,
+    t: f64,
+    out: &mut QField3D,
+) {
+    crate::mol_field_3d::molecular_field_3d_par_into(q, p, t, p.gamma_r, out);
+}
+
 pub fn beris_edwards_rhs_3d_par_dry(
     q: &QField3D,
     p: &ActiveNematicParams3D,

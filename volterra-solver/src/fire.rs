@@ -46,7 +46,7 @@ use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
 use volterra_fields::QField3D;
 
-use crate::beris_3d::beris_edwards_rhs_3d_par_dry;
+use crate::beris_3d::{beris_edwards_rhs_3d_par_dry, beris_edwards_rhs_3d_par_dry_into};
 
 /// FIRE tuning parameters, matching open-Qmin's own defaults
 /// (`openQmin.cpp`'s `energyMinimizerFIRE` construction) unless overridden.
@@ -162,6 +162,11 @@ impl FireParams {
 /// Mutable FIRE integration state, carried across steps.
 pub struct FireState {
     pub v: QField3D,
+    /// The velocity mix owed from the previous iteration, `1 - alpha` and
+    /// `alpha * scaling`, applied by the next position pass rather than in a
+    /// pass of its own. Both zero on a reset, which is what zeroing `v` did.
+    pub mix_v: f64,
+    pub mix_f: f64,
     pub delta_t: f64,
     pub alpha: f64,
     pub n_since_negative_power: i32,
@@ -175,6 +180,8 @@ impl FireState {
     pub fn new(q: &QField3D, params: &FireParams) -> Self {
         Self {
             v: QField3D::zeros(q.nx, q.ny, q.nz, q.dx),
+            mix_v: 1.0,
+            mix_f: 0.0,
             delta_t: params.delta_t,
             alpha: params.alpha_start,
             n_since_negative_power: 0,
@@ -230,57 +237,52 @@ pub fn fire_step_3d_par(
     let n = q.len();
     let dt = state.delta_t;
 
-    // --- velocity-Verlet step (mass = 1), against the old force. ---
-    let new_q: Vec<[f64; 5]> = (0..n)
-        .into_par_iter()
-        .map(|k| {
-            let qk = q.q[k];
-            let vk = state.v.q[k];
-            let fk = f.q[k];
-            let mut out = [0.0_f64; 5];
+    // velocity-Verlet step (mass = 1), against the old force.
+    // The position update and the first half-kick read the same `v` and `f`
+    // and write `q` and `v`, so they run as one pass in place. Collecting a
+    // fresh `q` here instead, as an earlier version did, allocated 40 MB per
+    // iteration at N=100 and faulted the pages in again each time.
+    let half_dt = 0.5 * dt;
+    let half_dt2 = half_dt * dt;
+    let (mix_v, mix_f) = (state.mix_v, state.mix_f);
+    q.q.par_iter_mut()
+        .zip(state.v.q.par_iter_mut())
+        .zip(f.q.par_iter())
+        .for_each(|((qk, vk), fk)| {
             for c in 0..5 {
-                let d = dt * vk[c] + 0.5 * dt * dt * fk[c];
-                out[c] = qk[c] + d;
+                // The previous iteration's velocity mix, deferred to here so it
+                // shares this pass's reads of v and f rather than taking a pass
+                // of its own. Both coefficients are zero on a reset, which is
+                // what zeroing the velocity did.
+                let vm = mix_v * vk[c] + mix_f * fk[c];
+                qk[c] += dt * vm + half_dt2 * fk[c];
+                vk[c] = vm + half_dt * fk[c];
             }
-            out
-        })
-        .collect();
-    // first half-kick, using the old force.
-    state
+        });
+
+    // recompute the force at the new configuration, into the buffer already
+    // held rather than into a fresh one.
+    beris_edwards_rhs_3d_par_dry_into(q, p, t, f);
+
+    // second half-kick and the FIRE reductions, in one pass.
+    // The reduction reads exactly the `f` and `v` the half-kick just touched,
+    // so running them separately reads both fields twice.
+    let (force_norm, velocity_norm, power) = state
         .v
         .q
         .par_iter_mut()
         .zip(f.q.par_iter())
-        .for_each(|(vk, fk)| {
+        .map(|(vk, fk)| {
+            let mut fs = 0.0_f64;
+            let mut vs = 0.0_f64;
+            let mut ps = 0.0_f64;
             for c in 0..5 {
-                vk[c] += 0.5 * dt * fk[c];
+                vk[c] += half_dt * fk[c];
+                fs += fk[c] * fk[c];
+                vs += vk[c] * vk[c];
+                ps += fk[c] * vk[c];
             }
-        });
-    q.q = new_q;
-
-    // recompute the force at the new configuration.
-    let new_f = beris_edwards_rhs_3d_par_dry(q, p, t);
-    f.q = new_f.q;
-
-    // second half-kick, using the new force.
-    state
-        .v
-        .q
-        .par_iter_mut()
-        .zip(f.q.par_iter())
-        .for_each(|(vk, fk)| {
-            for c in 0..5 {
-                vk[c] += 0.5 * dt * fk[c];
-            }
-        });
-
-    // --- FIRE reductions: forceNorm, velocityNorm, Power. ---
-    let (force_norm, velocity_norm, power) = (0..n)
-        .into_par_iter()
-        .map(|k| {
-            let fk = &f.q[k];
-            let vk = &state.v.q[k];
-            (dot5(fk, fk), dot5(vk, vk), dot5(fk, vk))
+            (fs, vs, ps)
         })
         .reduce(
             || (0.0_f64, 0.0_f64, 0.0_f64),
@@ -294,20 +296,14 @@ pub fn fire_step_3d_par(
         0.0
     };
 
-    // --- FIRE velocity mix: v = (1 - alpha) v + alpha * scaling * f. ---
-    let alpha = state.alpha;
-    state
-        .v
-        .q
-        .par_iter_mut()
-        .zip(f.q.par_iter())
-        .for_each(|(vk, fk)| {
-            for c in 0..5 {
-                vk[c] = (1.0 - alpha) * vk[c] + alpha * scaling * fk[c];
-            }
-        });
+    // FIRE velocity mix: v = (1 - alpha) v + alpha * scaling * f.
+    // Recorded rather than applied: the next iteration's position pass folds it
+    // in. Nothing between here and there reads `v`, and a run that stops here
+    // returns `q`, which the mix does not touch.
+    state.mix_v = 1.0 - state.alpha;
+    state.mix_f = state.alpha * scaling;
 
-    // --- adaptive deltaT / alpha, open-Qmin's Power-sign rule. ---
+    // adaptive deltaT / alpha, open-Qmin's Power-sign rule.
     state.iterations += 1;
     if power > 0.0 && state.iterations % 500 != 0 {
         if state.n_since_negative_power > params.n_min {
@@ -319,7 +315,10 @@ pub fn fire_step_3d_par(
         state.n_since_negative_power = 0;
         state.delta_t = (state.delta_t * params.delta_t_dec).max(params.delta_t_min);
         state.alpha = params.alpha_start;
-        state.v.q.par_iter_mut().for_each(|vk| *vk = [0.0; 5]);
+        // A reset zeroes `v` after the mix; zero coefficients express that in
+        // the deferred mix.
+        state.mix_v = 0.0;
+        state.mix_f = 0.0;
     }
 
     state.force_max = force_max;
