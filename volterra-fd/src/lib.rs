@@ -1,3 +1,8 @@
+#![allow(clippy::needless_range_loop)]
+// Indexed loops are the clearer form in stencil code, where one index reads
+// several arrays at once. `volterra-solver` carried this allow at its crate
+// root, and the physics that moved here came with it.
+
 //! `volterra-fd`: the finite-difference discretisation of Beris-Edwards with a
 //! relaxation Stokes solve, on confined Cartesian domains.
 //!

@@ -89,6 +89,8 @@ impl PhaseField3D {
     /// in the box, with flat endcaps and a `tanh` interface of width `xi`.
     ///
     /// `phi` is `phi_0` inside and `0` outside. Lengths are in grid units.
+    // A grid, a geometry and an interface width, each independent of the others.
+    #[allow(clippy::too_many_arguments)]
     pub fn capped_cylinder(
         nx: usize,
         ny: usize,

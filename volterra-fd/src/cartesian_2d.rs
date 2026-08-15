@@ -1000,8 +1000,8 @@ pub struct BechStats {
 ///
 /// 1. **Stokes**: `v ← stokes_solve(Q^rot, params)`: compute the incompressible
 ///    velocity field driven by active stress σ^a = ζ_eff Q^rot.
-/// 2. **Beris-Edwards (Euler)**: `Q^rot ← Q^rot + dt · [−v·∇Q^rot + S(W,Q^rot) + Γ_r H]`
-///   : advance the rotor Q-field with flow.
+/// 2. **Beris-Edwards (Euler)**: `Q^rot ← Q^rot + dt · [−v·∇Q^rot + S(W,Q^rot) + Γ_r H]`,
+///    advancing the rotor Q-field with flow.
 /// 3. **Transfer map**: `Q^lip ← K₀ * Q^rot`: convolve to get the lipid orientational
 ///    field (Component 2 one-way coupling, valid when Da < 1 and Sp < 1).
 /// 4. **CH-ETD1**: `φ_l ← ch_step_etd(φ_l, Q^lip, v, params)`: advance lipid
