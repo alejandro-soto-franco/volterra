@@ -171,14 +171,15 @@ impl<'a> Observer<State> for FdObserver<'a> {
         if self.guard_err.is_some() {
             return;
         }
-        if step < self.save_from {
-            return;
+        // A run that saves only its tail still has to report progress, or it
+        // looks hung for however long the skipped part takes.
+        if step >= self.save_from {
+            if let Err(e) = write_state_frame(self.run_dir, step, state, self.boundary) {
+                self.guard_err = Some(e);
+                return;
+            }
+            println!("  step {step} saved");
         }
-        if let Err(e) = write_state_frame(self.run_dir, step, state, self.boundary) {
-            self.guard_err = Some(e);
-            return;
-        }
-        println!("  step {step} saved");
 
         // Progress report every 10 seconds or at the final step.
         let elapsed = self.t_start.elapsed().as_secs_f64();
