@@ -27,6 +27,9 @@ pub use boundary::{
 pub mod index;
 
 pub mod par_gate;
+
+pub mod regime;
+pub use regime::{Regime, RegimeConstants, classify, melted_fraction, topological_defects};
 pub mod ops;
 pub mod nematic;
 pub mod stokes;

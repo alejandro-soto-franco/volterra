@@ -469,21 +469,24 @@ transcribed, and agrees with the Rust frame for frame.
 ### Where the paper's own marked points sit
 
 Fig. 7b and 7d classify each `(ell_a, ell_c)` on a grid, and mark the two
-snapshot parameters with a box. Both boxes sit on the **upper edge** of their
-braiding region, one grid step from Melted:
+snapshot parameters with a box. Reading those panels by eye is unreliable, so
+they were extracted to data (`the extraction data`, 250 points on an
+8x14, 9x10 and 8x6 grid, each dot matched against the legend swatches sampled
+from the same render). Both marked points are braiding points in the paper's
+own classification, and both sit at the top of their region:
 
-- The cardioid box at `(0.0139, 0.0903)` sits directly above the run of Golden
-  Braiding points at `ell_c` around 0.080 to 0.085, with Melted immediately
-  above and to its left.
-- The nephroid box at `(0.0131, 0.1178)` sits at the top left corner of the
-  Silver Braiding region, with Melted on the same row at `ell_a = 0.010` and
-  the row above entirely Melted.
+- The cardioid box at `(0.0139, 0.0903)` lands on a Golden Braiding point. Its
+  column runs Melted, Melted, Melted, Golden, **Golden**, Golden, interrupted,
+  interrupted, Turbulent downwards, so it is the middle of three Golden points
+  with Melted two rows above.
+- The nephroid box at `(0.0131, 0.1178)` lands on a Silver Braiding point, at
+  the top left corner of that region, with Melted one column to its left and
+  the entire row above Melted.
 
-Neither is in the interior of its region. That matters for reading any
-disagreement below: a point one grid step from a regime boundary in the
-paper's own classification is where two implementations of the same equations
-are least likely to agree, and it is not where a reproduction attempt would
-choose to stand if it were choosing.
+A point at the top edge of a braiding region, against the melted boundary, is
+where two implementations of the same equations are least likely to agree, and
+it is not where a reproduction attempt would stand if it were choosing. What
+it is not is a mislabelled point: the paper classifies both as braiding.
 
 ### How much order is left at these coherence lengths
 
