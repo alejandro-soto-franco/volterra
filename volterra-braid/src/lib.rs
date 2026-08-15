@@ -35,7 +35,7 @@ pub mod synthetic;
 pub mod track;
 
 pub use braidword::{BraidWord, Generator, extract_braidword};
-pub use defect::{Defect, detect_defects};
+pub use defect::{Defect, detect_defects, detect_defects_winding};
 pub use disclination::{
     Disclination, DisclinationCurve, DisclinationSite, disclination_density,
     disclination_lines, disclination_sites,
