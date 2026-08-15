@@ -363,28 +363,35 @@ fn report_period(window: &[Vec<Defect>]) {
         return;
     }
     let max_lag = (spread.len() / 3).min(200);
-    let mut best = (0usize, 0.0f64);
-    for lag in 2..max_lag {
-        let r: f64 = (0..dev.len() - lag).map(|i| dev[i] * dev[i + lag]).sum::<f64>() / norm;
-        if r > best.1 {
-            best = (lag, r);
-        }
-    }
+    let r_at = |lag: usize| -> f64 {
+        (0..dev.len() - lag).map(|i| dev[i] * dev[i + lag]).sum::<f64>() / norm
+    };
+
+    // Local maxima, not the single largest. A periodic signal autocorrelates at
+    // its period and at every multiple, and a fast component riding on a slow
+    // orbit can outrank the orbit itself; reporting the strongest few peaks
+    // lets the fundamental be recognised rather than guessed at.
+    let mut peaks: Vec<(usize, f64)> = (3..max_lag.saturating_sub(1))
+        .filter(|&lag| r_at(lag) > r_at(lag - 1) && r_at(lag) >= r_at(lag + 1))
+        .map(|lag| (lag, r_at(lag)))
+        .collect();
+    peaks.sort_by(|a, b| b.1.total_cmp(&a.1));
+    peaks.truncate(3);
+
     let rel_spread = (norm / spread.len() as f64).sqrt() / mean;
-    if best.1 < 0.2 {
+    if peaks.is_empty() || peaks[0].1 < 0.2 {
         println!(
-            "  no clear period: strongest autocorrelation {:.2} at lag {} frames, \
-             configuration varying by {:.0}% of its mean",
-            best.1,
-            best.0,
+            "  no clear period, configuration varying by {:.0}% of its mean",
             100.0 * rel_spread
         );
     } else {
+        let listed: Vec<String> = peaks
+            .iter()
+            .map(|(lag, r)| format!("{lag} frames (r {r:.2})"))
+            .collect();
         println!(
-            "  period about {} frames (autocorrelation {:.2}), configuration varying by \
-             {:.0}% of its mean",
-            best.0,
-            best.1,
+            "  autocorrelation peaks at {}, configuration varying by {:.0}% of its mean",
+            listed.join(", "),
             100.0 * rel_spread
         );
     }
