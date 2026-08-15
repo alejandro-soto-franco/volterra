@@ -49,8 +49,8 @@ except ImportError:
 LX = LY = 100
 RADIUS = LX // 2 - 1  # 49, matching braid_tracker.py's circular BC
 THRESHOLD = 0.1
-FD2D_DIR = pathlib.Path.home() / "Chaos-Generating-Periodic-Orbits"
-BRAID_TRACKER = FD2D_DIR / "braid_tracker.py"
+FD_DIR = pathlib.Path.home() / "Chaos-Generating-Periodic-Orbits"
+BRAID_TRACKER = FD_DIR / "braid_tracker.py"
 
 # braid_tracker.py: sorted(files)[40:140] then cutoff=40 -> braid word from
 # frames at sorted indices 80..139.

@@ -8,24 +8,27 @@ All notable changes to volterra are documented here.
 
 ### Changed
 
-- **`volterra-cgpo` is renamed `volterra-fd2d`**, and `volterra-cgpo-cuda`
-  becomes `volterra-fd2d-cuda`. CGPO is the acronym of one paper, and carrying
+- **`volterra-cgpo` is renamed `volterra-fd`**, and `volterra-cgpo-cuda`
+  becomes `volterra-fd-cuda`. CGPO is the acronym of one paper, and carrying
   it in a crate name, a CLI subcommand, fifteen environment variables and six
-  type names made a general solver read as that paper's code. The new name says
-  what the crate is: the finite-difference discretisation in two dimensions,
-  alongside `volterra-dec`, which is the discrete-exterior-calculus one.
+  type names made a general solver read as that paper's code. The new name is
+  the method, alongside `volterra-dec`, which is the discrete-exterior-calculus
+  discretisation of the same physics. Neither carries a dimension: what a
+  discretisation is does not depend on how many dimensions it is applied in,
+  and both are meant to grow into however many the engine supports. What
+  `volterra-fd` implements today is two-dimensional.
 
-  The rename reaches `volterra run cgpo` (now `volterra run fd2d`), the
-  `cgpo_fd` binary (now `fd2d`), the `CGPO_*` environment variables (now
-  `FD2D_*`), the `Cgpo*` types (now `Fd2d*`), and the default output directory
-  `./output/cgpo` (now `./output/fd2d`).
+  The rename reaches `volterra run cgpo` (now `volterra run fd`), the
+  `cgpo_fd` binary (now `fd`), the `CGPO_*` environment variables (now
+  `FD_*`), the `Cgpo*` types (now `Fd*`), and the default output directory
+  `./output/cgpo` (now `./output/fd`).
 
   References to Klein et al.'s own released code keep the name, in
   `volterra-braid/oracle` and in the benchmark tables that compare against it,
   because that is what that code is called.
 
   `volterra-cgpo` 0.3.2 stays on crates.io: a published name cannot be reused or
-  withdrawn. Releases continue under `volterra-fd2d`.
+  withdrawn. Releases continue under `volterra-fd`.
 
 ### Added
 

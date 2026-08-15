@@ -3,11 +3,11 @@
 Klein, Soto Franco, Sabbir, Deutsch, Kliegman, Selinger, Mitchell, Beller,
 "Chaos-Generating Periodic Orbits of Topological Defects in Confined Active
 Nematics", PNAS 123(28), e2516670123 (2026). The applicant is second author.
-`volterra-fd2d` is a Rust port of the paper's own released solver,
+`volterra-fd` is a Rust port of the paper's own released solver,
 `flow-solver.py` (github.com/Brandonkl/Spontaneous-Optimal-Mixing, ref. [62]).
 
 **Date:** 2026-08-14, revised 2026-08-15. **Machine:** Fedora 44, AMD Ryzen 9
-8940HX, single thread per run (`volterra-fd2d` has no internal parallelism; see
+8940HX, single thread per run (`volterra-fd` has no internal parallelism; see
 `BENCHMARKS.md` section 9).
 
 **Revision (2026-08-15).** The 2026-08-14 pass reported the golden and silver
@@ -63,20 +63,20 @@ output rather than a synthetic one.
 ## Parameter resolution: lambda vs chi
 
 The paper's Materials and Methods (p. 13) states the flow-alignment
-parameter as chi = 1. `volterra-fd2d`'s `Params` struct carries two separate
+parameter as chi = 1. `volterra-fd`'s `Params` struct carries two separate
 fields, `chi` (hardcoded to 1.0 inside `Params::new`, never exposed as a free
 parameter) and `lambda` (an exposed constructor argument, doc-commented
-"code-truth flow-solver.py: lambda = 1", `volterra-fd2d/src/lib.rs:69`,
+"code-truth flow-solver.py: lambda = 1", `volterra-fd/src/lib.rs:69`,
 `:95`). Checked directly against the paper's own released code: `~/Chaos-
 Generating-Periodic-Orbits/flow-solver.py:1437` reads `lambda = 1  # flow
 alignment parameter`, and the same symbol is threaded through the H and
 stress kernels (`flow-solver.py:741-747`) exactly where the paper's chi
 belongs physically. **`chi` in the paper's prose and `lambda` in the paper's
 own code are the same physical flow-alignment parameter, under two names.**
-`volterra-fd2d`'s `lambda` field is the one that matters; its `chi` field is
+`volterra-fd`'s `lambda` field is the one that matters; its `chi` field is
 a vestigial name collision, always 1.0, and irrelevant to matching the paper.
 The runs below use `lambda = 1`, not the `lambda = 0.7` used elsewhere in
-this repository's benchmark fixtures (`volterra-fd2d/tests/step.rs:31`),
+this repository's benchmark fixtures (`volterra-fd/tests/step.rs:31`),
 which is an arbitrary concurrence-test value with no claim to match the
 paper.
 
@@ -87,17 +87,17 @@ sqrt(-a_landau / c_landau)`, which, since `a_landau = -c_landau` throughout
 this crate, always evaluated to 1.0. The paper states S0 = sqrt(2) (p. 1),
 and `flow-solver.py:1481` computes `S0 = np.sqrt(-2 * A / C)`, i.e. with a
 factor of 2 this crate's formula omitted. The crate's own doc comment already
-stated the intended value as `sqrt(2)` (`volterra-fd2d/src/lib.rs:99`,
+stated the intended value as `sqrt(2)` (`volterra-fd/src/lib.rs:99`,
 unchanged by this fix), so this was an implementation bug against the crate's
 own documented intent, not a documentation error. The bit-for-bit concurrence
 tests never exercised this path: they set `s0` directly from a hardcoded
-`SQRT_2` constant (`volterra-fd2d/tests/step.rs:35`) rather than through
+`SQRT_2` constant (`volterra-fd/tests/step.rs:35`) rather than through
 `Params::new`, so the bug affected every run built through the convenience
-constructor, including the `fd2d` production runner and the "paper silver
-point" configuration recorded in `volterra-fd2d/COMPARISON.md`, without
+constructor, including the `fd` production runner and the "paper silver
+point" configuration recorded in `volterra-fd/COMPARISON.md`, without
 affecting the validated kernel-level concurrence claims in that same
 document. Fixed to `s0 = sqrt(-2 * a_landau / c_landau)`
-(`volterra-fd2d/src/lib.rs:122`). All 38 existing tests in `volterra-fd2d`
+(`volterra-fd/src/lib.rs:122`). All 38 existing tests in `volterra-fd`
 still pass after the fix. `COMPARISON.md`'s throughput numbers are unaffected
 (s0 only sets initial-condition amplitude and the pressure/order-parameter
 scale, not the per-step cost); its physical configuration should be read
@@ -105,7 +105,7 @@ as having run at the wrong S0 until this fix.
 
 ## Velocity boundary condition, checked and ruled out as a cause
 
-`volterra-fd2d/src/step.rs:258` labels its call to `apply_u_boundary_conditions`
+`volterra-fd/src/step.rs:258` labels its call to `apply_u_boundary_conditions`
 "no-slip". `flow-solver.py`'s own markdown (lines 533-547) derives a Lions
 slip condition (zero normal velocity, zero tangential shear at the wall) and
 contrasts it explicitly with true no-slip, which raised the possibility that
@@ -119,12 +119,12 @@ call leaves `u=0` at the boundary regardless of the Lions computation. This
 is dead code in the reference script itself, the same shape as the seed
 defect below.
 
-`volterra-fd2d/src/bc.rs:96-98`'s own doc comment already states this
+`volterra-fd/src/bc.rs:96-98`'s own doc comment already states this
 precisely ("Python code... first computes a Lions slip BC, then immediately
 overwrites with `u[x,y,:] = 0`. The net effect is: set u=0..."), and the Rust
 implementation skips the discarded Lions computation and sets `u=0` directly.
 **The comment at `step.rs:258` is accurate, not stale, and the boundary
-condition is not the cause of the golden/silver mismatch.** `volterra-fd2d`
+condition is not the cause of the golden/silver mismatch.** `volterra-fd`
 matches `flow-solver.py`'s executed behaviour (plain no-slip) rather than its
 markdown derivation (Lions slip); the two happen to coincide here because the
 reference script never executes the derivation it documents.
@@ -140,7 +140,7 @@ np.random.random((Lx, Ly))` (`:1541`) draws the actual per-site field from
 the unseeded global generator. Neither the initial condition nor, therefore,
 any specific trajectory the reference script produces is reproducible from
 its own seed, including by the paper's own authors. This work's runs used a
-fixed `FD2D_SEED` for internal reproducibility (so the dense re-sampling
+fixed `FD_SEED` for internal reproducibility (so the dense re-sampling
 re-run below is guaranteed to replay the same trajectory as the coarse run),
 but this cannot be understood as reproducing "the" trajectory behind any
 published figure: no such fixed trajectory is recoverable from the reference
@@ -163,7 +163,7 @@ tangential director anchoring that winds through angle `2*pi*q` around the
 boundary; `q` is a free half-integer. This is a different, simpler geometry from
 the cardioid/nephroid/trefoiloid epitrochoid confinements the paper
 introduces later (p. 10, Fig. 7) as a physically-motivated secondary
-demonstration. Before this work, `volterra-fd2d` implemented only the
+demonstration. Before this work, `volterra-fd` implemented only the
 nephroid epitrochoid boundary (`boundary::nephroid_boundary`, k=2 fixed), and
 the winding charge in `bc::apply_q_boundary_conditions` was hardcoded to
 `net_charge = 1.0`, matching only that one nephroid case. Neither the golden
@@ -179,8 +179,8 @@ To make these runs possible at all, this work added:
 - `net_charge` as a parameter of `bc::apply_q_boundary_conditions` (was a
   hardcoded local `1.0`) and of `Params` (`Params::with_net_charge`), so `q`
   is settable per run rather than fixed to the nephroid's value.
-- `FD2D_BOUNDARY` (`circular`/`nephroid`) and `FD2D_NET_CHARGE` environment
-  variables on the `fd2d` runner.
+- `FD_BOUNDARY` (`circular`/`nephroid`) and `FD_NET_CHARGE` environment
+  variables on the `fd` runner.
 
 This is new code, not a parameter change to existing code, and it has not
 been validated against a captured Python reference the way the nephroid path
@@ -218,7 +218,7 @@ for q=1, an assumption rather than a value read from the paper.
 
 ## Results
 
-Time step `dt=1e-4` (paper, SI p. 25-26, and `fd2d`'s own default),
+Time step `dt=1e-4` (paper, SI p. 25-26, and `fd`'s own default),
 `lambda=1`, `max_p_iters=50` (matching `COMPARISON.md`'s validated
 high-throughput configuration; the paper does not state its own pressure
 solver's iteration cap). Each run saved 200 Q-tensor frames spread across the
@@ -284,7 +284,7 @@ of the paper's more detailed golden/silver claims.
 
 ### The same braids off the GPU
 
-`volterra-fd2d-cuda` ports every stage of the step to CUDA through cuda-oxide,
+`volterra-fd-cuda` ports every stage of the step to CUDA through cuda-oxide,
 each kernel checked against its CPU counterpart. Running the two trajectories
 on the device and extracting the braid from its own frames:
 
@@ -337,9 +337,9 @@ since a window closes where the run ended rather than on a period boundary.
 Two earlier checks stand, and their results are unchanged by this:
 
 - **The velocity boundary condition was checked against the reference and ruled
-  out** (see above): both `volterra-fd2d` and the reference script's
+  out** (see above): both `volterra-fd` and the reference script's
   actually-executed code apply plain no-slip.
-- **Both runs were repeated at 5x denser saving** (golden: `FD2D_SAVE_EVERY`
+- **Both runs were repeated at 5x denser saving** (golden: `FD_SAVE_EVERY`
   3750 to 750; silver: 2500 to 500), same seed and same parameters, and
   reproduced the coarse run's word and entropy exactly. The trajectory is
   deterministic and finer sampling caught nothing the coarse sampling missed.
@@ -532,15 +532,15 @@ result):
 
 ```bash
 cd volterra
-cargo build --release -p volterra-fd2d --bin fd2d
-FD2D_LX=100 FD2D_BOUNDARY=circular FD2D_NET_CHARGE=1.5 FD2D_ALS=3.99 \
-  FD2D_NCL=0.975 FD2D_LAMBDA=1.0 FD2D_MAX_P_ITERS=50 FD2D_MAX_STEPS=750000 \
-  FD2D_SAVE_EVERY=750 FD2D_OUT=/tmp/fd2d-golden-dense FD2D_SEED=0 \
-  ./target/release/fd2d
-python3 extract_braid.py /tmp/fd2d-golden-dense/als_3.99_ncl_0.975 100 3
+cargo build --release -p volterra-fd --bin fd
+FD_LX=100 FD_BOUNDARY=circular FD_NET_CHARGE=1.5 FD_ALS=3.99 \
+  FD_NCL=0.975 FD_LAMBDA=1.0 FD_MAX_P_ITERS=50 FD_MAX_STEPS=750000 \
+  FD_SAVE_EVERY=750 FD_OUT=/tmp/fd-golden-dense FD_SEED=0 \
+  ./target/release/fd
+python3 extract_braid.py /tmp/fd-golden-dense/als_3.99_ncl_0.975 100 3
 ```
 
-Swap `FD2D_NET_CHARGE=2.0`, `FD2D_MAX_STEPS=500000`, `FD2D_SAVE_EVERY=500`
+Swap `FD_NET_CHARGE=2.0`, `FD_MAX_STEPS=500000`, `FD_SAVE_EVERY=500`
 for silver. `extract_braid.py` lives outside this repository during this
 dispatch; see the accompanying report for its path. See `docs/SUBSUMPTION.md`
 for how this boundary condition and its validation status are recorded in

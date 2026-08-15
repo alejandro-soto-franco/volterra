@@ -5,7 +5,7 @@ members = [
     "volterra-braid",
     "volterra-core",
     "volterra-dec",
-    "volterra-fd2d",
+    "volterra-fd",
     "volterra-fields",
     "volterra-mars",
     "volterra-solver",
