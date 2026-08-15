@@ -19,7 +19,7 @@ use rand::{rngs::StdRng, RngExt, SeedableRng};
 
 use volterra_cgpo::boundary;
 use volterra_cgpo::ops;
-use volterra_cgpo_cuda::{Device, DeviceBoundary};
+use volterra_cgpo_cuda::{Device, DeviceBoundary, DeviceState, StepParams};
 
 /// The grid the golden and silver runs use.
 const LX: usize = 100;
@@ -534,10 +534,114 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+/// Whole steps on the device against whole steps on the CPU, from the golden
+/// run's own initial condition.
+///
+/// The per-kernel checks say each stage computes what the CPU computes. This
+/// says the stages are wired together in the same order, and it is the check
+/// that would catch a field read before it was written or a boundary condition
+/// applied at the wrong point.
+fn phase_step(steps: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let dev = Device::new(0)?;
+    let bnd = boundary::circular_boundary(LX, LX);
+    let n = LX * LX;
+    let d_bnd = DeviceBoundary::upload_full(dev.stream(), &bnd)?;
+
+    let params = volterra_cgpo::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50).with_net_charge(1.5);
+    let step_params = StepParams::from_cpu(&params);
+    let target_rel_change = 1e-3;
+
+    // The golden run's own initial condition, on both sides.
+    let mut cpu = volterra_cgpo::step::State::new(LX, LX);
+    let mut rng = StdRng::seed_from_u64(0);
+    random_theta_ic(&mut cpu.q, params.s0, LX, LX, &bnd.inside, &mut rng);
+
+    let mut gpu = DeviceState::zeroed(dev.stream(), LX, LX)?;
+    gpu.upload_from(dev.stream(), &cpu.q, &cpu.u, &cpu.p)?;
+
+    println!("{steps} steps at {LX}x{LX}, golden parameters, from the same initial condition");
+    let mut sweeps_differ = 0usize;
+    for step in 0..steps {
+        let cpu_iters =
+            volterra_cgpo::step::update_step_inner(&mut cpu, &params, &bnd, target_rel_change);
+        let gpu_iters = dev.step(&mut gpu, &d_bnd, &step_params, target_rel_change)?;
+        if cpu_iters != gpu_iters {
+            sweeps_differ += 1;
+            if sweeps_differ <= 3 {
+                println!("  step {step}: {cpu_iters} sweeps on the CPU, {gpu_iters} on the device");
+            }
+        }
+    }
+
+    let (q, u, p) = gpu.download(dev.stream())?;
+    println!(
+        "sweep counts differed on {sweeps_differ} of {steps} steps"
+    );
+    // A whole field is compared against its own largest value, not element by
+    // element: an element near zero carries no information about whether two
+    // trajectories have parted, and the fields here span many orders.
+    let relative = |a: &[f64], b: &[f64]| -> (f64, f64) {
+        let scale = a.iter().fold(0.0_f64, |m, v| m.max(v.abs())).max(1e-300);
+        let worst = a
+            .iter()
+            .zip(b.iter())
+            .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+        (worst, worst / scale)
+    };
+    let mut ok = true;
+    for (name, a, b) in [
+        ("Q", &cpu.q[..], &q[..]),
+        ("u", &cpu.u[..], &u[..]),
+        ("p", &cpu.p[..], &p[..]),
+    ] {
+        let (worst, rel) = relative(a, b);
+        let pass = rel <= 1e-9;
+        ok &= pass;
+        println!(
+            "[step: {name}] max abs {worst:.3e}, {rel:.3e} of the field's own range ({})",
+            if pass { "PASS" } else { "FAIL" }
+        );
+    }
+
+    if ok {
+        println!("STEP COMPARISON COMPLETE");
+        Ok(())
+    } else {
+        Err("a field drifted further than a stepped comparison should".into())
+    }
+}
+
+/// The golden run's initial condition, matching `cgpo_fd`'s `random_theta_ic`.
+fn random_theta_ic(q: &mut [f64], s0: f64, lx: usize, ly: usize, inside: &[bool], rng: &mut StdRng) {
+    use std::f64::consts::PI;
+    for x in 0..lx {
+        for y in 0..ly {
+            let idx = x * ly + y;
+            let (qxx, qxy) = if inside[idx] {
+                let theta: f64 = PI * rng.random::<f64>();
+                let (c, s) = (theta.cos(), theta.sin());
+                (s0 * (c * c - 0.5), s0 * (c * s))
+            } else {
+                (0.0, 0.0)
+            };
+            q[idx * 2] = qxx;
+            q[idx * 2 + 1] = qxy;
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str).unwrap_or("all") {
-        "validate" | "all" => phase_validate()?,
+        "step" => {
+            let steps = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(1);
+            phase_step(steps)?;
+        }
+        "validate" => phase_validate()?,
+        "all" => {
+            phase_validate()?;
+            phase_step(1)?;
+        }
         other => {
             eprintln!("unknown phase {other}; expected validate or all");
             std::process::exit(2);

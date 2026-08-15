@@ -25,13 +25,20 @@
 //! velocity updates, and the integrator. The three differential operators are
 //! exposed separately as well, since several stages are built from them.
 //!
-//! Two things stand between that and a device-resident run. The pressure
-//! loop's convergence measure is a reduction over the whole grid, and running
-//! it as device atomics makes the sweep count depend on accumulation order,
-//! which the measured behaviour makes cheap to avoid: the solve converges in a
-//! single sweep for all but the first hundred steps of a run. And the step
-//! itself still round-trips each field to the host between kernels, which is
-//! what the assembly stage removes.
+//! [`DeviceState`] holds every field on the device and runs a whole step
+//! across them, stage for stage against `update_step_inner`. Nothing crosses
+//! the bus during a step except the pressure loop's convergence measure, which
+//! its stopping rule needs on the host. That measure is summed over fixed
+//! spans and added up in index order rather than through device atomics, so
+//! the sweep count cannot vary between runs of the same binary.
+//!
+//! Over 5,000 steps from the golden run's own initial condition, the device
+//! and the CPU agree to around `1e-15` of each field's own range, flat rather
+//! than growing, and the sweep count matches on every step.
+//!
+//! What remains is the batch. One 100x100 grid is 10,000 cells and will not
+//! fill this device; a sweep over `q` and seeds carried as a batch dimension
+//! shares one set of launches across every run in it.
 //!
 //! # Agreement
 //!
@@ -52,6 +59,8 @@
 mod device;
 mod error;
 mod kernels;
+mod state;
 
 pub use device::{Device, DeviceBoundary};
 pub use error::CudaError;
+pub use state::{DeviceState, StepParams};

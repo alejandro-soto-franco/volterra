@@ -100,6 +100,11 @@ impl Device {
         &self.stream
     }
 
+    /// The loaded module, for the device-resident step in `state.rs`.
+    pub(crate) fn module_ref(&self) -> &kernels::LoadedModule {
+        &self.module
+    }
+
     /// 9-point Laplacian of a scalar field.
     ///
     /// `out` is read back with the cells outside the mask left as they were on
