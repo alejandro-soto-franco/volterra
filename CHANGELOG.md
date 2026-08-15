@@ -6,6 +6,37 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Electric-field coupling on the 3D molecular field**, alongside the magnetic
+  coupling that was already there. `ActiveNematicParams3D` gains `epsilon_a`,
+  `e0` and `omega_e`, mirroring `chi_a`, `b0` and `omega_b`: both fields couple
+  quadratically to a direction and contribute a traceless rank-two term, so both
+  now go through one `field_term`, which replaced the magnetic expression
+  duplicated at four call sites. A negative `epsilon_a` is allowed, since a
+  nematic of negative dielectric anisotropy aligns across the field rather than
+  along it. Exposed through the Python bindings as optional arguments.
+
+  A zero amplitude removes the term identically, so every result measured before
+  this existed is unchanged to the last bit, which a test asserts.
+
+  What remains of open-Qmin's version of this capability is a *spatially
+  varying* field loaded from file; `docs/SUBSUMPTION.md` now records the row as
+  partial rather than a gap.
+
+### Removed
+
+- **`volterra-mars`**, which was a shim. Every one of its dimensionless groups
+  delegated a single line to a method already on `ActiveNematicParams`
+  (`pi_number`, `defect_length`, `a_eff`, `ch_coherence_length`, `phi_eq`), and
+  its two presets were `default_test()` with a grid size and an activity
+  changed. Nothing in the workspace depended on it. It carried no field coupling
+  of its own: the magnetic actuation the MARS system is built on lives in
+  `ActiveNematicParams3D` and the molecular field, and is untouched by this.
+
+  `volterra-mars` 0.3.2 stays on crates.io; a published name cannot be
+  withdrawn.
+
 ### Changed
 
 - **`volterra-cgpo` is renamed `volterra-fd`**, and `volterra-cgpo-cuda`

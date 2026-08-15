@@ -7,7 +7,6 @@ members = [
     "volterra-dec",
     "volterra-fd",
     "volterra-fields",
-    "volterra-mars",
     "volterra-solver",
     "volterra-py",
 ]

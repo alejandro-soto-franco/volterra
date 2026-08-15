@@ -114,6 +114,48 @@ fn cubic_bulk_term(
     ]
 }
 
+/// The traceless rank-two term an external field contributes to the molecular
+/// field: `coefficient * amplitude^2 * [d (x) d - I/3]`, with the direction `d`
+/// rotating in the xy plane at `omega` and static along x when `omega` is zero.
+///
+/// The magnetic and the electric couplings have the same form, differing only in
+/// which coefficient and amplitude they carry: both are quadratic in a field and
+/// both prefer a director along it (or across it, where the anisotropy is
+/// negative). One function serves both.
+///
+/// A zero amplitude returns zeros, so a run with neither field set is unchanged
+/// to the last bit by the electric term's existence.
+#[inline]
+fn external_field_term(coefficient: f64, amplitude: f64, omega: f64, t: f64) -> [f64; 5] {
+    let a2 = coefficient * amplitude * amplitude;
+    if a2 == 0.0 {
+        return [0.0; 5];
+    }
+    let c = (omega * t).cos();
+    let s = (omega * t).sin();
+    [
+        a2 * (c * c - 1.0 / 3.0),
+        a2 * c * s,
+        0.0,
+        a2 * (s * s - 1.0 / 3.0),
+        0.0,
+    ]
+}
+
+/// The magnetic and electric contributions summed, in the 5-component packing.
+#[inline]
+fn field_term(p: &ActiveNematicParams3D, t: f64) -> [f64; 5] {
+    let m = external_field_term(p.chi_a, p.b0, p.omega_b, t);
+    let e = external_field_term(p.epsilon_a, p.e0, p.omega_e, t);
+    [
+        m[0] + e[0],
+        m[1] + e[1],
+        m[2] + e[2],
+        m[3] + e[3],
+        m[4] + e[4],
+    ]
+}
+
 /// Compute the active molecular field H at each vertex.
 ///
 /// Returns a QField3D with the same dimensions as `q`.
@@ -135,16 +177,8 @@ pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QF
     // Magnetic torque: H_mag = chi_a * b0^2 * [b_hat otimes b_hat - I/3]
     // b_hat(t) = (cos(omega_b*t), sin(omega_b*t), 0)
     // 5-component form: [H11, H12, H13, H22, H23]
-    let cos_t = (p.omega_b * t).cos();
-    let sin_t = (p.omega_b * t).sin();
-    let b2 = p.chi_a * p.b0 * p.b0;
-    let h_mag = [
-        b2 * (cos_t * cos_t - 1.0 / 3.0),
-        b2 * cos_t * sin_t,
-        0.0,
-        b2 * (sin_t * sin_t - 1.0 / 3.0),
-        0.0,
-    ];
+    // External fields, magnetic and electric, the same for every vertex.
+    let h_mag = field_term(p, t);
 
     let mut out = QField3D::zeros(q.nx, q.ny, q.nz, q.dx);
     for k in 0..q.len() {
@@ -181,17 +215,8 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
     let nz = q.nz;
     let n = nx * ny * nz;
 
-    // Magnetic torque (precomputed, same for all vertices).
-    let cos_t = (p.omega_b * t).cos();
-    let sin_t = (p.omega_b * t).sin();
-    let b2 = p.chi_a * p.b0 * p.b0;
-    let h_mag = [
-        b2 * (cos_t * cos_t - 1.0 / 3.0),
-        b2 * cos_t * sin_t,
-        0.0,
-        b2 * (sin_t * sin_t - 1.0 / 3.0),
-        0.0,
-    ];
+    // External fields, magnetic and electric, the same for every vertex.
+    let h_mag = field_term(p, t);
 
     // Parallel computation: each vertex computes its own Laplacian stencil
     // and combines with bulk terms in one shot.
@@ -274,16 +299,8 @@ pub fn molecular_field_3d_par_into(
     let inv_dx2 = 1.0 / (q.dx * q.dx);
     let (nx, ny, nz) = (q.nx, q.ny, q.nz);
 
-    let cos_t = (p.omega_b * t).cos();
-    let sin_t = (p.omega_b * t).sin();
-    let b2 = p.chi_a * p.b0 * p.b0;
-    let h_mag = [
-        b2 * (cos_t * cos_t - 1.0 / 3.0),
-        b2 * cos_t * sin_t,
-        0.0,
-        b2 * (sin_t * sin_t - 1.0 / 3.0),
-        0.0,
-    ];
+    // External fields, magnetic and electric, the same for every vertex.
+    let h_mag = field_term(p, t);
 
     let q_data = &q.q;
     let nynz = ny * nz;
@@ -350,17 +367,8 @@ pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64)
     let dt_gr = dt * gamma_r;
     let elastic_coeff = dt_gr * k_r * inv_dx2;
 
-    // Magnetic torque (precomputed, same for all vertices).
-    let cos_t = (p.omega_b * t).cos();
-    let sin_t = (p.omega_b * t).sin();
-    let b2 = p.chi_a * p.b0 * p.b0;
-    let h_mag = [
-        b2 * (cos_t * cos_t - 1.0 / 3.0),
-        b2 * cos_t * sin_t,
-        0.0,
-        b2 * (sin_t * sin_t - 1.0 / 3.0),
-        0.0,
-    ];
+    // External fields, magnetic and electric, the same for every vertex.
+    let h_mag = field_term(p, t);
     // Pre-scale magnetic torque by dt * gamma_r
     let dt_hmag = [
         dt_gr * h_mag[0],

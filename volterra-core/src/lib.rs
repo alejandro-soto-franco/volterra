@@ -328,6 +328,18 @@ impl ActiveNematicParams {
 /// `chi_a` encodes mu_0 * Delta_chi / 2 (SI). The magnetic torque molecular field
 /// H_mag = chi_a * b0^2 * [...]. Do NOT multiply by gamma_r inside molecular_field_3d;
 /// the single Gamma_r multiplication occurs in beris_edwards_rhs_3d.
+///
+/// `epsilon_a`, `e0` and `omega_e` are the electric counterpart, and enter the
+/// molecular field the same way: both fields couple quadratically to a
+/// direction, so both contribute a traceless rank-two term
+/// `coefficient * amplitude^2 * [d (x) d - I/3]`. `epsilon_a` encodes
+/// `eps_0 * Delta_eps / 2`, matching how `chi_a` encodes `mu_0 * Delta_chi / 2`.
+/// A zero amplitude removes the term identically, so a run that sets neither
+/// field is unchanged to the last bit.
+///
+/// `omega_b` and `omega_e` rotate their field in the xy plane; zero leaves it
+/// static along x. The rotating case is the MARS actuation, where a suspension
+/// of magnetic rods is driven at `omega_b` past its rotational relaxation rate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveNematicParams3D {
     pub nx: usize,
@@ -347,6 +359,12 @@ pub struct ActiveNematicParams3D {
     pub chi_a: f64,
     pub b0: f64,
     pub omega_b: f64,
+    /// Dielectric anisotropy, encoding `eps_0 * Delta_eps / 2`.
+    pub epsilon_a: f64,
+    /// Electric field amplitude. Zero removes the electric term identically.
+    pub e0: f64,
+    /// Electric field rotation rate in the xy plane; zero holds it along x.
+    pub omega_e: f64,
     pub k_l: f64,
     pub gamma_l: f64,
     pub xi_l: f64,
@@ -468,6 +486,9 @@ impl ActiveNematicParams3D {
         if self.b0 < 0.0 {
             return Err(VError::InvalidParams("b0 must be non-negative".into()));
         }
+        if self.e0 < 0.0 {
+            return Err(VError::InvalidParams("e0 must be non-negative".into()));
+        }
         if self.k_l <= 0.0 {
             return Err(VError::InvalidParams("k_l must be positive".into()));
         }
@@ -535,6 +556,9 @@ impl ActiveNematicParams3D {
             chi_a: 0.0,
             b0: 1.0,
             omega_b: 1.0,
+            epsilon_a: 0.0,
+            e0: 0.0,
+            omega_e: 0.0,
             k_l: 0.5,
             gamma_l: 1.0,
             xi_l: 5.0,
