@@ -1,0 +1,32 @@
+[package]
+name = "volterra-cgpo-cuda"
+description = "Double-precision CUDA path for volterra's 2D confined active-nematic solver, via cuda-oxide"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Its own workspace, exactly as volterra-cuda and cartan-cuda: the pinned
+# nightly and the codegen backend must not leak into volterra's stable
+# workspace, which is why this crate is not a member of ../Cargo.toml.
+[workspace]
+
+[lib]
+name = "volterra_cgpo_cuda"
+path = "src/lib.rs"
+
+# The differential harness: every kernel against its CPU counterpart on the
+# same input, then a whole step, then a whole run.
+[[bin]]
+name = "volterra-cgpo-cuda"
+path = "src/main.rs"
+
+[dependencies]
+cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-core = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+
+# The CPU reference every kernel is checked against, and the boundary and
+# parameter construction both sides share.
+volterra-cgpo = { path = "../volterra-cgpo" }
+rand = "0.10"
