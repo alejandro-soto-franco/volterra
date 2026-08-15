@@ -524,6 +524,7 @@ control on the whole pipeline.
 |---|---|---|---|---|---|---|---|
 | circle, `q=3/2` | 0.045, 0.011 | 100 | 3 in 195/201 frames | none expected, none seen | 1.403 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` over 16 periods | **0.962424** against a published 0.96242 |
 | cardioid | 0.0139, 0.0903 | 200 | 3 in 171/200 frames | 1, at radius 24.8 against a cusp at 33.3 | 1.040 | no period stable across projections | golden entropy at 1 of 12 projections in the densely sampled rerun |
+| cardioid, the paper's Golden Braiding row | 0.0139, 0.082 | 200 | 3 in 164/268 frames, 4 in 91 | 1, at radius 28.7 | 1.034 | `{sigma_1^-1 sigma_2 sigma_1^-1}` at 8 of 12 projections | 1.316958, against a golden 0.962424 |
 | nephroid | 0.0131, 0.1178 | 100 | 4 in 141/144 frames | 2, at radius 18.5 (sd 0.0) against cusps at 24.6 | 0.777 | stationary | 0 |
 | nephroid | 0.0131, 0.080 | 100 | 4 in 299/301 frames | 2, at radius 20.2 | 0.909 | no period stable across projections | - |
 
@@ -549,6 +550,16 @@ exactly, at 9 of 12 projection directions, from a field at 99.2% of equilibrium
 order. On the cardioid the same pipeline returns a different word at nearly
 every projection, and the golden entropy at one of them. On the nephroid at the
 published point there is no motion to read a braid from at all.
+
+One row down in `ell_c`, on the run of points Fig. 7b classifies as Golden
+Braiding, the extraction becomes projection-robust: eight of twelve directions
+agree on `{sigma_1^-1 sigma_2 sigma_1^-1}`, at an entropy of 1.316958 where the
+golden braid is 0.962424, and one direction gives the golden value. That run
+also spends a third of its frames at four `+1/2` defects rather than three, so
+it is nucleating pairs, which the paper's classification of that row excludes.
+A projection-robust wrong answer is a more useful result than a scattered one:
+it says the orbit there is periodic and reproducible, and that it is a
+different periodic orbit.
 
 ### Controls on the disagreement
 
