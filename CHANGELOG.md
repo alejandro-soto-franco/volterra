@@ -6,6 +6,27 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **`volterra-cgpo` is renamed `volterra-fd2d`**, and `volterra-cgpo-cuda`
+  becomes `volterra-fd2d-cuda`. CGPO is the acronym of one paper, and carrying
+  it in a crate name, a CLI subcommand, fifteen environment variables and six
+  type names made a general solver read as that paper's code. The new name says
+  what the crate is: the finite-difference discretisation in two dimensions,
+  alongside `volterra-dec`, which is the discrete-exterior-calculus one.
+
+  The rename reaches `volterra run cgpo` (now `volterra run fd2d`), the
+  `cgpo_fd` binary (now `fd2d`), the `CGPO_*` environment variables (now
+  `FD2D_*`), the `Cgpo*` types (now `Fd2d*`), and the default output directory
+  `./output/cgpo` (now `./output/fd2d`).
+
+  References to Klein et al.'s own released code keep the name, in
+  `volterra-braid/oracle` and in the benchmark tables that compare against it,
+  because that is what that code is called.
+
+  `volterra-cgpo` 0.3.2 stays on crates.io: a published name cannot be reused or
+  withdrawn. Releases continue under `volterra-fd2d`.
+
 ### Added
 
 - **volterra-braid**: new crate for braid-group analysis of defect trajectories,
@@ -43,13 +64,13 @@ All notable changes to volterra are documented here.
 - **volterra-dec**: `active_stress_normal()` (`-zeta * Q:b`), `advect_q_covariant()` with parallel transport, `write_velocity_snapshot()`.
 - **volterra-solver**: Zhu-parameterised S^2 simulation (`sim_sphere_zhu --pe N`).
 - **volterra-solver**: coupled shape + nematic examples (`sim_deforming_sphere`, `sim_active_deforming`).
-- **volterra-solver**: 3D Beris-Edwards via fiber bundle (`sim_3d_fiber_bundle`).
+- **volterra-solver**: 3D Beris-Edwards via fibre bundle (`sim_3d_fiber_bundle`).
 - **volterra-mars**: MARS-specific parameter presets and dimensionless groups.
 - **tools/viz**: dark-green-to-white S colourmap, blue-green-red vorticity panel, barycentric streamline interpolation with Catmull-Rom smoothing.
 
 ### Changed
 
-- Depends on cartan 0.4 (fiber bundle traits).
+- Depends on cartan 0.4 (fibre bundle traits).
 
 ---
 

@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "volterra",
     "volterra-braid",
-    "volterra-cgpo",
+    "volterra-fd2d",
     "volterra-core",
     "volterra-dec",
     "volterra-fields",
@@ -45,8 +45,8 @@ criterion        = "0.5"
 
 # Uncomment to use in-tree cartan changes without pushing first.
 # [patch.crates-io]
-# cartan-core      = { path = "/home/alejandrosotofranco/cartan/cartan-core" }
-# cartan-manifolds = { path = "/home/alejandrosotofranco/cartan/cartan-manifolds" }
-# cartan-geo       = { path = "/home/alejandrosotofranco/cartan/cartan-geo" }
-# cartan-dec       = { path = "/home/alejandrosotofranco/cartan/cartan-dec" }
-# cartan-remesh    = { path = "/home/alejandrosotofranco/cartan/cartan-remesh" }
+# cartan-core      = { path = "../cartan/cartan-core" }
+# cartan-manifolds = { path = "../cartan/cartan-manifolds" }
+# cartan-geo       = { path = "../cartan/cartan-geo" }
+# cartan-dec       = { path = "../cartan/cartan-dec" }
+# cartan-remesh    = { path = "../cartan/cartan-remesh" }

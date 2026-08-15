@@ -8,9 +8,9 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Active nematics simulations and CGPO on the command line.
+/// Active nematics simulations on the command line.
 #[derive(Debug, Parser)]
-#[command(name = "volterra", about = "Active nematics simulations and CGPO")]
+#[command(name = "volterra", about = "Active nematics simulations")]
 pub struct Cli {
     /// Top-level command.
     #[command(subcommand)]
@@ -56,7 +56,7 @@ pub struct CommonArgs {
 impl CommonArgs {
     /// Resolve the output directory, falling back to `./output/<sub>`.
     ///
-    /// `sub` is the subcommand name string, e.g. `"cgpo"` or `"cartesian2d"`.
+    /// `sub` is the subcommand name string, e.g. `"fd2d"` or `"cartesian2d"`.
     pub fn out_or_default(&self, sub: &str) -> PathBuf {
         self.out_raw
             .clone()
@@ -73,8 +73,8 @@ pub enum RunTarget {
     Cartesian3d(Cartesian3dArgs),
     /// DEC manifold run on a sphere or torus.
     Dec(DecArgs),
-    /// Nephroid-confined CGPO finite-difference solver.
-    Cgpo(CgpoArgs),
+    /// Confined 2D finite-difference solver.
+    Fd2d(Fd2dArgs),
 }
 
 /// Arguments for a flat 2D Cartesian run.
@@ -137,12 +137,12 @@ pub struct DecArgs {
     pub common: CommonArgs,
 }
 
-/// Arguments for the nephroid-confined CGPO finite-difference solver.
+/// Arguments for the confined 2D finite-difference solver.
 ///
-/// These mirror the env-var knobs of `cgpo_fd` but are expressed as CLI flags.
+/// These mirror the env-var knobs of `fd2d` but are expressed as CLI flags.
 /// All physics parameters default to the `Params::new` defaults when absent.
 #[derive(Debug, Args)]
-pub struct CgpoArgs {
+pub struct Fd2dArgs {
     /// Grid width (and height) in lattice units.
     #[arg(long, default_value_t = 64)]
     pub lx: usize,
@@ -196,7 +196,7 @@ pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
             RunTarget::Cartesian2d(args) => run_cartesian2d(args),
             RunTarget::Cartesian3d(args) => run_cartesian3d(args),
             RunTarget::Dec(args) => run_dec(args),
-            RunTarget::Cgpo(args) => run_cgpo(args),
+            RunTarget::Fd2d(args) => run_fd2d(args),
         },
     }
 }
@@ -430,21 +430,21 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
     Ok(())
 }
 
-/// Run the nephroid-confined CGPO solver.
+/// Run the confined 2D finite-difference solver.
 ///
-/// Builds `Params` from `CgpoArgs` (optionally merging a TOML config), constructs
+/// Builds `Params` from `Fd2dArgs` (optionally merging a TOML config), constructs
 /// the nephroid boundary and initial condition, then drives the solver through
-/// `CgpoStep` and `SimulationRunner`. At each snapshot the observer writes Q/u/p
-/// frames via the shared `volterra_cgpo::output::write_state_frame` and checks
+/// `Fd2dStep` and `SimulationRunner`. At each snapshot the observer writes Q/u/p
+/// frames via the shared `volterra_fd2d::output::write_state_frame` and checks
 /// finiteness. With `--strict`, finiteness is also checked after every step.
-fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
-    use volterra_cgpo::{
+fn run_fd2d(args: Fd2dArgs) -> Result<(), DynErr> {
+    use volterra_fd2d::{
         guard::check_finite,
         nephroid_boundary,
         output::write_state_frame,
-        sim_step::CgpoStep,
+        sim_step::Fd2dStep,
         step::State,
-        CgpoError, Params,
+        Fd2dError, Params,
     };
     use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
 
@@ -480,7 +480,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
 
     let mut state = State::new(lx, ly);
     if let Some(ref theta_path) = args.theta_ic {
-        // Load theta IC from file (same format as cgpo_fd).
+        // Load theta IC from file (same format as fd2d).
         let n = lx * ly;
         let contents = std::fs::read_to_string(theta_path)
             .map_err(|e| -> DynErr { format!("read theta IC {}: {e}", theta_path.display()).into() })?;
@@ -503,7 +503,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
             }
         }
     } else {
-        // Deterministic IC: small uniform Q on interior cells (same as test_smoke / test_cgpo_step).
+        // Deterministic IC: small uniform Q on interior cells (same as test_smoke / test_fd2d_step).
         let amplitude = 0.1 * params.s0;
         for x in 0..lx {
             for y in 0..ly {
@@ -517,8 +517,8 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     }
 
     // output directory
-    let out = args.common.out_or_default("cgpo");
-    // Per-run sub-dir matching cgpo_fd layout: <out>/als_<als>_ncl_<ncl>/
+    let out = args.common.out_or_default("fd2d");
+    // Per-run sub-dir matching fd2d layout: <out>/als_<als>_ncl_<ncl>/
     let run_dir = out.join(format!("als_{}_ncl_{}", args.als, args.ncl));
     for sub in &["Q", "u", "p"] {
         make_out_dir(&run_dir.join(sub))?;
@@ -526,7 +526,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
 
     // physics + runner
     let target_rel_change = 1e-4_f64;
-    let mut physics = CgpoStep {
+    let mut physics = Fd2dStep {
         params: params.clone(),
         boundary: boundary.clone(),
         target_rel_change,
@@ -550,15 +550,15 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     let run_dir_ref = &run_dir;
 
     // Track the first finiteness error across snapshots.
-    let mut guard_err: Option<CgpoError> = None;
+    let mut guard_err: Option<Fd2dError> = None;
 
-    struct CgpoObserver<'a> {
+    struct Fd2dObserver<'a> {
         run_dir: &'a std::path::Path,
-        boundary: &'a volterra_cgpo::boundary::Boundary,
-        guard_err: &'a mut Option<CgpoError>,
+        boundary: &'a volterra_fd2d::boundary::Boundary,
+        guard_err: &'a mut Option<Fd2dError>,
     }
 
-    impl<'a> Observer<State> for CgpoObserver<'a> {
+    impl<'a> Observer<State> for Fd2dObserver<'a> {
         fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
             if self.guard_err.is_some() {
                 return;
@@ -594,9 +594,9 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         // Strict: observe every step; write frames only at original cadence.
         struct StrictObserver<'a> {
             run_dir: &'a std::path::Path,
-            boundary: &'a volterra_cgpo::boundary::Boundary,
+            boundary: &'a volterra_fd2d::boundary::Boundary,
             orig_snap_every: usize,
-            guard_err: &'a mut Option<CgpoError>,
+            guard_err: &'a mut Option<Fd2dError>,
         }
         impl<'a> Observer<State> for StrictObserver<'a> {
             fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
@@ -633,7 +633,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         };
         strict_runner.run(&mut state, &mut physics, &mut obs);
     } else {
-        let mut obs = CgpoObserver {
+        let mut obs = Fd2dObserver {
             run_dir: run_dir_ref,
             boundary: boundary_ref,
             guard_err: &mut guard_err,
@@ -646,7 +646,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     }
 
     println!(
-        "cgpo: {}x{} grid, {} steps, snap_every={}, strict={} -> {}",
+        "fd2d: {}x{} grid, {} steps, snap_every={}, strict={} -> {}",
         lx,
         ly,
         args.common.steps,

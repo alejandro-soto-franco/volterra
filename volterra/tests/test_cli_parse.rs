@@ -21,13 +21,13 @@ fn parses_cartesian2d_dry_with_common_flags() {
 
 #[test]
 fn defaults_out_dir_per_subcommand() {
-    let cli = Cli::try_parse_from(["volterra", "run", "cgpo"]).expect("parse");
-    if let Command::Run(RunTarget::Cgpo(a)) = cli.command {
+    let cli = Cli::try_parse_from(["volterra", "run", "fd2d"]).expect("parse");
+    if let Command::Run(RunTarget::Fd2d(a)) = cli.command {
         assert_eq!(
-            a.common.out_or_default("cgpo"),
-            std::path::PathBuf::from("./output/cgpo")
+            a.common.out_or_default("fd2d"),
+            std::path::PathBuf::from("./output/fd2d")
         );
     } else {
-        panic!("expected cgpo");
+        panic!("expected fd2d");
     }
 }

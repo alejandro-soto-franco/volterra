@@ -1,0 +1,8 @@
+target
+Cargo.lock
+rustc-ice-*.txt
+*.ll
+volterra_fd2d_cuda.options
+volterra_fd2d_cuda.target
+*.ptx
+.oxide-artifacts/

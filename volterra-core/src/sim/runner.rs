@@ -31,7 +31,7 @@ pub struct RunConfig {
     /// Always emit a snapshot at the final step, even when `steps % snap_every != 0`.
     ///
     /// The library runners leave this `false` to preserve their exact historical
-    /// snapshot sequences. Output-facing drivers (the CLI, `cgpo_fd`) set it `true`
+    /// snapshot sequences. Output-facing drivers (the CLI, `fd2d`) set it `true`
     /// so the last simulated state is never silently dropped.
     pub snap_final: bool,
 }
