@@ -97,6 +97,46 @@ Second, `force_fused_aos` (measured 17.6% faster than the split `trq2`+
 `Device::fire_minimize`'s actual force computation, not just a measured
 alternative to it.
 
+**Revision (2026-08-15, fifth pass).** The fourth pass left the comparison at
+parity, 0.0617 s against 0.0641 s. Its own roofline section is what this pass
+acted on: the force kernel sits close to the bandwidth floor, but the force
+kernel is not where an iteration spends its traffic. Of the 1008n bytes an
+iteration moved, the fused force kernel accounted for 320n and the FIRE
+bookkeeping for the other 688n, spread across five kernels (`fire_mix`,
+`position_update`, two `axpy_inplace` half-kicks, `reduce_fire`) that read the
+same three fields, `q`, `v` and `f`, over and over with nothing between them
+that changes any of the three. Two fusions collapse those five into two:
+
+- `fire_advance` does the velocity mix, the position update and the first
+  half-kick in one pass. The mix belongs to the end of the previous iteration,
+  so the fusion crosses the loop boundary and the caller carries the two mix
+  coefficients forward. `1 - alpha` and `alpha * scaling` normally, both zero on
+  a reset, which is what `zero_field` used to do. 400n bytes down to 200n.
+- `fire_kick_reduce` does the second half-kick and the FIRE reduction in one
+  pass, over exactly the fields the half-kick just wrote. 200n down to 120n.
+
+An iteration now moves **640n bytes against 1008n**, and launches three kernels
+rather than seven. The split path is kept as `Bookkeeping::Split` so the fusion
+can be timed against it on the same input rather than against a remembered
+number; `fire_minimize` selects `Bookkeeping::Fused`.
+
+**Measured, matched physics, N=100, `matched_tuned`, six timed repeats after an
+untimed warm-up, three independent runs of the phase:** split 0.0599/0.0591/
+0.0587 s, fused 0.0481/0.0464/0.0465 s, **fused faster by 19.6%, 21.6% and
+20.8%**. Both paths take **16 steps in every repeat** (the phase fails if they
+ever differ, since a differing step count would mean they are not the same
+minimiser), and their converged fields agree to `max|Q_split - Q_fused|` of
+5.6e-17 to 9.7e-17, at machine epsilon and varying run to run only through the
+reduction's atomic accumulation order. The fused path also still reproduces the
+CPU FIRE reference exactly: N=100 matched, 16 steps on both sides,
+`max|Q_cpu - Q_gpu| = 3.6e-16`.
+
+**The headline moves from parity to a lead.** volterra 0.0471 s (16 steps, mean
+of 6, min 0.0466, max 0.0477, spread 0.0010) against open-Qmin 0.0638 s (15
+steps, mean of 6, min 0.0634, max 0.0643), both tuned by the identical
+procedure, both re-measured in the same sitting on a device confirmed free
+immediately beforehand: **1.35x**.
+
 **Machine for this section:** Fedora 44, AMD Ryzen 9 8940HX (16 cores, 32
 threads), NVIDIA RTX 5060 Laptop GPU (8 GiB, compute capability 12.0, driver
 610.57.04), CUDA Toolkit 13.3, Open MPI 5.0.9. Differs from the machine line at
@@ -368,21 +408,30 @@ across four random seeds on CPU (16 steps on all four).
 
 | Code | Configuration | FIRE constants | Steps | Time (s) |
 |------|---------------|-----------------|-------|----------|
-| open-Qmin | GPU | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 15 | 0.0641 (mean of 6, min 0.0638, max 0.0652) |
-| volterra | GPU | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.0617 (mean of 6, min 0.0604, max 0.0651) |
+| open-Qmin | GPU | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 15 | 0.0638 (mean of 6, min 0.0634, max 0.0643) |
+| volterra | GPU, fused bookkeeping | `matched_tuned` (`2.5, 0.7, 0`) | 16 | **0.0471** (mean of 6, min 0.0466, max 0.0477) |
+| volterra | GPU, split bookkeeping | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.0591 (mean of 6 x 3 runs: 0.0599, 0.0591, 0.0587) |
 | open-Qmin | CPU, 1 rank | tuned (`deltaTInc=2.0, alphaDec=0.99, nMin=0`) | 17 | 0.497 (mean of 3: 0.499, 0.497, 0.496) |
 | volterra | CPU, rayon | `matched_tuned` (`2.5, 0.7, 0`) | 16 | 0.573 (mean of 3: 0.565, 0.583, 0.572) |
 
-**With both sides retuned by the identical procedure, volterra's GPU FIRE
-leads again, narrowly: 0.0617 s against open-Qmin's 0.0641 s, a 1.04x
-margin** -- recovered from step two's 0.89x (1/1.13), not restored to the
-non-matched comparison's 2.96x. On CPU the two codes are close enough
-(0.573 s against 0.497 s, open-Qmin 1.15x ahead) that this document does not
-call a GPU-shaped win on the CPU number; open-Qmin's CPU path takes one more
-step (17 against 16) but costs less per step here.
+**With both sides retuned by the identical procedure and volterra's FIRE
+bookkeeping fused, volterra's GPU FIRE leads by 1.35x: 0.0471 s against
+open-Qmin's 0.0638 s.** The split-bookkeeping row is the same volterra
+minimiser with the five separate bookkeeping kernels instead of two, and it is
+what the fourth pass measured at parity. The two volterra rows differ in the
+fusion and in nothing else: same preset, same input, same 16 steps, converged
+fields agreeing at 1e-16. The open-Qmin row was re-measured in the
+same sitting rather than carried over, and reads 0.0638 s against the fourth
+pass's 0.0641 s.
 
-**This is the number this document now stands behind: parity, not a
-decisive win either way, at matched physics with both sides tuned by the
+On CPU the two codes are close enough (0.573 s against 0.497 s, open-Qmin 1.15x
+ahead) that this document does not call a GPU-shaped win on the CPU number;
+open-Qmin's CPU path takes one more step (17 against 16) but costs less per step
+here. **The fusion is a GPU-path change and the CPU numbers are unaffected by
+it.**
+
+**This is the number this document now stands behind: 1.35x on the GPU and
+open-Qmin ahead on the CPU, at matched physics with both sides tuned by the
 same procedure.** The 2.96x figure from the non-matched, scale-matched
 comparison earlier in this section is real on its own terms (a correct
 measurement of each code's own default constants at the literal residual

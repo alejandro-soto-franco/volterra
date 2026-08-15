@@ -428,6 +428,118 @@ pub mod kernels {
         }
     }
 
+    /// The FIRE velocity mix, the position update and the first half-kick in
+    /// one pass, one thread per site.
+    ///
+    /// `fire_mix`, `position_update` and `axpy_inplace` run back to back with
+    /// nothing between them that touches `q`, `v` or `f`, so they read the same
+    /// three fields three times over. Together they move `400n` bytes; this
+    /// moves `200n`. The mix belongs to the previous iteration and the other two
+    /// to this one, so the fusion crosses the loop boundary: the caller carries
+    /// the mix coefficients forward.
+    ///
+    /// `mix_v` and `mix_f` are `1 - alpha` and `alpha * scaling`, and both zero
+    /// on a reset iteration, where the mix used to be followed by `zero_field`.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn fire_advance(
+        f: &[f64],
+        mix_v: f64,
+        mix_f: f64,
+        dt: f64,
+        len: u32,
+        mut q: DisjointSlice<f64>,
+        mut v: DisjointSlice<f64>,
+    ) {
+        let idx = thread::index_1d();
+        let j = idx.get();
+        if j >= len as usize {
+            return;
+        }
+        let half_dt = 0.5 * dt;
+        let half_dt2 = half_dt * dt;
+
+        // One index token per slice: a token is consumed by the slice it
+        // indexes, and each thread owns element `j` of `q` and of `v`
+        // independently.
+        let idx_v = thread::index_1d();
+        if let (Some(qj), Some(vj)) = (q.get_mut(idx), v.get_mut(idx_v)) {
+            let fj = f[j];
+            let vm = mix_v * (*vj) + mix_f * fj;
+            *qj += dt * vm + half_dt2 * fj;
+            *vj = vm + half_dt * fj;
+        }
+    }
+
+    /// The second half-kick and the FIRE reduction in one pass, one thread per
+    /// site.
+    ///
+    /// The reduction reads exactly the `f` and `v` the half-kick just touched,
+    /// so running them separately reads both fields twice: `200n` bytes against
+    /// this kernel's `120n`. The reduction itself is unchanged from
+    /// [`reduce_fire`], including the warp tree and the three device-scope
+    /// accumulators, which the caller must still zero before each launch.
+    #[kernel]
+    pub fn fire_kick_reduce(
+        f: &[f64],
+        half_dt: f64,
+        n_sites: u32,
+        mut v: DisjointSlice<[f64; 5]>,
+        acc: &[DeviceAtomicF64],
+    ) {
+        let idx = thread::index_1d();
+        let s = idx.get();
+        let n = n_sites as usize;
+
+        let mut fs = 0.0f64;
+        let mut vs = 0.0f64;
+        let mut ps = 0.0f64;
+        if s < n {
+            let b = s * 5;
+            if let Some(vv) = v.get_mut(idx) {
+                for c in 0..5 {
+                    let fc = f[b + c];
+                    let vc = vv[c] + half_dt * fc;
+                    vv[c] = vc;
+                    fs += fc * fc;
+                    vs += vc * vc;
+                    ps += fc * vc;
+                }
+            }
+        }
+
+        // Every lane reaches the warp reduction, including the out-of-range
+        // ones, which contribute zero.
+        let fs_w = warp::reduce_sum_f64(fs);
+        let vs_w = warp::reduce_sum_f64(vs);
+        let ps_w = warp::reduce_sum_f64(ps);
+
+        if warp::lane_id() == 0 {
+            acc[0].fetch_add(fs_w, AtomicOrdering::Relaxed);
+            acc[1].fetch_add(vs_w, AtomicOrdering::Relaxed);
+            acc[2].fetch_add(ps_w, AtomicOrdering::Relaxed);
+        }
+    }
+
+    /// The FIRE velocity mix in the coefficient form `v = mix_v * v + mix_f * f`.
+    ///
+    /// Same arithmetic as [`fire_mix`] with `mix_v = 1 - alpha` and
+    /// `mix_f = alpha * scaling`, and `v = 0` at both coefficients zero, which
+    /// is what a reset does. The split bookkeeping path uses it so that it and
+    /// the fused path defer the mix by the same amount and the fusion is the
+    /// only difference between them.
+    #[kernel]
+    pub fn fire_mix_coeffs(f: &[f64], mix_v: f64, mix_f: f64, len: u32, mut v: DisjointSlice<f64>) {
+        let idx = thread::index_1d();
+        let j = idx.get();
+        if j >= len as usize {
+            return;
+        }
+        if let Some(slot) = v.get_mut(idx) {
+            *slot = mix_v * (*slot) + mix_f * f[j];
+        }
+    }
+
     /// Pure copy, `y[i] = x[i]`, one read and one write per element and
     /// nothing else: the roofline probe. Used to measure this device's
     /// *achieved* bandwidth (not its spec-sheet peak) so the FIRE kernels'

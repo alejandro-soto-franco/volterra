@@ -36,7 +36,7 @@ use volterra_core::ActiveNematicParams3D;
 use volterra_fields::QField3D;
 use volterra_solver::{fire_minimize_3d_par, FireParams as CpuFireParams};
 
-use volterra_cuda::{Device, FireParams as GpuFireParams, LdgParams};
+use volterra_cuda::{Bookkeeping, Device, FireParams as GpuFireParams, LdgParams};
 
 const LITERAL_TARGET: f64 = 1e-3;
 const SCALE_MATCHED_TARGET: f64 = 2.09e-5;
@@ -550,6 +550,89 @@ fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Time the fused bookkeeping path against the split one on the matched-physics
+/// configuration the comparison with open-Qmin leads with.
+///
+/// Both paths run the same arithmetic in the same order, so the step count must
+/// come out identical; the phase fails if it does not, since a differing step
+/// count would mean the two are not the same minimiser and their times are not
+/// comparable. The converged fields are compared as well.
+fn phase_bookkeeping(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
+    let preset = &MATCHED_TUNED_PRESET;
+    let n = 100usize;
+    let (p, ldg) = setup_matched(n);
+    let s0 = analytic_s0_matched(&p);
+    let q0 = QField3D::random_director_field(n, n, n, p.dx, s0, 42);
+    let q0_flat = flatten(&q0);
+    let target = LITERAL_TARGET;
+    let params = (preset.gpu)(p.dt, target, 2000);
+
+    let mut summary: Vec<(&str, f64, f64, f64, usize)> = Vec::new();
+    let mut fields: Vec<Vec<f64>> = Vec::new();
+
+    for (label, mode) in [("split", Bookkeeping::Split), ("fused", Bookkeeping::Fused)] {
+        // Untimed warm-up, then 6 timed repeats, matching the six the headline
+        // rows in BENCHMARKS.md are quoted from.
+        let warm = dev.fire_minimize_with(&q0_flat, &ldg, &params, mode)?;
+        if !warm.converged {
+            return Err(format!("[bookkeeping] {label}: warm-up did not reach target").into());
+        }
+
+        let mut times = Vec::with_capacity(6);
+        let mut iters = warm.iterations;
+        for rep in 0..6 {
+            let t0 = Instant::now();
+            let r = dev.fire_minimize_with(&q0_flat, &ldg, &params, mode)?;
+            let t = t0.elapsed().as_secs_f64();
+            if !r.converged {
+                return Err(format!("[bookkeeping] {label} rep {rep}: did not reach target").into());
+            }
+            if r.iterations != iters {
+                return Err(format!(
+                    "[bookkeeping] {label} rep {rep}: {} steps, warm-up took {iters}",
+                    r.iterations
+                )
+                .into());
+            }
+            iters = r.iterations;
+            times.push(t);
+            if rep == 0 {
+                fields.push(r.q);
+            }
+        }
+        let mean = times.iter().sum::<f64>() / times.len() as f64;
+        let min = times.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        println!(
+            "[bookkeeping] {label:6} N={n} steps={iters} wall min={min:.4}s mean={mean:.4}s max={max:.4}s"
+        );
+        summary.push((label, mean, min, max, iters));
+    }
+
+    let (split, fused) = (&summary[0], &summary[1]);
+    if split.4 != fused.4 {
+        return Err(format!(
+            "[bookkeeping] step counts differ: split {}, fused {}; the two paths are not the same minimiser",
+            split.4, fused.4
+        )
+        .into());
+    }
+    let max_diff = fields[0]
+        .iter()
+        .zip(&fields[1])
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f64, f64::max);
+    println!("[bookkeeping] max|Q_split - Q_fused| = {max_diff:.3e}");
+    println!(
+        "[bookkeeping] fused is {:+.1}% against split ({:.4}s against {:.4}s, {} steps each)",
+        100.0 * (fused.1 - split.1) / split.1,
+        fused.1,
+        split.1,
+        fused.4
+    );
+    Ok(())
+}
+
 fn phase_kernels(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
     let n = 100usize;
     let (p, ldg) = setup(n);
@@ -591,6 +674,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             phase_time_tuned(&dev)?;
         }
         "kernels" => phase_kernels(&dev)?,
+        "bookkeeping" => phase_bookkeeping(&dev)?,
         "matched" => phase_matched(&dev)?,
         "all" => {
             phase_roofline(&dev)?;

@@ -94,6 +94,24 @@ pub struct LdgParams {
     pub gamma_r: f64,
 }
 
+/// Which bookkeeping kernels a FIRE iteration launches around its force
+/// evaluation.
+///
+/// The velocity mix, the position update, the two half-kicks and the reduction
+/// all read the same three fields, `q`, `v` and `f`, with nothing between them
+/// that changes any of the three. Run separately they move `688n` bytes an
+/// iteration against the fused force kernel's `320n`, so most of an iteration's
+/// traffic is bookkeeping rather than physics. Fused, they move `320n`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bookkeeping {
+    /// One `fire_advance` before the force and one `fire_kick_reduce` after it.
+    Fused,
+    /// `fire_mix_coeffs`, `position_update`, `axpy_inplace`, `axpy_inplace`,
+    /// `reduce_fire`. Kept so the fusion can be timed against it on the same
+    /// input.
+    Split,
+}
+
 pub struct FireResult {
     pub q: Vec<f64>,
     pub iterations: usize,
@@ -137,6 +155,21 @@ impl Device {
         ldg: &LdgParams,
         params: &FireParams,
     ) -> Result<FireResult, CudaError> {
+        self.fire_minimize_with(q0, ldg, params, Bookkeeping::Fused)
+    }
+
+    /// [`fire_minimize`](Self::fire_minimize) with the bookkeeping kernels
+    /// chosen explicitly, so the fused and split paths can be timed against
+    /// each other on the same input. The two compute the same arithmetic in the
+    /// same order and differ only in how many passes over `q`, `v` and `f` it
+    /// takes.
+    pub fn fire_minimize_with(
+        &self,
+        q0: &[f64],
+        ldg: &LdgParams,
+        params: &FireParams,
+        bookkeeping: Bookkeeping,
+    ) -> Result<FireResult, CudaError> {
         let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
         let len5 = n_sites * 5;
         assert_eq!(q0.len(), len5, "q0 length must be n_sites * 5");
@@ -171,6 +204,12 @@ impl Device {
         let mut iterations: usize = 0;
         let mut force_max: f64;
 
+        // The velocity mix belongs to the end of the previous iteration. The
+        // fused path defers it to the next `fire_advance`, so it is carried
+        // here; the first iteration mixes nothing, and `v` is zero there anyway.
+        let mut mix_v = 1.0_f64;
+        let mut mix_f = 0.0_f64;
+
         loop {
             let dt = delta_t;
 
@@ -180,39 +219,80 @@ impl Device {
             // SAFETY: every buffer above has length `len5`, matching
             // `cfg_len5`'s element count, and `position_update`/`axpy_inplace`
             // bounds-check every read against the `len` argument passed
-            // alongside them.
-            unsafe {
-                self.module.position_update(
-                    stream, cfg_len5, &v, &f, dt, len5 as u32, &mut q,
-                )?;
-                self.module.axpy_inplace(
-                    stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v,
-                )?;
+            // alongside them. `fire_advance` reads `f` under `n_sites * 5` and
+            // writes one 5-wide element of `q` and of `v` per thread, each
+            // exactly one disjoint-slice element.
+            match bookkeeping {
+                Bookkeeping::Fused => unsafe {
+                    self.module.fire_advance(
+                        stream,
+                        cfg_len5,
+                        &f,
+                        mix_v,
+                        mix_f,
+                        dt,
+                        len5 as u32,
+                        &mut q,
+                        &mut v,
+                    )?;
+                },
+                Bookkeeping::Split => unsafe {
+                    if mix_v != 1.0 || mix_f != 0.0 {
+                        self.module.fire_mix_coeffs(
+                            stream, cfg_len5, &f, mix_v, mix_f, len5 as u32, &mut v,
+                        )?;
+                    }
+                    self.module
+                        .position_update(stream, cfg_len5, &v, &f, dt, len5 as u32, &mut q)?;
+                    self.module
+                        .axpy_inplace(stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v)?;
+                },
             }
 
             // Recompute the force at the new q.
             f_new = self.compute_force_fused(&q, f_new, ldg, cfg_sites)?;
             std::mem::swap(&mut f, &mut f_new);
 
-            // half-kick #2, against the NEW force.
-            unsafe {
-                self.module
-                    .axpy_inplace(stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v)?;
-            }
-
-            // FIRE reduction: zero the accumulator while still typed as
-            // plain `f64` (`DeviceAtomicF64` is not `DeviceCopy`, so neither
-            // `zero_async` nor `to_host_vec` accept that view), cast to the
-            // atomic view for the launch, cast back, and read all three
-            // reduced scalars in one `to_host_vec` call.
+            // half-kick #2 against the NEW force, then the FIRE reduction over
+            // exactly the fields it just wrote. Zero the accumulator while
+            // still typed as plain `f64` (`DeviceAtomicF64` is not
+            // `DeviceCopy`, so neither `zero_async` nor `to_host_vec` accept
+            // that view), cast to the atomic view for the launch, cast back,
+            // and read all three reduced scalars in one `to_host_vec` call.
             acc.zero_async(stream)?;
             let acc_atomic = acc.cast_elem::<DeviceAtomicF64>();
             // SAFETY: `f` and `v` both have length `len5 = n_sites * 5`, the
             // reduction reads exactly that extent under `n_sites`, and `acc`
             // holds the three atomic accumulators the kernel writes.
-            unsafe {
-                self.module
-                    .reduce_fire(stream, cfg_sites, &f, &v, n_sites as u32, &acc_atomic)?;
+            match bookkeeping {
+                Bookkeeping::Fused => {
+                    let mut v5 = v.cast_chunks::<[f64; 5]>().unwrap_or_else(|_| {
+                        panic!("n_sites*5 f64 buffer must reinterpret as n_sites [f64;5]")
+                    });
+                    // SAFETY: as above; `v5` has `n_sites` 5-wide slots, matching
+                    // `cfg_sites`, and each thread writes exactly its own.
+                    let launched = unsafe {
+                        self.module.fire_kick_reduce(
+                            stream,
+                            cfg_sites,
+                            &f,
+                            0.5 * dt,
+                            n_sites as u32,
+                            &mut v5,
+                            &acc_atomic,
+                        )
+                    };
+                    v = v5.cast_chunks::<f64>().unwrap_or_else(|_| {
+                        panic!("n_sites [f64;5] buffer must reinterpret back to n_sites*5 f64")
+                    });
+                    launched?;
+                }
+                Bookkeeping::Split => unsafe {
+                    self.module
+                        .axpy_inplace(stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v)?;
+                    self.module
+                        .reduce_fire(stream, cfg_sites, &f, &v, n_sites as u32, &acc_atomic)?;
+                },
             }
             acc = acc_atomic.cast_elem::<f64>();
             let reduced = acc.to_host_vec(stream)?;
@@ -225,11 +305,14 @@ impl Device {
                 0.0
             };
 
-            // FIRE velocity mix.
-            unsafe {
-                self.module
-                    .fire_mix(stream, cfg_len5, &f, scaling, alpha, len5 as u32, &mut v)?;
-            }
+            // The FIRE velocity mix, `v <- (1 - alpha) v + alpha * scaling * f`,
+            // with the alpha of this iteration rather than the updated one
+            // below. It is not applied here: the next `fire_advance` folds it
+            // into the position update. Nothing between here and there reads
+            // `v`, and on the final iteration the loop breaks and only `q` is
+            // returned, so a mix that never runs changes no result.
+            mix_v = 1.0 - alpha;
+            mix_f = alpha * scaling;
 
             iterations += 1;
             if power > 0.0 && !iterations.is_multiple_of(500) {
@@ -242,9 +325,10 @@ impl Device {
                 n_since_negative_power = 0;
                 delta_t = (delta_t * params.delta_t_dec).max(params.delta_t_min);
                 alpha = params.alpha_start;
-                unsafe {
-                    self.module.zero_field(stream, cfg_len5, len5 as u32, &mut v)?;
-                }
+                // A reset zeroes `v` after the mix. Zero coefficients express
+                // that in the deferred mix, which is what `zero_field` did.
+                mix_v = 0.0;
+                mix_f = 0.0;
             }
 
             if iterations >= params.max_iterations || force_max <= params.force_cutoff {

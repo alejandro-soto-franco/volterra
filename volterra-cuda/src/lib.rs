@@ -10,5 +10,5 @@ mod device;
 mod error;
 mod kernels;
 
-pub use device::{Device, FireParams, FireResult, LdgParams};
+pub use device::{Bookkeeping, Device, FireParams, FireResult, LdgParams};
 pub use error::CudaError;
