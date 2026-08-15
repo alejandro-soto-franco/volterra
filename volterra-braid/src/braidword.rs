@@ -166,13 +166,42 @@ impl BraidWord {
         }
     }
 
+    /// The word with every adjacent `sigma_i sigma_i^-1` cancelled, repeatedly.
+    ///
+    /// `sigma_i sigma_i^-1 = 1` holds in the braid group, so this is the same
+    /// braid: the Burau matrix, and with it the topological entropy, is
+    /// unchanged. What changes is whether the word repeats visibly.
+    ///
+    /// Extraction produces such pairs whenever two strands hover near the same
+    /// projected coordinate and their order flickers. On the steady-winding
+    /// circle there are almost none. In an epitrochoid the defects spend part
+    /// of each cycle nearly collinear along the projection, and an unreduced
+    /// window can be four fifths cancelling pairs, which buries the period.
+    pub fn freely_reduced(&self) -> BraidWord {
+        let mut gens: Vec<Generator> = Vec::with_capacity(self.gens.len());
+        for &g in &self.gens {
+            match gens.last() {
+                Some(&prev) if prev.index == g.index && prev.inverse != g.inverse => {
+                    gens.pop();
+                }
+                _ => gens.push(g),
+            }
+        }
+        BraidWord {
+            n_strands: self.n_strands,
+            gens,
+        }
+    }
+
     /// The braid of one period, as a word in its own right.
     ///
     /// The period is taken of the [commutation normal
-    /// form](Self::commutation_normal_form), so a period whose generators were
-    /// emitted in a different order from one repeat to the next is still found.
+    /// form](Self::commutation_normal_form) of the [freely
+    /// reduced](Self::freely_reduced) word, so a period whose generators were
+    /// emitted in a different order from one repeat to the next is still found,
+    /// and so is one buried under cancelling pairs.
     pub fn period_word(&self) -> BraidWord {
-        let normal = self.commutation_normal_form();
+        let normal = self.freely_reduced().commutation_normal_form();
         BraidWord {
             n_strands: self.n_strands,
             gens: normal.fundamental_period().to_vec(),
@@ -475,5 +504,57 @@ mod extract_tests {
         ];
         // after the cross, position 1 holds strand 2 (y=1.0) > position 2 strand 1 (y=0.0): sigma_2.
         assert_eq!(extract_braidword(&wls), BraidWord::from_codes(3, &[2]));
+    }
+}
+
+#[cfg(test)]
+mod free_reduction_tests {
+    use super::*;
+
+    /// Cancelling pairs vanish, including nested ones.
+    #[test]
+    fn cancels_adjacent_inverse_pairs() {
+        // sigma_1 (sigma_2 sigma_2^-1) sigma_1^-1 sigma_3 reduces to sigma_3.
+        let w = BraidWord::from_codes(4, &[1, 2, -2, -1, 3]);
+        assert_eq!(w.freely_reduced().gens, BraidWord::from_codes(4, &[3]).gens);
+    }
+
+    /// A word with nothing to cancel is returned unchanged.
+    #[test]
+    fn leaves_a_reduced_word_alone() {
+        let w = BraidWord::from_codes(3, &[-2, 1, -2, 1]);
+        assert_eq!(w.freely_reduced().gens, w.gens);
+    }
+
+    /// Free reduction is the identity on the braid, so the entropy is untouched.
+    ///
+    /// This is what makes the reduction safe to apply before reading a period:
+    /// it changes the word without changing what the word means.
+    #[test]
+    fn preserves_the_topological_entropy() {
+        let golden = BraidWord::from_codes(3, &[-2, 1]);
+        // The same braid, padded with pairs that cancel.
+        let jittery = BraidWord::from_codes(3, &[-2, 1, 1, -1, 2, -2, 1, -1]);
+        assert_eq!(jittery.freely_reduced().gens, golden.gens);
+        assert!(
+            (jittery.topological_entropy() - golden.topological_entropy()).abs() < 1e-12,
+            "free reduction must not move the entropy"
+        );
+    }
+
+    /// A period buried under jitter is recovered.
+    #[test]
+    fn recovers_a_period_buried_under_jitter() {
+        // Four repeats of the golden braid, each followed by a cancelling pair.
+        let mut codes = Vec::new();
+        for _ in 0..4 {
+            codes.extend_from_slice(&[-2, 1, 2, -2]);
+        }
+        let w = BraidWord::from_codes(3, &codes);
+        assert!(
+            (w.entropy_per_period() - crate::GOLDEN_H).abs() < 1e-9,
+            "expected the golden entropy, got {}",
+            w.entropy_per_period()
+        );
     }
 }

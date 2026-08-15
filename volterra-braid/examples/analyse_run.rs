@@ -240,11 +240,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             let w = extract_braidword(&track(&rotated));
             let p = w.period_word();
             println!(
-                "    {:>5.1} deg  {:>3} gens  h = {:.6}  {{{}}}",
+                "    {:>5.1} deg  {:>4} gens  h = {:.6}  {{{}}}",
                 theta.to_degrees(),
                 p.gens.len(),
                 w.entropy_per_period(),
-                format_word(&p)
+                format_word_short(&p)
             );
         }
     }
@@ -274,6 +274,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         word.topological_entropy()
     );
     Ok(())
+}
+
+/// A word, truncated. A period of a few generators is the interesting case and
+/// prints whole; a period of two hundred means no period was found, and
+/// printing all of it buries every other line of the scan.
+fn format_word_short(w: &BraidWord) -> String {
+    const MAX: usize = 12;
+    if w.gens.len() <= MAX {
+        return format_word(w);
+    }
+    let head = BraidWord {
+        n_strands: w.n_strands,
+        gens: w.gens[..MAX].to_vec(),
+    };
+    format!("{} ... {} more", format_word(&head), w.gens.len() - MAX)
 }
 
 fn format_word(w: &BraidWord) -> String {
