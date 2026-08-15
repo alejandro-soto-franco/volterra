@@ -437,6 +437,36 @@ detection by voxel-face holonomy (`defects_3d::scan_defects_3d`, which is the
 method the paper cites for defect number and contour length) and the 3D
 Beris-Edwards solver itself.
 
+### The two detectors on a field with a known answer
+
+volterra now reaches a disclination line two independent ways, sharing no code
+and no intermediate quantity: `defects_3d::scan_defects_3d`, a holonomy over
+each voxel face, and `volterra_braid::disclination`, the density tensor. A field
+with an exact answer separates them.
+
+The test field is a `+1/2` and a `-1/2` straight line, parallel, both running
+the full depth of a `32^3` box, with the two windings superposed so the director
+is single-valued far from either core. The box faces therefore carry no jump,
+and neither detector is being asked about an artefact of the test field.
+
+| | Left core, placed at `x = 9.5` | Right core, placed at `x = 21.5` | Slices covered |
+|---|---|---|---|
+| Density tensor | 9.50 | 21.50 | 32 of 32, both lines |
+| Voxel-face holonomy | missed | one line, 4 vertices | 2 of 32 |
+
+The holonomy path found one of the two lines and 6% of it. This is not a
+threshold that wants tuning: `scan_defects_3d` takes no parameter. The tensor
+finds both cores to within a hundredth of a lattice unit and follows each line
+end to end, so it is what the confined-cylinder work above uses, and
+`tests/test_disclination_ground_truth.rs` asserts against the placed positions
+rather than against the other detector.
+
+`scan_defects_3d` is still what `runner_3d` calls for its per-snapshot defect
+event counts, through `track_defect_events`. Replacing it means giving the
+tensor path the rest of `DisclinationLine`'s contents, which is the charge
+label, the curvature and the torsion; the lines, their tangents, their contour
+lengths and their winding character are already there.
+
 ### The equilibrium state reproduces
 
 The paper's equilibrium result, at zero activity: "two short disclination lines

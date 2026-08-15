@@ -198,6 +198,157 @@ pub fn disclination_sites(
     out
 }
 
+/// One connected disclination line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DisclinationCurve {
+    /// The sites making up the line, ordered along it.
+    pub sites: Vec<DisclinationSite>,
+    /// Contour length in grid units, summed along the ordered sites.
+    pub length: f64,
+    /// Site-count-weighted mean of `cos(beta)`: near `+1` a `+1/2` wedge line,
+    /// near `-1` a `-1/2` wedge line, near `0` a twist line.
+    pub mean_cos_beta: f64,
+    /// Whether the two ends meet, within one lattice diagonal.
+    pub is_loop: bool,
+}
+
+/// Assemble supra-threshold sites into connected lines.
+///
+/// Sites are grouped by 26-connectivity, then each group is ordered by a walk
+/// from the site furthest from the group's centroid, taking the nearest unused
+/// neighbour at each step. Contour length is the sum of the steps of that walk,
+/// which is the quantity arXiv:2607.10234 reports distributions of.
+///
+/// Grouping is on the lattice and takes no account of periodic wrapping, so a
+/// line that leaves one face and re-enters the opposite one is reported as two.
+pub fn disclination_lines(
+    q: &[[f64; 5]],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+    threshold: f64,
+) -> Vec<DisclinationCurve> {
+    let sites = disclination_sites(q, nx, ny, nz, dx, threshold);
+    if sites.is_empty() {
+        return Vec::new();
+    }
+
+    // Index sites by grid position so neighbours are found without an O(n^2)
+    // sweep.
+    let key = |ijl: (usize, usize, usize)| (ijl.0 * ny + ijl.1) * nz + ijl.2;
+    let mut at: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for (n, s) in sites.iter().enumerate() {
+        at.insert(key(s.ijl), n);
+    }
+
+    let mut group = vec![usize::MAX; sites.len()];
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for start in 0..sites.len() {
+        if group[start] != usize::MAX {
+            continue;
+        }
+        let g = groups.len();
+        let mut stack = vec![start];
+        let mut members = Vec::new();
+        group[start] = g;
+        while let Some(n) = stack.pop() {
+            members.push(n);
+            let (i, j, l) = sites[n].ijl;
+            for di in -1i64..=1 {
+                for dj in -1i64..=1 {
+                    for dl in -1i64..=1 {
+                        if di == 0 && dj == 0 && dl == 0 {
+                            continue;
+                        }
+                        let (ni, nj, nl) = (i as i64 + di, j as i64 + dj, l as i64 + dl);
+                        if ni < 0
+                            || nj < 0
+                            || nl < 0
+                            || ni >= nx as i64
+                            || nj >= ny as i64
+                            || nl >= nz as i64
+                        {
+                            continue;
+                        }
+                        let nk = key((ni as usize, nj as usize, nl as usize));
+                        if let Some(&m) = at.get(&nk) {
+                            if group[m] == usize::MAX {
+                                group[m] = g;
+                                stack.push(m);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        groups.push(members);
+    }
+
+    let pos = |n: usize| {
+        let (i, j, l) = sites[n].ijl;
+        [i as f64 * dx, j as f64 * dx, l as f64 * dx]
+    };
+    let dist = |a: usize, b: usize| {
+        let (p, q) = (pos(a), pos(b));
+        ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+    };
+
+    let mut out = Vec::with_capacity(groups.len());
+    for members in groups {
+        // Start the walk at the member furthest from the centroid, which is an
+        // end of an open line and an arbitrary point of a closed one.
+        let mut centroid = [0.0; 3];
+        for &m in &members {
+            let p = pos(m);
+            for c in 0..3 {
+                centroid[c] += p[c] / members.len() as f64;
+            }
+        }
+        let start = *members
+            .iter()
+            .max_by(|&&a, &&b| {
+                let d = |m: usize| {
+                    let p = pos(m);
+                    (0..3).map(|c| (p[c] - centroid[c]).powi(2)).sum::<f64>()
+                };
+                d(a).total_cmp(&d(b))
+            })
+            .expect("non-empty group");
+
+        let mut remaining: Vec<usize> = members.iter().copied().filter(|&m| m != start).collect();
+        let mut order = vec![start];
+        let mut length = 0.0;
+        let mut current = start;
+        while !remaining.is_empty() {
+            let (idx, _) = remaining
+                .iter()
+                .enumerate()
+                .min_by(|&(_, &a), &(_, &b)| dist(current, a).total_cmp(&dist(current, b)))
+                .expect("non-empty remainder");
+            let next = remaining.swap_remove(idx);
+            length += dist(current, next);
+            order.push(next);
+            current = next;
+        }
+
+        let is_loop = order.len() > 2 && dist(order[0], current) <= dx * 3.0_f64.sqrt();
+        let mean_cos_beta = order
+            .iter()
+            .map(|&m| sites[m].disclination.cos_beta)
+            .sum::<f64>()
+            / order.len() as f64;
+        out.push(DisclinationCurve {
+            sites: order.iter().map(|&m| sites[m]).collect(),
+            length,
+            mean_cos_beta,
+            is_loop,
+        });
+    }
+    out.sort_by(|a, b| b.length.total_cmp(&a.length));
+    out
+}
+
 #[cfg(test)]
 mod disclination_tests {
     use super::*;
@@ -432,6 +583,68 @@ mod disclination_tests {
                 s.ijl
             );
         }
+    }
+
+    #[test]
+    fn a_straight_line_assembles_into_one_curve_spanning_the_box() {
+        let n = 24;
+        let q = wedge_line(n, 0.5);
+        let density = disclination_density(&q, n, n, n, 1.0);
+        let peak = interior(n)
+            .map(|(i, j, l)| decompose(&density[((i * n) + j) * n + l]).s)
+            .fold(0.0_f64, f64::max);
+
+        let lines = disclination_lines(&q, n, n, n, 1.0, 0.5 * peak);
+        assert!(!lines.is_empty(), "no line assembled");
+        let longest = &lines[0];
+        // A straight line through the box spans every z, so its contour length
+        // is at least the box depth less the two boundary layers it excludes.
+        assert!(
+            longest.length >= (n - 3) as f64,
+            "contour length {} is short of the box depth {n}",
+            longest.length
+        );
+        assert!(
+            longest.mean_cos_beta.abs() > 0.9,
+            "a wedge line reported mean cos(beta) {}",
+            longest.mean_cos_beta
+        );
+        assert!(!longest.is_loop, "a straight line was called a loop");
+    }
+
+    #[test]
+    fn two_separated_lines_assemble_separately() {
+        // Two parallel wedge lines, far enough apart that no supra-threshold
+        // site of one touches the other.
+        let n = 32;
+        let mut q = vec![[0.0; 5]; n * n * n];
+        let (c1, c2) = (9.5_f64, 21.5_f64);
+        let cy = (n as f64 - 1.0) / 2.0;
+        for i in 0..n {
+            for j in 0..n {
+                for l in 0..n {
+                    let (x, y) = (i as f64, j as f64 - cy);
+                    let theta = 0.5 * y.atan2(x - c1) - 0.5 * y.atan2(x - c2);
+                    q[((i * n) + j) * n + l] =
+                        uniaxial([theta.cos(), theta.sin(), 0.0], 0.556);
+                }
+            }
+        }
+        let density = disclination_density(&q, n, n, n, 1.0);
+        let peak = interior(n)
+            .map(|(i, j, l)| decompose(&density[((i * n) + j) * n + l]).s)
+            .fold(0.0_f64, f64::max);
+
+        let lines = disclination_lines(&q, n, n, n, 1.0, 0.5 * peak);
+        assert_eq!(lines.len(), 2, "expected two lines, got {}", lines.len());
+        // Each sits at one of the two cores.
+        let mean_x = |c: &DisclinationCurve| {
+            c.sites.iter().map(|s| s.ijl.0 as f64).sum::<f64>() / c.sites.len() as f64
+        };
+        let mut xs = [mean_x(&lines[0]), mean_x(&lines[1])];
+        xs.sort_by(f64::total_cmp);
+        assert!((xs[0] - c1).abs() < 1.5, "first core at {}", xs[0]);
+        assert!((xs[1] - c2).abs() < 1.5, "second core at {}", xs[1]);
     }
 
     #[test]

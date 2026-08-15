@@ -37,7 +37,8 @@ pub mod track;
 pub use braidword::{BraidWord, Generator, extract_braidword};
 pub use defect::{Defect, detect_defects};
 pub use disclination::{
-    Disclination, DisclinationSite, disclination_density, disclination_sites,
+    Disclination, DisclinationCurve, DisclinationSite, disclination_density,
+    disclination_lines, disclination_sites,
 };
 pub use entropy::{
     burau_spectral_radius_minus1, is_exact_regime, paper_burau_matrix,
