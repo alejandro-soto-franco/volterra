@@ -23,6 +23,10 @@ use volterra_braid::{
     BraidWord, Defect, Worldline, detect_defects_winding, extract_braidword, track,
 };
 
+/// Equilibrium scalar order parameter, `sqrt(2)`, as arXiv:2503.10880 sets it
+/// and as `Params::new` derives it from `A = -C`.
+const S_EQ: f64 = std::f64::consts::SQRT_2;
+
 fn read_mask(path: &Path) -> Result<Vec<bool>, Box<dyn Error>> {
     Ok(fs::read_to_string(path)?
         .split_whitespace()
@@ -99,6 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut positive: Vec<Vec<Defect>> = Vec::with_capacity(frames.len());
     let mut negative: Vec<Vec<Defect>> = Vec::with_capacity(frames.len());
+    let mut order: Vec<(f64, f64)> = Vec::with_capacity(frames.len());
     for (i, f) in frames.iter().enumerate() {
         let (qxx, qxy) = match read_frame(f) {
             Ok(v) => v,
@@ -113,6 +118,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             Err(e) => return Err(e),
         };
+        // Order parameter over the interior. In two dimensions
+        // Q = S (n n - I/2), so S = 2 sqrt(Qxx^2 + Qxy^2).
+        let (mut s_total, mut s_low, mut cells) = (0.0f64, 0usize, 0usize);
+        for c in 0..lx * ly {
+            if !mask[c] {
+                continue;
+            }
+            let s = 2.0 * (qxx[c] * qxx[c] + qxy[c] * qxy[c]).sqrt();
+            s_total += s;
+            if s < 0.5 * S_EQ {
+                s_low += 1;
+            }
+            cells += 1;
+        }
+        order.push((s_total / cells as f64, s_low as f64 / cells as f64));
+
         let found = detect_defects_winding(&qxx, &qxy, lx, ly, &mask);
         positive.push(found.iter().copied().filter(|d| d.charge > 0).collect());
         negative.push(found.into_iter().filter(|d| d.charge < 0).collect());
@@ -139,6 +160,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect::<Vec<_>>()
             .join(" ")
     };
+    // How ordered the field is, before anything is said about defects in it.
+    // A defect position means little where the surrounding order has gone: the
+    // paper classifies such states as melted, and its epitrochoid points sit
+    // one grid step from that classification.
+    let tail_order = &order[order.len() / 2..];
+    let s_mean = tail_order.iter().map(|o| o.0).sum::<f64>() / tail_order.len() as f64;
+    let s_low = tail_order.iter().map(|o| o.1).sum::<f64>() / tail_order.len() as f64;
+    println!(
+        "  order over the trailing half: S = {:.3} of S_eq = {:.3}, {:.0}% of the interior \
+         below half order",
+        s_mean,
+        S_EQ,
+        100.0 * s_low
+    );
+
     println!("  +1/2 per frame (count x frames): {}", histogram(&pos_counts));
     println!("  -1/2 per frame (count x frames): {}", histogram(&neg_counts));
 
