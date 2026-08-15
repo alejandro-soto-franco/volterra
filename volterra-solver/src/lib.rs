@@ -437,7 +437,7 @@ pub fn k0_convolution(q_rot: &QField2D, params: &ActiveNematicParams) -> QField2
     let cutoff = cutoff_raw
         .min((q_rot.nx as i64) / 2)
         .min((q_rot.ny as i64) / 2);
-    // Normalization: ∫ K₀(r/ξ_l) d²r = 2π ξ_l². Discrete: dx² * sum = 2π ξ_l².
+    // Normalisation: ∫ K₀(r/ξ_l) d²r = 2π ξ_l². Discrete: dx² * sum = 2π ξ_l².
     let norm = 2.0 * std::f64::consts::PI * xi_l * xi_l;
 
     let mut out = QField2D::zeros(q_rot.nx, q_rot.ny, dx);
@@ -552,7 +552,7 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
         buf
     };
 
-    // Helper: inverse 2D FFT on complex array → real-valued field (normalized by N).
+    // Helper: inverse 2D FFT on complex array → real-valued field (normalised by N).
     let ifft2_to_real = |buf: &mut Vec<Complex<f64>>| -> Vec<f64> {
         // Transpose, IFFT each column (x), transpose back, then IFFT each row (y).
         let mut transposed: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
@@ -1098,13 +1098,13 @@ pub struct BechStats {
 /// lyotropic lipid volume fraction φ_l (Cahn-Hilliard + Maier-Saupe) via the
 /// K₀ orientational transfer map.  At each time step:
 ///
-/// 1. **Stokes**: `v ← stokes_solve(Q^rot, params)` — compute the incompressible
+/// 1. **Stokes**: `v ← stokes_solve(Q^rot, params)`: compute the incompressible
 ///    velocity field driven by active stress σ^a = ζ_eff Q^rot.
 /// 2. **Beris-Edwards (Euler)**: `Q^rot ← Q^rot + dt · [−v·∇Q^rot + S(W,Q^rot) + Γ_r H]`
-///    — advance the rotor Q-field with flow.
-/// 3. **Transfer map**: `Q^lip ← K₀ * Q^rot` — convolve to get the lipid orientational
+///   : advance the rotor Q-field with flow.
+/// 3. **Transfer map**: `Q^lip ← K₀ * Q^rot`: convolve to get the lipid orientational
 ///    field (Component 2 one-way coupling, valid when Da < 1 and Sp < 1).
-/// 4. **CH-ETD1**: `φ_l ← ch_step_etd(φ_l, Q^lip, v, params)` — advance lipid
+/// 4. **CH-ETD1**: `φ_l ← ch_step_etd(φ_l, Q^lip, v, params)`: advance lipid
 ///    concentration with exact integration of the stiff linear part and
 ///    explicit Euler for the nonlinear Maier-Saupe + advection terms.
 ///
@@ -1340,7 +1340,7 @@ mod tests {
         assert!(ratio0.is_finite() && ratio0 > 0.0);
 
         // The discrete integral approximates ∫ K₀(r/ξ) d²r = 2π ξ²,
-        // so ratio ≈ 2π ξ²/(2π ξ²) = 1 up to finite-cutoff and discretization
+        // so ratio ≈ 2π ξ²/(2π ξ²) = 1 up to finite-cutoff and discretisation
         // corrections. With cutoff clamped to nx/2=16 < 6ξ=18, the captured
         // integral is ≈ 95% of the full integral; allow 10% tolerance.
         assert_abs_diff_eq!(ratio0, 1.0, epsilon = 0.10);

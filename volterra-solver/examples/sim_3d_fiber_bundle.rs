@@ -1,10 +1,10 @@
-//! 3D Beris-Edwards relaxation using the fiber bundle framework (Milestone 4).
+//! 3D Beris-Edwards relaxation using the fibre bundle framework (Milestone 4).
 //!
 //! Demonstrates that the generic CovLaplacian<NematicFiber3D> with SO(3)
 //! identity transport on a Cartesian grid reproduces the standard 3D
 //! Landau-de Gennes relaxation.
 //!
-//! This validates the fiber bundle stack end-to-end:
+//! This validates the fibre bundle stack end-to-end:
 //!   cartan-core: NematicFiber3D + CovLaplacian
 //!   cartan-dec: cartesian_3d_connection
 //!   volterra: 5-component Q-tensor evolution

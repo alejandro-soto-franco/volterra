@@ -93,7 +93,7 @@ fn h_s_vs_python() {
     h_s_from_q(&u_flat, &q_flat, &mut h, &mut s, A, C, K, LAMBDA, &bounds);
 
     // Only compare at interior cells (border stays zero in both Python and Rust)
-    // but we compare the full flat array — Python also writes zero outside interior.
+    // but we compare the full flat array: Python also writes zero outside interior.
     let diff_h = max_abs_diff(&h, &h_ref);
     let diff_s = max_abs_diff(&s, &s_ref);
 

@@ -132,7 +132,7 @@ def get_Erickson_stress(Q, K, Pi_S, bounds):
 
 
 # ---------------------------------------------------------------------------
-# get_TrQH_term  (no boundary mask — applied globally)
+# get_TrQH_term  (no boundary mask, applied globally)
 # ---------------------------------------------------------------------------
 def get_TrQH_term(Q, H, Pi_S):
     TrQH = 2 * (Q[:, :, 0] * H[:, :, 0] + Q[:, :, 1] * H[:, :, 1])

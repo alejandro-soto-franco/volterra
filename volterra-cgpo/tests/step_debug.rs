@@ -64,7 +64,7 @@ fn debug_substeps() {
     let p_rhs_ref = load_txt(&format!("{ref_dir}/step_p_rhs.txt"));
     let p_mid_ref = load_txt(&format!("{ref_dir}/step_p_mid.txt"));
 
-    // Final references from dump_step.py (the correctness gate)
+    // Final references from dump_step.py (the correctness comparison)
     let q_final_ref = load_txt(&format!("{ref_dir}/step_Q_ref.txt"));
     let u_final_ref = load_txt(&format!("{ref_dir}/step_u_ref.txt"));
     let p_final_ref = load_txt(&format!("{ref_dir}/step_p_ref.txt"));
@@ -157,7 +157,7 @@ fn debug_substeps() {
     let diff_p_final = max_abs_diff(&p, &p_final_ref);
     eprintln!("Final: max|Q diff|={diff_q_final:.3e}  max|u diff|={diff_u_final:.3e}  max|p diff|={diff_p_final:.3e}");
 
-    // Report all diffs — don't assert hard limits here, just gather information
+    // Report all diffs: don't assert hard limits here, just gather information
     eprintln!("Summary:\n  H: {diff_h:.3e}\n  S: {diff_s:.3e}\n  H_bc: {diff_h_bc:.3e}\n  Pi_S: {diff_pi_s:.3e}\n  Pi_A: {diff_pi_a:.3e}\n  p_rhs: {diff_rhs:.3e}\n  p_mid: {diff_p_mid:.3e}\n  Q_final: {diff_q_final:.3e}\n  u_final: {diff_u_final:.3e}\n  p_final: {diff_p_final:.3e}");
 
     // Only assert that computation completed without panic (NaN check)

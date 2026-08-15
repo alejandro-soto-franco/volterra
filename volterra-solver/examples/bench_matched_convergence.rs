@@ -53,7 +53,7 @@ fn main() {
 
     eprintln!("N={n} sites={sites} S0={s0:.6} target={target:e} max_steps={max_steps}");
 
-    // ---------------------------------------------------------- FIRE
+    // FIRE
     {
         let fire_params = FireParams::open_qmin_defaults(p.dt, 1e-12, max_steps);
         let mut q = q0.clone();
@@ -76,7 +76,7 @@ fn main() {
         );
     }
 
-    // --------------------------------------------------------- Euler
+    // Euler
     {
         let mut q = q0.clone();
         let t0 = Instant::now();

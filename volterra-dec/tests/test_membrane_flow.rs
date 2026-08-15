@@ -166,7 +166,7 @@ fn roundness(v: &[Vector3<f64>]) -> f64 {
 /// surface, so `E >= 2 pi kappa` in the continuum. The cotangent discretisation
 /// approaches that from BELOW at second order, measured as -6.86, -1.76, -0.445,
 /// -0.112, -0.028 percent over icosphere levels 1 to 5, so the continuum number
-/// is not a valid gate on a discrete run. The discrete sphere energy at the
+/// is not a valid acceptance test on a discrete run. The discrete sphere energy at the
 /// working resolution is.
 fn discrete_sphere_energy(level: usize) -> f64 {
     let m = icosphere(level);

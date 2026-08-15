@@ -242,7 +242,7 @@ pub fn epitrochoid_mesh(q: f64, r: f64, n_boundary: usize, interior_spacing: f64
             // We test both the raw point and a margin-inset check using a slightly
             // contracted polygon test (done by testing multiple offsets).
             // Simpler: just test whether the point is strictly inside the polygon
-            // and not too close to any boundary vertex (Euclidean guard).
+            // and at least the tolerance away from any boundary vertex, in Euclidean distance.
             if !point_in_polygon([x, y], &boundary_pts) {
                 continue;
             }

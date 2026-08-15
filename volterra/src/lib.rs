@@ -6,7 +6,7 @@
 //!
 //! volterra solves the Beris-Edwards nematohydrodynamics equations for active
 //! liquid crystals. It is built on `cartan`, a Riemannian geometry library,
-//! and uses discrete exterior calculus (DEC) to discretize covariant
+//! and uses discrete exterior calculus (DEC) to discretise covariant
 //! differential operators on arbitrary manifolds.
 //!
 //! ## Crate structure

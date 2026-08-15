@@ -1,5 +1,5 @@
 //! Regression: the rotor-backed connection Laplacian keeps a short S^2
-//! active-nematic run finite and stable over 20 steps. Guards the cutover at
+//! active-nematic run finite and stable over 20 steps. Covers the cutover at
 //! the solver level, not just the operator level.
 
 use volterra_solver::run_dry_active_nematic_dec_smoke;

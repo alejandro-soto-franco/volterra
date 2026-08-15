@@ -54,7 +54,7 @@ use rayon::prelude::*;
 /// dQ += upwind_advective_term(u, Q, coeff=-1)   // subtract (u·∇)Q
 /// ```
 ///
-/// On entry `dq` need not be zero — it is **fully overwritten** before
+/// On entry `dq` need not be zero: it is **fully overwritten** before
 /// `upwind_advective_term` accumulates into it.
 pub fn get_q_update(
     dq: &mut [f64],
@@ -104,7 +104,7 @@ pub struct State {
     /// Pressure, scalar, length `lx*ly`.
     pub p: Vec<f64>,
 
-    // --- scratch (allocated once, reused each step) ---
+    // scratch (allocated once, reused each step)
     /// Velocity time-derivative (scratch).
     pub dudt: Vec<f64>,
     /// Q time-derivative (scratch).
@@ -185,7 +185,7 @@ pub fn update_step_inner(
         // Since they are distinct Vec fields, we can take their slices separately.
         let h_ptr = state.h.as_mut_ptr();
         let h_len = state.h.len();
-        // SAFETY: h, q, u, s are distinct fields of State — no aliasing.
+        // SAFETY: h, q, u, s are distinct fields of State: no aliasing.
         let h_mut = unsafe { std::slice::from_raw_parts_mut(h_ptr, h_len) };
         apply_h_boundary_conditions(h_mut, params.gamma, &state.q, &state.u, &state.s, bnd);
     }
@@ -321,7 +321,7 @@ fn relax_pressure_with_bc(
         // Real Neumann BC on p
         {
             // Need p (mut), p_aux (immut), u/pi_s/pi_a (immut)
-            // All are distinct fields — use raw pointer for p to allow simultaneous borrows.
+            // All are distinct fields: use raw pointer for p to allow simultaneous borrows.
             let p_ptr = state.p.as_mut_ptr();
             let p_len = state.p.len();
             let p_mut = unsafe { std::slice::from_raw_parts_mut(p_ptr, p_len) };

@@ -65,7 +65,7 @@ fn run_cgpo_exits_zero_and_writes_frame_files() {
 
 #[test]
 fn run_cgpo_writes_final_frame_when_steps_not_multiple_of_snap_every() {
-    // Regression guard: steps=5 with snap-every=2 hits cadence at 0,2,4 and
+    // Regression check: steps=5 with snap-every=2 hits cadence at 0,2,4 and
     // would silently drop the final state at step 5. snap_final must emit it.
     let tmp = std::env::temp_dir().join("vcli_cgpo_off_cadence");
     let _ = std::fs::remove_dir_all(&tmp);

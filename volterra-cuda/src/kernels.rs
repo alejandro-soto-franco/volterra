@@ -50,7 +50,7 @@
 //! 256-thread blocks, so a launch generally has more threads than elements
 //! whenever the element count is not itself a multiple of 256 (true for
 //! every grid size used here). Writes go through `DisjointSlice::get_mut`,
-//! which self-guards; every plain `&[f64]` **read** is guarded explicitly
+//! which bounds-checks itself; every plain `&[f64]` **read** is bounds-checked
 //! against the passed-in element count before indexing, since a plain slice
 //! index has no such protection in device code.
 

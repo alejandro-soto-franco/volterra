@@ -11,7 +11,7 @@
 //! v = (x, y) the centred-difference divergence is exactly 2, and for a linear
 //! scalar field f = x + y the consistent Laplacian stencil is exactly 0. A
 //! chunk-offset or row-indexing bug in the parallel path would produce large
-//! localized errors that these tight tolerances catch.
+//! localised errors that these tight tolerances catch.
 
 use volterra_cgpo::{
     ops::{div_vector, laplacian},
@@ -46,9 +46,9 @@ fn vi(x: usize, y: usize, ly: usize, c: usize) -> usize {
 }
 
 #[test]
-#[allow(clippy::assertions_on_constants)] // intentional compile-time premise guard below
+#[allow(clippy::assertions_on_constants)] // intentional compile-time premise check below
 fn parallel_path_is_engaged_at_test_grid() {
-    // Guards the premise of this file: 512x512 must take the parallel branch.
+    // Asserts the premise of this file: 512x512 must take the parallel branch.
     // If PAR_THRESHOLD is ever raised above 262_144, bump LX/LY here too.
     assert!(LX * LY >= PAR_THRESHOLD, "test grid below threshold");
     assert!(

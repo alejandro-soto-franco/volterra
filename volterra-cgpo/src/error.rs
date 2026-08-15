@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-/// Errors raised by the CGPO harness (I/O, configuration, and numerical guards).
+/// Errors raised by the CGPO harness: I/O, configuration and numerical checks.
 ///
 /// Kernel code stays panic-free in release; the harness propagates these with
 /// `?` so a failure mid-run cannot silently lose output.

@@ -81,14 +81,14 @@ fn wrap(a: f64) -> f64 {
 ///   1. Coarse scan of N_SCAN equally-spaced u values; pick best candidate.
 ///   2. Newton refinement (up to MAX_NEWTON steps) from that candidate.
 ///
-/// This matches scipy fsolve(f, 0.1) in the Python code — the coarse scan
+/// This matches scipy fsolve(f, 0.1) in the Python code: the coarse scan
 /// handles the non-trivial structure near the two cusps of the nephroid (k=2).
 fn solve_u(theta: f64) -> f64 {
     const N_SCAN: usize = 2000;
     const MAX_NEWTON: usize = 30;
     const TOL: f64 = 1e-12;
 
-    // --- coarse scan ---
+    // coarse scan
     let mut best_u = 0.0_f64;
     let mut best_err = f64::INFINITY;
     for i in 0..N_SCAN {
@@ -100,9 +100,9 @@ fn solve_u(theta: f64) -> f64 {
         }
     }
 
-    // --- Newton refinement ---
+    // Newton refinement
     // f(u)  = epi_angle(u) - theta  (wrapped)
-    // f'(u) ≈ (f(u+h) - f(u-h)) / (2h)  — numerical derivative
+    // f'(u) ≈ (f(u+h) - f(u-h)) / (2h), the numerical derivative
     let h = 1e-7_f64;
     let mut u = best_u;
     for _ in 0..MAX_NEWTON {
@@ -169,7 +169,7 @@ pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
     let n = lx * ly;
     let radius = lx / 2 - 1;
 
-    // --- Pass 1: determine sim_points (inside) ---
+    // Pass 1: determine sim_points (inside)
     let mut inside = vec![false; n];
     for x in 0..lx {
         for y in 0..ly {
@@ -179,7 +179,7 @@ pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
         }
     }
 
-    // --- Pass 2: outer boundary (inside cells with a non-inside 4-neighbour) ---
+    // Pass 2: outer boundary (inside cells with a non-inside 4-neighbour)
     let mut is_outer = vec![false; n];
     for x in 0..lx {
         for y in 0..ly {
@@ -202,7 +202,7 @@ pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
         }
     }
 
-    // --- Pass 3: inner boundary (inside, not outer, with an outer 4-neighbour) ---
+    // Pass 3: inner boundary (inside, not outer, with an outer 4-neighbour)
     let mut is_inner = vec![false; n];
     for x in 0..lx {
         for y in 0..ly {
@@ -225,7 +225,7 @@ pub fn nephroid_boundary(lx: usize, ly: usize) -> Boundary {
         }
     }
 
-    // --- Pass 4: compute normals for boundary cells ---
+    // Pass 4: compute normals for boundary cells
     let zero = [0.0_f64; 2];
     let mut outer_normals = vec![zero; n];
     let mut inner_normals = vec![zero; n];

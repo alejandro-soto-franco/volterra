@@ -184,7 +184,7 @@ impl<'a> Observer<State> for FdObserver<'a> {
 // ---------------------------------------------------------------------------
 
 fn main() -> CgpoResult<()> {
-    // --- read config ---
+    // read config
     let lx = env_usize("CGPO_LX", 100);
     let als = env_f64("CGPO_ALS", 2.8);
     let ncl = env_f64("CGPO_NCL", 4.8);
@@ -199,7 +199,7 @@ fn main() -> CgpoResult<()> {
     let boundary_kind = std::env::var("CGPO_BOUNDARY").unwrap_or_else(|_| "nephroid".to_string());
     let net_charge = env_f64("CGPO_NET_CHARGE", 1.0);
 
-    // --- derived ---
+    // derived
     let ly = lx; // square grid
     let n = lx * ly;
 
@@ -208,14 +208,14 @@ fn main() -> CgpoResult<()> {
     println!("  out_root={out_root}  seed={seed}");
     println!("  boundary={boundary_kind} net_charge={net_charge}");
 
-    // --- build params ---
+    // build params
     let params = Params::new(lx, als, ncl, lambda, dt, max_p_iters).with_net_charge(net_charge);
     println!(
         "  k_elastic={:.4e} zeta={:.4e} c_landau={:.4e} s0={:.6} eta={:.4e}",
         params.k_elastic, params.zeta, params.c_landau, params.s0, params.eta
     );
 
-    // --- build boundary ---
+    // build boundary
     println!("Building {boundary_kind} boundary (lx={lx})...");
     let t_bnd = Instant::now();
     let boundary = match boundary_kind.as_str() {
@@ -230,17 +230,17 @@ fn main() -> CgpoResult<()> {
     let n_interior = boundary.interior_count();
     println!("  boundary built in {:.2}s -- {n_interior} interior cells", t_bnd.elapsed().as_secs_f64());
 
-    // --- output directories ---
+    // output directories
     let run_label = format!("als_{als}_ncl_{ncl}");
     let run_dir = Path::new(&out_root).join(&run_label);
     for sub in &["Q", "u", "p"] {
         io_ctx(&run_dir.join(sub), fs::create_dir_all(run_dir.join(sub)))?;
     }
 
-    // --- allocate state ---
+    // allocate state
     let mut state = State::new(lx, ly);
 
-    // --- initial condition ---
+    // initial condition
     if let Some(ref path) = theta_ic_path {
         // Load flat theta grid from text file (one value per line, x*ly+y order)
         println!("Loading theta IC from {path}");
@@ -269,10 +269,10 @@ fn main() -> CgpoResult<()> {
         println!("  random IC generated (seed={seed})");
     }
 
-    // --- pressure relaxation target (matching Python p_target_rel_change = 1e-4) ---
+    // pressure relaxation target (matching Python p_target_rel_change = 1e-4)
     let target_rel_change = 1e-4_f64;
 
-    // --- physics step + runner ---
+    // physics step + runner
     let mut physics = CgpoStep {
         params: params.clone(),
         boundary: boundary.clone(),
@@ -290,7 +290,7 @@ fn main() -> CgpoResult<()> {
     };
     let runner = SimulationRunner { config: cfg };
 
-    // --- run ---
+    // run
     println!("Starting run loop...");
     let t_start = Instant::now();
 
@@ -322,7 +322,7 @@ fn main() -> CgpoResult<()> {
         save_every as f64 / steps_per_sec
     );
 
-    // --- write meta.json ---
+    // write meta.json
     let meta = json!({
         "lx": lx,
         "ly": ly,

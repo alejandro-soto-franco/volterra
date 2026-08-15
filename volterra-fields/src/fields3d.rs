@@ -248,7 +248,7 @@ impl ScalarField3D {
 /// Lipid concentration field (phi).
 pub type ConcentrationField3D = ScalarField3D;
 
-/// Pressure field (p) — same storage as ScalarField3D, semantically distinct.
+/// Pressure field (p): same storage as ScalarField3D, semantically distinct.
 pub struct PressureField3D(pub ScalarField3D);
 
 impl PressureField3D {

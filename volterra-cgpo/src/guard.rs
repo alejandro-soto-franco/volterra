@@ -1,6 +1,6 @@
-//! Numerical safety guards for the CGPO harness.
+//! Numerical safety checks for the CGPO harness.
 //!
-//! Both guards are off the kernel hot path: the runner invokes them at snapshot
+//! Both checks are off the kernel hot path: the runner invokes them at snapshot
 //! cadence by default, and every step under a `--strict` flag.
 
 use crate::error::{CgpoError, CgpoResult};

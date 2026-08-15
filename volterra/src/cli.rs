@@ -171,7 +171,7 @@ pub struct CgpoArgs {
     #[arg(long)]
     pub theta_ic: Option<PathBuf>,
 
-    /// Run the finiteness guard every step, not just at snapshots.
+    /// Check for non-finite values every step, and not only at snapshots.
     ///
     /// When set, any NaN or Inf causes the run to abort with a non-zero exit.
     #[arg(long, default_value_t = false)]
@@ -214,7 +214,7 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     use volterra_solver::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
 
     // Start from the deterministic test defaults, optionally merge a TOML config
-    // (ActiveNematicParams derives Deserialize), then let CLI flags win for nx/ny.
+    // (ActiveNematicParams derives `Deserialize`), then let CLI flags win for nx/ny.
     let mut params = ActiveNematicParams::default_test();
     if let Some(cfg) = &args.common.config {
         let text = std::fs::read_to_string(cfg)
@@ -231,7 +231,7 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     make_out_dir(&out)?;
 
     // Each branch produces a per-snapshot (time, mean_s) summary; the stats
-    // structs themselves are not Serialize, so we hand-build the JSON.
+    // structs themselves are not `Serialize`, so we hand-build the JSON.
     let mode = args.mode.as_str();
     let summary: Vec<(f64, f64)> = match mode {
         "dry" => {
@@ -448,7 +448,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     };
     use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
 
-    // --- build Params ---
+    // build Params
     // Start from TOML config if provided, then apply CLI overrides.
     let mut params = if let Some(cfg) = &args.common.config {
         let text = std::fs::read_to_string(cfg)
@@ -475,7 +475,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     let lx = params.lx;
     let ly = params.ly;
 
-    // --- boundary + initial condition ---
+    // boundary + initial condition
     let boundary = nephroid_boundary(lx, ly);
 
     let mut state = State::new(lx, ly);
@@ -516,7 +516,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         }
     }
 
-    // --- output directory ---
+    // output directory
     let out = args.common.out_or_default("cgpo");
     // Per-run sub-dir matching cgpo_fd layout: <out>/als_<als>_ncl_<ncl>/
     let run_dir = out.join(format!("als_{}_ncl_{}", args.als, args.ncl));
@@ -524,7 +524,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         make_out_dir(&run_dir.join(sub))?;
     }
 
-    // --- physics + runner ---
+    // physics + runner
     let target_rel_change = 1e-4_f64;
     let mut physics = CgpoStep {
         params: params.clone(),
@@ -543,13 +543,13 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     };
     let runner = SimulationRunner { config: cfg };
 
-    // --- observer: writes frames + guards at snapshot cadence ---
-    // On strict mode, also guard after every step (implemented via a wrapper observer).
+    // observer: writes frames and checks finiteness at snapshot cadence
+    // On strict mode, also check after every step, through a wrapper observer.
     let strict = args.strict;
     let boundary_ref = &boundary;
     let run_dir_ref = &run_dir;
 
-    // Track the first guard error across snapshots.
+    // Track the first finiteness error across snapshots.
     let mut guard_err: Option<CgpoError> = None;
 
     struct CgpoObserver<'a> {
@@ -563,7 +563,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
             if self.guard_err.is_some() {
                 return;
             }
-            // Finiteness guard
+            // Finiteness check
             let r = check_finite(&state.q, "Q", step)
                 .and_then(|_| check_finite(&state.u, "u", step))
                 .and_then(|_| check_finite(&state.p, "p", step));
@@ -579,12 +579,12 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     }
 
     // For --strict we need to observe every step.  The simplest approach:
-    // set snap_every=1 in the runner if strict, so we guard every step.
+    // set snap_every=1 in the runner if strict, so every step is checked.
     // But we still want to write frames at the original cadence.
     // Instead, use a two-observer approach via a wrapper that calls the
     // real observer at snap cadence and guards-only at every step.
     //
-    // Since SimulationRunner calls observe() per snap_every, the guard is
+    // Since SimulationRunner calls observe() per snap_every, the check is
     // already at snapshot cadence by default. For --strict, we run with
     // snap_every=1 but only write frames at the original cadence.
 

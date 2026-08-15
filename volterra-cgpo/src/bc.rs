@@ -3,12 +3,12 @@
 //! Ports the five BC functions from
 //! `~/Chaos-Generating-Periodic-Orbits/flow-solver.py` lines 555–630:
 //!
-//! - [`apply_u_boundary_conditions`]   — no-slip: u=0 on both boundary layers.
-//! - [`apply_ss_boundary_conditions`]  — zero saddle-splay on boundary cells
+//! - [`apply_u_boundary_conditions`]: no-slip, u=0 on both boundary layers.
+//! - [`apply_ss_boundary_conditions`]: zero saddle-splay on boundary cells
 //!   (plotting helper; not used in the physics loop but included for completeness).
-//! - [`apply_p_boundary_conditions`]   — Neumann pressure BC from ∇p·n̂ = F·n̂.
-//! - [`apply_q_boundary_conditions`]   — Dirichlet Q anchoring from winding tangent.
-//! - [`apply_h_boundary_conditions`]   — H BC to enforce ∂_t Q|_∂ = 0.
+//! - [`apply_p_boundary_conditions`]: Neumann pressure BC from ∇p·n̂ = F·n̂.
+//! - [`apply_q_boundary_conditions`]: Dirichlet Q anchoring from winding tangent.
+//! - [`apply_h_boundary_conditions`]: H BC to enforce ∂_t Q|_∂ = 0.
 //!
 //! # Field layout
 //!
@@ -264,15 +264,12 @@ pub fn apply_q_boundary_conditions(q: &mut [f64], bnd: &Boundary, s0: f64, net_c
                 let nnx = (theta * net_charge).cos();
                 let nny = (theta * net_charge).sin();
 
-                // Q for director (nnx, nny):
-                // Q_xx = S0*(n_y^2 - 1/2) but n = (nny, -nnx) → Q_xx = S0*(nny^2 - 1/2)
-                // Wait — Python literally writes:
+                // Q for the tangent director. The Python writes
                 //   Q[x,y,0] = S0 * (nny**2 - 1/2)
                 //   Q[x,y,1] = S0 * (-nnx * nny)
-                // which is Q for director n=(nnx, nny) using the traceless-symmetric form
-                // Q_ij = S0*(n_i n_j - delta_ij/2) with xx=(nx^2-1/2), xy=nx*ny,
-                // but the Python uses (nny^2-1/2) for Q_xx and (-nnx*nny) for Q_xy.
-                // This corresponds to director n = (nny, nnx) rotated (the tangent).
+                // which is the traceless-symmetric form Q_ij = S0*(n_i n_j - delta_ij/2)
+                // evaluated at n = (nny, -nnx): the outward normal turned through a
+                // right angle, which is the tangent.
                 q[vi(x, y, ly, 0)] = s0 * (nny * nny - 0.5);
                 q[vi(x, y, ly, 1)] = s0 * (-nnx * nny);
             }

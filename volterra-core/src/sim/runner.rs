@@ -10,7 +10,7 @@ pub trait PhysicsStep {
     fn step(&mut self, field: &mut Self::Field, t: f64) -> StepStats;
 }
 
-/// Receives snapshots; concrete sinks accumulate stats or write to disk.
+/// Receives snapshots; implementing sinks accumulate stats or write to disk.
 pub trait Observer<F> {
     /// Called at each snapshot point with the current step, time, field, and the
     /// stats of the most recent step (default `StepStats` at step 0).

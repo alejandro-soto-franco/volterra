@@ -9,8 +9,8 @@
 //!     (zeta_eff=0), snapshots disabled, frames written to a temp dir that is
 //!     never populated (snap_every > n_steps).
 //!
-//! Initial fields are built ONCE outside the timed closures; `black_box` guards
-//! the inputs so the optimiser cannot fold the work away.
+//! Initial fields are built ONCE outside the timed closures; `black_box` holds
+//! the inputs opaque so the optimiser cannot fold the work away.
 //!
 //! Run: `cargo bench -p volterra-solver --bench solver_bench`
 

@@ -3,15 +3,15 @@
 //! Ports the following numba functions from
 //! `~/Chaos-Generating-Periodic-Orbits/flow-solver.py` (lines ~166–392):
 //!
-//! - [`calculate_pressure_terms`] — builds the ∇·F − ρ·(∂ᵢuⱼ∂ⱼuᵢ) increment
+//! - [`calculate_pressure_terms`]: builds the ∇·F − ρ·(∂ᵢuⱼ∂ⱼuᵢ) increment
 //!   onto the pressure-Poisson RHS (called after `div_vector` has set the base).
-//! - [`relax_pressure_inner_loop`] — one Jacobi sweep of the 9-point pressure
+//! - [`relax_pressure_inner_loop`]: one Jacobi sweep of the 9-point pressure
 //!   Poisson relaxation (double-buffer: reads from `p_aux`, writes to `p`).
-//! - [`relax_pressure`] — full iteration driver: builds RHS, iterates until
+//! - [`relax_pressure`]: full iteration driver: builds RHS, iterates until
 //!   convergence or cap, returns iterations used.
-//! - [`subtract_p_avg`] — remove mean pressure over interior.
-//! - [`u_update_p_pi_terms`] — velocity update from −∇p/ρ + ∇·Π/ρ.
-//! - [`get_u_update`] — full velocity time-derivative (viscous + convective +
+//! - [`subtract_p_avg`]: remove mean pressure over interior.
+//! - [`u_update_p_pi_terms`]: velocity update from −∇p/ρ + ∇·Π/ρ.
+//! - [`get_u_update`]: full velocity time-derivative (viscous + convective +
 //!   pressure/stress).
 //!
 //! # Pressure boundary conditions
@@ -54,7 +54,7 @@ use rayon::prelude::*;
 ///
 /// Ports `calculate_pressure_terms(u, ρ, Π_S, pressure_poisson_RHS, bounds)`.
 ///
-/// **Accumulates** into `rhs` — caller must initialise it (e.g. with
+/// **Accumulates** into `rhs`: caller must initialise it (e.g. with
 /// `div_vector` multiplied by `ρ/dt`) before calling.
 ///
 /// Formula added per interior cell:
@@ -167,7 +167,7 @@ pub fn relax_pressure_inner_loop(
     if use_parallel(lx, ly) {
         let rpc = rows_per_chunk(lx);
         // Jacobi: reads exclusively from p_aux (old), writes to p (new).
-        // No aliasing between p and p_aux — parallel over rows is safe.
+        // No aliasing between p and p_aux: parallel over rows is safe.
         p.par_chunks_mut(rpc * ly)
             .enumerate()
             .for_each(|(chunk_idx, chunk)| {
@@ -334,7 +334,7 @@ pub fn subtract_p_avg(p: &mut [f64], bounds: &Boundary) {
     let lx = bounds.lx;
     let ly = bounds.ly;
 
-    // Python uses np.sum(p) / len(bounds) — sums the ENTIRE array, not just interior.
+    // Python uses np.sum(p) / len(bounds): sums the ENTIRE array, not just interior.
     // But since non-interior cells stay zero throughout, np.sum(p) == sum of interior.
     // We replicate the Python exactly: sum all cells, divide by n_interior.
     let p_avg: f64 = p.iter().sum::<f64>() / n_interior as f64;
@@ -352,7 +352,7 @@ pub fn subtract_p_avg(p: &mut [f64], bounds: &Boundary) {
 ///
 /// Ports `u_update_p_Π_terms(dudt, p, ρ, Π_S, Π_A, bounds)`.
 ///
-/// **Accumulates** into `dudt` — caller must initialise `dudt` before calling
+/// **Accumulates** into `dudt`: caller must initialise `dudt` before calling
 /// (Python callers set `dudt` from the viscous+convective terms first).
 ///
 /// Formula (centred differences, `dx=1`):

@@ -25,19 +25,19 @@ fn bech_3d_matches_captured_oracle_bit_for_bit() {
     let q_field = flatten_q(&qf);
     let phi_flat: Vec<f64> = phif.phi.to_vec();
 
-    // --- Q field ---
+    // Q field
     assert_eq!(q_field.len(), ORACLE_Q_FIELD.len(), "q field length mismatch");
     for (i, (a, b)) in q_field.iter().zip(ORACLE_Q_FIELD.iter()).enumerate() {
         assert_eq!(a.to_bits(), b.to_bits(), "q field drifted at index {i}");
     }
 
-    // --- phi field ---
+    // phi field
     assert_eq!(phi_flat.len(), ORACLE_PHI_FLAT.len(), "phi field length mismatch");
     for (i, (a, b)) in phi_flat.iter().zip(ORACLE_PHI_FLAT.iter()).enumerate() {
         assert_eq!(a.to_bits(), b.to_bits(), "phi field drifted at index {i}");
     }
 
-    // --- stats ---
+    // stats
     assert_eq!(stats.len(), 2, "expected 2 snapshots");
     let oracle_mean_s = [0.004559789251895691_f64, 0.006062218285206064_f64];
     let oracle_biax   = [0.0031089962881760825_f64, 0.004101233307281827_f64];
@@ -48,7 +48,7 @@ fn bech_3d_matches_captured_oracle_bit_for_bit() {
         assert_eq!(s.mean_phi.to_bits(), oracle_mean_phi[i].to_bits(), "mean_phi drifted at snapshot {i}");
     }
 
-    // --- npy bytes (step 1 = q_000001, phi_000001, vel_000001) ---
+    // npy bytes (step 1 = q_000001, phi_000001, vel_000001)
     let q_npy_bytes = std::fs::read(tmp.join("q_000001.npy")).expect("q npy must exist");
     assert_eq!(q_npy_bytes.len(), ORACLE_Q_NPY_BYTES.len(), "q npy length mismatch");
     for (i, (a, b)) in q_npy_bytes.iter().zip(ORACLE_Q_NPY_BYTES.iter()).enumerate() {

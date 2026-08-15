@@ -444,7 +444,7 @@ impl ScalarField2D {
 
     /// Mean of |∇φ|² ≈ mean of [(Δ_x φ)² + (Δ_y φ)²] / (2 dx²).
     ///
-    /// Approximated using centered differences.  Proportional to the CH
+    /// Approximated using centred differences.  Proportional to the CH
     /// interfacial energy ∫ κ_l |∇φ|² d²x.
     pub fn mean_gradient_sq(&self) -> f64 {
         let mut sum = 0.0_f64;

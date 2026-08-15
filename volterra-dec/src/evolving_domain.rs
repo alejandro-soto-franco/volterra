@@ -392,7 +392,7 @@ where
                 b22 -= n_dot_t2 * gp_dot_t2;
             }
 
-            // Interpolate Q at face center (barycentric average).
+            // Interpolate Q at face centre (barycentric average).
             let q1_face = (q1[i0] + q1[i1] + q1[i2]) / 3.0;
             let q2_face = (q2[i0] + q2[i1] + q2[i2]) / 3.0;
 

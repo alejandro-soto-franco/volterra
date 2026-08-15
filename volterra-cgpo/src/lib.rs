@@ -101,7 +101,7 @@ impl Params {
     /// ```
     ///
     /// `als` and `ncl` are the active and nematic-coherence length scales in
-    /// lattice units (floats — the production sweep uses fractional values, e.g.
+    /// lattice units, as floats, since the production sweep uses fractional values, e.g.
     /// the silver braid at als=2.8, ncl=4.8). The map is the code-truth one:
     /// `ζ = K/als²`, `C = K/ncl²`, `A = −C` (flow-solver.py:1478-1481).
     pub fn new(lx: usize, als: f64, ncl: f64, lambda: f64, dt: f64, max_p_iters: i64) -> Self {

@@ -1,6 +1,6 @@
 //! Validation + timing harness for the CUDA FIRE minimiser.
 //!
-//! Correctness gates speed throughout: nothing in the `time-*`/`kernels`
+//! Correctness comes before speed throughout: nothing in the `time-*`/`kernels`
 //! phases below runs until the matching `validate` phase has passed.
 //!
 //! Phases (first CLI argument selects one; default `all`):
@@ -669,7 +669,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "roofline" => phase_roofline(&dev)?,
         "validate" => phase_validate(&dev)?,
         "time-tuned" => {
-            // Correctness gates speed: refuse to time if validation fails.
+            // Correctness comes first: refuse to time if validation fails.
             phase_validate(&dev)?;
             phase_time_tuned(&dev)?;
         }

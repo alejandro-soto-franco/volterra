@@ -92,7 +92,7 @@ pub struct ActiveNematicParams {
     /// Landau coefficient a (< 0 for the ordered nematic without activity).
     /// Effective driving is a_eff = a - zeta_eff/2.
     pub a_landau: f64,
-    /// Landau coefficient c > 0 (stabilizes large |Q|).
+    /// Landau coefficient c > 0 (stabilises large |Q|).
     pub c_landau: f64,
     /// Flow alignment parameter λ (tumbling vs. flow-aligning nematics).
     /// λ = 1.0 for flow-aligning; |λ| < 1 for tumbling.

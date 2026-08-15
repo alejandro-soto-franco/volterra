@@ -3,10 +3,10 @@
 //! Ports the following numba functions from
 //! `~/Chaos-Generating-Periodic-Orbits/flow-solver.py`:
 //!
-//! - `H_S_from_Q`          — molecular field H_ij (LdG bulk + K∇²Q) and co-rotation S_ij
-//! - `get_Erickson_stress`  — Ericksen elastic stress contribution to Π_S
-//! - `get_TrQH_term`        — 2 Tr[QH] Q term added to Π_S
-//! - `calculate_Pi`         — assembles full symmetric Π_S and antisymmetric Π_A
+//! - `H_S_from_Q`: molecular field H_ij (LdG bulk + K∇²Q) and co-rotation S_ij
+//! - `get_Erickson_stress`: Ericksen elastic stress contribution to Π_S
+//! - `get_TrQH_term`: 2 Tr[QH] Q term added to Π_S
+//! - `calculate_Pi`: assembles full symmetric Π_S and antisymmetric Π_A
 //!
 //! # Field layout
 //!
@@ -27,10 +27,10 @@
 //!
 //! - `A` enters as the raw LdG coefficient (expected negative for ordering).
 //! - `C` is the positive quartic coefficient.
-//! - `trQsq = 2*(Q0² + Q1²)` — the 2D trace of Q².
+//! - `trQsq = 2*(Q0² + Q1²)`: the 2D trace of Q².
 //! - Bulk contribution to H: `-(A + C*trQsq)*Q`  (subtracted from the Laplacian result).
 //! - `Π_S` initialised to `−λH − ζQ`, then Ericksen term subtracted, then `2Tr[QH]Q` added.
-//! - `Π_A = 2*(Q0*H1 − H0*Q1)` — one scalar.
+//! - `Π_A = 2*(Q0*H1 − H0*Q1)`: one scalar.
 
 use crate::{
     index::{si, vi},
@@ -48,7 +48,7 @@ use rayon::prelude::*;
 ///
 /// Ports `H_S_from_Q(u, Q, H, S, A, C, K, λ, bounds)`.
 ///
-/// On entry `h` need not be zeroed — it is fully overwritten.
+/// On entry `h` need not be zeroed: it is fully overwritten.
 /// `s` is also fully overwritten at every interior cell.
 ///
 /// # Steps
@@ -173,7 +173,7 @@ pub fn h_s_from_q(
 ///
 /// Ports `get_Erickson_stress(Q, K, Π_S, bounds)`.
 ///
-/// **Accumulates** into `pi_s` — caller must initialise it before calling.
+/// **Accumulates** into `pi_s`: caller must initialise it before calling.
 ///
 /// ```text
 /// dxQ = 0.5*(Q[x+1,y] - Q[x-1,y])
@@ -238,7 +238,7 @@ pub fn get_ericksen_stress(q: &[f64], k: f64, pi_s: &mut [f64], bounds: &Boundar
 ///
 /// Ports `get_TrQH_term(Q, H, Π_S)`.
 ///
-/// **No boundary mask** — applied globally (matching the Python broadcast).
+/// **No boundary mask**: applied globally (matching the Python broadcast).
 /// `Π_S` must be pre-initialised before calling.
 ///
 /// ```text
@@ -297,8 +297,8 @@ pub fn get_trqh_term(q: &[f64], h: &[f64], pi_s: &mut [f64], lx: usize, ly: usiz
 ///
 /// # Arguments
 ///
-/// - `pi_s` : output symmetric stress, 2-component, length `lx*ly*2` — overwritten
-/// - `pi_a` : output antisymmetric stress, scalar, length `lx*ly` — overwritten
+/// - `pi_s` : output symmetric stress, 2-component, length `lx*ly*2`: overwritten
+/// - `pi_a` : output antisymmetric stress, scalar, length `lx*ly`: overwritten
 /// - `h`    : molecular field (from [`h_s_from_q`])
 /// - `q`    : Q-tensor field
 /// - `lambda`, `zeta`, `k` : model constants

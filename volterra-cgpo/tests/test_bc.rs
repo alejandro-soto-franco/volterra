@@ -221,10 +221,10 @@ fn q_bc_sets_winding_tangent_director() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 4: apply_p_boundary_conditions  (characterization test)
+// Test 4: apply_p_boundary_conditions  (characterisation test)
 //
 // The Neumann stencil is too entangled to verify in closed form on an
-// arbitrary hand-built grid, so this is a characterization test:
+// arbitrary hand-built grid, so this is a characterisation test:
 //
 // - All fields initialised to known constants.
 // - Run apply_p_boundary_conditions.
@@ -298,7 +298,7 @@ fn p_bc_zero_forcing_yields_zero_boundary_pressure() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5: apply_h_boundary_conditions  (characterization test)
+// Test 5: apply_h_boundary_conditions  (characterisation test)
 //
 // Invariant from the docstring:
 //   H[x,y,c] = gamma * (a*ux*dQ_x + b*uy*dQ_y - S[x,y,c])

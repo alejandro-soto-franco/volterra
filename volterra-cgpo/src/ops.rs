@@ -17,11 +17,11 @@
 //! Grid spacing `dx = 1` throughout (the Python solver uses unit spacing).
 //!
 //! **Index wrapping**: following the Python exactly, all neighbour indices are
-//! computed modulo the grid dimensions — `xdn = (x + lx - 1) % lx`, etc.
+//! computed modulo the grid dimensions: `xdn = (x + lx - 1) % lx`, etc.
 //! Python's bare `x - 1` at `x = 0` yields `-1`, which NumPy/Python wraps to
 //! index `lx - 1`; our modular arithmetic replicates that exactly.
 //!
-//! **Operators only write to cells where `bounds.inside[idx]` is true** — the
+//! **Operators only write to cells where `bounds.inside[idx]` is true**: the
 //! same set the Python calls `sim_points` / `bounds`.
 //!
 //! # Parallelism
@@ -30,7 +30,7 @@
 //! the threshold (default 250 000 cells, roughly 500×500) the serial path runs
 //! identical loop bodies to the original pre-rayon code.  Above the threshold
 //! the rayon path uses coarse chunks of [`crate::par_gate::rows_per_chunk`]
-//! rows so spawn overhead is amortized.  Results are bit-identical regardless
+//! rows so spawn overhead is amortised.  Results are bit-identical regardless
 //! of path.
 
 use crate::index::{si, vi};
@@ -253,7 +253,7 @@ pub fn div_vector(arr: &[f64], out: &mut [f64], bounds: &Boundary) {
 /// Replicates `upwind_advective_term(u, arr, out, bounds, coeff=-1)`.
 ///
 /// **Accumulates** into `out` (zero `out` before calling if a fresh result is
-/// needed — matching the Python caller pattern).
+/// needed: matching the Python caller pattern).
 ///
 /// For `ux > 0` (upwind from the left):
 /// ```text

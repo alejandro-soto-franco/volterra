@@ -10,7 +10,7 @@
 //! not `Clone`, so each iteration rebuilds its tiny (32x32) state from the same
 //! seeded initial condition; that allocation is negligible against the step work
 //! and keeps every measured run starting from an identical point. `black_box`
-//! guards the state handed to the runner.
+//! holds the state handed to the runner opaque.
 //!
 //! Run: `cargo bench -p volterra-cgpo --bench cgpo_bench`
 

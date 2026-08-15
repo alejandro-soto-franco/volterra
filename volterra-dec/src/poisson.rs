@@ -63,7 +63,7 @@ impl PoissonSolver {
     /// Assembles the symmetric SPD stiffness `S = diag(star0) * laplace_beltrami` and a
     /// Jacobi preconditioner. Solves are performed by preconditioned conjugate gradient
     /// (see [`Self::solve`]): a direct `LDL^T` factorisation is not used because the DEC
-    /// stiffness on a general (non-well-centered) triangulation is not reliably factorised
+    /// stiffness on a general (non-well-centred) triangulation is not reliably factorised
     /// by a non-pivoting `LDL^T`, whereas CG needs only the SPD matvec.
     pub fn new<M: Manifold>(ops: &Operators<M, 3, 2>) -> Result<Self, String> {
         let n = ops.laplace_beltrami.rows();

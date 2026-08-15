@@ -1,4 +1,4 @@
-//! Parallelism gate: size-based threshold with env-var overrides.
+//! Parallelism threshold, by grid size, with env-var overrides.
 //!
 //! # Threshold
 //!
@@ -11,7 +11,7 @@
 //!
 //! Instead of one row per rayon task (the previous approach that regressed at
 //! small grids), we split into `~threads * 4` tasks so each task handles
-//! `rows_per_chunk` consecutive rows.  This amortizes spawn overhead while
+//! `rows_per_chunk` consecutive rows.  This amortises spawn overhead while
 //! still allowing work-stealing between cores.
 //!
 //! ```text
@@ -20,8 +20,8 @@
 //!
 //! # Env overrides (read once at first use)
 //!
-//! - `CGPO_FORCE_PARALLEL=1`  — always use rayon regardless of grid size
-//! - `CGPO_FORCE_SERIAL=1`    — always use serial regardless of grid size
+//! - `CGPO_FORCE_PARALLEL=1`: always use rayon regardless of grid size
+//! - `CGPO_FORCE_SERIAL=1`: always use serial regardless of grid size
 
 use std::sync::OnceLock;
 
@@ -70,7 +70,7 @@ pub fn use_parallel(lx: usize, ly: usize) -> bool {
 /// Number of consecutive rows per rayon chunk.
 ///
 /// Targets `~threads * 4` tasks so work-stealing has room but spawn overhead
-/// is amortized.  Always at least 1.
+/// is amortised.  Always at least 1.
 #[inline]
 pub fn rows_per_chunk(lx: usize) -> usize {
     let threads = rayon::current_num_threads();

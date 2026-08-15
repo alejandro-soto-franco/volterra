@@ -1,6 +1,6 @@
-//! Release-mode performance regression gate for the 2D wet active nematic solver.
+//! Release-mode performance regression test for the 2D wet active nematic solver.
 //!
-//! ## What this guards
+//! ## What this covers
 //! It runs a fixed workload (64x64 grid, 100 steps, snapshots disabled), excludes
 //! a warmup run, measures wall-clock, and computes microseconds per lattice site
 //! per step. It then asserts that figure stays under a GENEROUS ceiling. The goal

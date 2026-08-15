@@ -33,7 +33,7 @@ const N2: usize = N * 2;
 // Physics constants matching dump_stokes.py
 const RHO: f64 = 1.0;
 const DT: f64 = 0.01;
-// NU = sqrt(10 * 2^14) — computed at runtime to match Python's (10.0 * K)**0.5 exactly.
+// NU = sqrt(10 * 2^14): computed at runtime to match Python's (10.0 * K)**0.5 exactly.
 // Declared as a lazy const-expression: (10.0 * 16384.0_f64).sqrt() = 404.7715405015526
 const NU: f64 = 404.771_540_501_552_6; // (10.0 * 16384.0_f64).sqrt()
 const N_ITERS: usize = 20;
@@ -238,7 +238,7 @@ fn u_update_p_pi_terms_vs_python() {
 
     // Python: dudt = laplacian_vector(u, nu) + upwind + u_update_p_pi_terms
     // We test u_update_p_pi_terms by calling get_u_update and comparing
-    // the full dudt — already covered in test 3.  Here we test the
+    // the full dudt: already covered in test 3.  Here we test the
     // p_pi term in isolation by zeroing dudt first.
     let mut dudt_ppi = vec![0.0_f64; N2];
     u_update_p_pi_terms(&mut dudt_ppi, &p_ref, RHO, &pi_s_flat, &pi_a_flat, &bounds);
@@ -253,7 +253,7 @@ fn u_update_p_pi_terms_vs_python() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5: monotonicity sanity — residual decreases with iterations
+// Test 5: monotonicity sanity: residual decreases with iterations
 // ---------------------------------------------------------------------------
 
 #[test]

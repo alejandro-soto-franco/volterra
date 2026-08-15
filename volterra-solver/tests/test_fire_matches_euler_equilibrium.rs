@@ -1,4 +1,4 @@
-//! Milestone-1 validation gate: FIRE must find the same equilibrium a long
+//! Milestone-1 validation: FIRE must find the same equilibrium a long
 //! Euler run finds, on a case with a closed-form answer.
 //!
 //! Case: a spatially uniform director along z, so the Laplacian is exactly
@@ -53,7 +53,7 @@ fn fire_and_long_euler_agree_on_the_analytic_equilibrium() {
     let s_start = 0.1; // well away from s0_analytic
     let q0 = QField3D::uniform(p.nx, p.ny, p.nz, p.dx, uniform_z_director(s_start));
 
-    // --- FIRE ---
+    // FIRE
     let fire_params = FireParams::open_qmin_defaults(p.dt, 1e-9, 5000);
     let fire_result = fire_minimize_3d_par(&q0, &p, &fire_params, 0.0);
     assert!(
@@ -63,7 +63,7 @@ fn fire_and_long_euler_agree_on_the_analytic_equilibrium() {
     );
     let s_fire = scalar_order_param(&fire_result.q.q[0]);
 
-    // --- long Euler run ---
+    // long Euler run
     let mut q_euler = q0.clone();
     let mut max_rhs = f64::INFINITY;
     for _ in 0..200_000 {
@@ -84,7 +84,7 @@ fn fire_and_long_euler_agree_on_the_analytic_equilibrium() {
     );
     let s_euler = scalar_order_param(&q_euler.q[0]);
 
-    // --- cross-checks, all against the SAME closed-form S0 ---
+    // cross-checks, all against the SAME closed-form S0
     let tol_vs_analytic = 1e-4;
     let tol_cross = 1e-5;
 

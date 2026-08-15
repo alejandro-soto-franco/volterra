@@ -17,14 +17,14 @@
 //!
 //! ## Current status: PASSING
 //!
-//! The gated fix is in place: `PoissonSolver::with_dirichlet` imposes ψ = 0 at
+//! The fix is in place: `PoissonSolver::with_dirichlet` imposes ψ = 0 at
 //! all boundary vertices via symmetric Dirichlet elimination, and
 //! `StokesSolverDec::new_confined` uses it (and additionally zeroes the velocity
 //! at no-slip vertices after stream-function recovery). With that, the measured
 //! ratio (boundary speed / interior speed) falls below the 0.05 tolerance.
 //!
 //! The test still fails loudly with the measured speeds if the no-slip condition
-//! ever regresses — do NOT silently skip this assertion.
+//! ever regresses: do NOT silently skip this assertion.
 
 use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
