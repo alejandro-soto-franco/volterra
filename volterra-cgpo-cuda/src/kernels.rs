@@ -246,6 +246,165 @@ pub mod kernels {
             }
         }
     }
+
+    /// The molecular field `H` and the co-rotation tensor `S`, in one pass.
+    ///
+    /// Ports `volterra_cgpo::nematic::h_s_from_q`, which the CPU runs as two
+    /// passes: `laplacian_vector(q, h, K)` and then a per-cell correction that
+    /// subtracts the bulk Landau-de Gennes term and writes `S`. Both touch only
+    /// interior cells and neither reads what the other writes, so one thread
+    /// per cell does both and reads `q` once instead of twice.
+    ///
+    /// `h` is written only inside the mask, so its exterior keeps whatever the
+    /// caller left there, matching the CPU.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn h_s_from_q(
+        u: &[f64],
+        q: &[f64],
+        inside: &[u8],
+        lx: u32,
+        ly: u32,
+        a: f64,
+        c_coeff: f64,
+        k: f64,
+        lambda: f64,
+        mut h: DisjointSlice<[f64; 2]>,
+        mut s: DisjointSlice<[f64; 2]>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        if inside[idx] == 0 {
+            return;
+        }
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let xup = (x + 1) % lxu;
+        let xdn = (x + lxu - 1) % lxu;
+        let yup = (y + 1) % lyu;
+        let ydn = (y + lyu - 1) % lyu;
+        let v = |a: usize, b: usize, c: usize| (a * lyu + b) * 2 + c;
+
+        // H = K * lap Q, the 9-point stencil `laplacian_vector` applies.
+        let kk = k / 6.0;
+        let mut hv = [0.0_f64; 2];
+        for c in 0..2 {
+            hv[c] = kk
+                * (-20.0 * q[v(x, y, c)]
+                    + 4.0
+                        * (q[v(xup, y, c)]
+                            + q[v(xdn, y, c)]
+                            + q[v(x, yup, c)]
+                            + q[v(x, ydn, c)])
+                    + q[v(xup, yup, c)]
+                    + q[v(xup, ydn, c)]
+                    + q[v(xdn, yup, c)]
+                    + q[v(xdn, ydn, c)]);
+        }
+
+        let q0 = q[v(x, y, 0)];
+        let q1 = q[v(x, y, 1)];
+        let trqsq = 2.0 * (q0 * q0 + q1 * q1);
+        hv[0] -= (a + c_coeff * trqsq) * q0;
+        hv[1] -= (a + c_coeff * trqsq) * q1;
+
+        let dxux = 0.5 * (u[v(xup, y, 0)] - u[v(xdn, y, 0)]);
+        let dxuy = 0.5 * (u[v(xup, y, 1)] - u[v(xdn, y, 1)]);
+        let dyux = 0.5 * (u[v(x, yup, 0)] - u[v(x, ydn, 0)]);
+
+        let omega_xy = 0.5 * (dxuy - dyux);
+        let lambda_s = lambda * (2.0 * trqsq).sqrt();
+        let tr_qe = 2.0 * q0 * dxux + q1 * (dyux + dxuy);
+
+        let sv = [
+            lambda_s * dxux - 2.0 * omega_xy * q1 - 2.0 * tr_qe * q0,
+            lambda_s * 0.5 * (dxuy + dyux) + 2.0 * omega_xy * q0 - 2.0 * tr_qe * q1,
+        ];
+
+        if let Some(slot) = h.get_mut(tid) {
+            *slot = hv;
+        }
+        let tid_s = thread::index_1d();
+        if let Some(slot) = s.get_mut(tid_s) {
+            *slot = sv;
+        }
+    }
+
+    /// The symmetric and antisymmetric stresses, in one pass.
+    ///
+    /// Ports `volterra_cgpo::nematic::calculate_pi`, which the CPU runs as four
+    /// passes over the field: `Pi_S = -lambda H - zeta Q` everywhere, minus the
+    /// Ericksen stress inside the mask, plus `2 Tr[QH] Q` everywhere, and
+    /// `Pi_A = 2 (Q0 H1 - H0 Q1)` everywhere. Each cell's value depends only on
+    /// that cell and its neighbours, and the three writes to `Pi_S` happen in
+    /// that order, so one thread per cell applies all four in the same order.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn calculate_pi(
+        h: &[f64],
+        q: &[f64],
+        inside: &[u8],
+        lx: u32,
+        ly: u32,
+        lambda: f64,
+        zeta: f64,
+        k: f64,
+        mut pi_s: DisjointSlice<[f64; 2]>,
+        mut pi_a: DisjointSlice<f64>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let v = |a: usize, b: usize, c: usize| (a * lyu + b) * 2 + c;
+
+        let q0 = q[v(x, y, 0)];
+        let q1 = q[v(x, y, 1)];
+        let h0 = h[v(x, y, 0)];
+        let h1 = h[v(x, y, 1)];
+
+        // Every cell: Pi_S = -lambda H - zeta Q.
+        let mut ps = [-lambda * h0 - zeta * q0, -lambda * h1 - zeta * q1];
+
+        // Interior only: subtract the Ericksen elastic stress.
+        if inside[idx] != 0 {
+            let xup = (x + 1) % lxu;
+            let xdn = (x + lxu - 1) % lxu;
+            let yup = (y + 1) % lyu;
+            let ydn = (y + lyu - 1) % lyu;
+            let dxq0 = 0.5 * (q[v(xup, y, 0)] - q[v(xdn, y, 0)]);
+            let dxq1 = 0.5 * (q[v(xup, y, 1)] - q[v(xdn, y, 1)]);
+            let dyq0 = 0.5 * (q[v(x, yup, 0)] - q[v(x, ydn, 0)]);
+            let dyq1 = 0.5 * (q[v(x, yup, 1)] - q[v(x, ydn, 1)]);
+            ps[0] -= k * (dxq0 * dxq0 + dxq1 * dxq1 - dyq0 * dyq0 - dyq1 * dyq1);
+            ps[1] -= 2.0 * k * (dxq1 * dyq1 + dxq0 * dyq0);
+        }
+
+        // Every cell: add 2 Tr[QH] Q.
+        let trqh = 2.0 * (q0 * h0 + q1 * h1);
+        ps[0] += trqh * q0;
+        ps[1] += trqh * q1;
+
+        if let Some(slot) = pi_s.get_mut(tid) {
+            *slot = ps;
+        }
+        let tid_a = thread::index_1d();
+        if let Some(slot) = pi_a.get_mut(tid_a) {
+            *slot = 2.0 * (q0 * h1 - h0 * q1);
+        }
+    }
 }
 
 // `#[cuda_module]` generates its `load`/`LoadedModule` inside the `kernels`

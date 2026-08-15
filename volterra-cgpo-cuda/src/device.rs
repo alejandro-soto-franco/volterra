@@ -168,6 +168,108 @@ impl Device {
         Ok(d_out.to_host_vec(stream)?)
     }
 
+    /// The molecular field and the co-rotation tensor.
+    ///
+    /// Returns `(h, s)`. `h_seed` supplies what the exterior of `h` should
+    /// hold, since the kernel writes only inside the mask, as the CPU does.
+    #[allow(clippy::too_many_arguments)]
+    pub fn h_s_from_q(
+        &self,
+        u: &[f64],
+        q: &[f64],
+        bnd: &DeviceBoundary,
+        a: f64,
+        c_coeff: f64,
+        k: f64,
+        lambda: f64,
+        h_seed: &[f64],
+        s_seed: &[f64],
+    ) -> Result<(Vec<f64>, Vec<f64>), CudaError> {
+        let n = bnd.cells();
+        assert_eq!(u.len(), n * 2, "velocity must be lx * ly * 2");
+        assert_eq!(q.len(), n * 2, "Q must be lx * ly * 2");
+        let stream = &self.stream;
+        let d_u = DeviceBuffer::from_host(stream, u)?;
+        let d_q = DeviceBuffer::from_host(stream, q)?;
+        let mut d_h = DeviceBuffer::from_host(stream, h_seed)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("h must reinterpret as [f64;2]"));
+        let mut d_s = DeviceBuffer::from_host(stream, s_seed)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("s must reinterpret as [f64;2]"));
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: every input holds the extent the kernel bounds-checks against
+        // `lx * ly`, and both outputs hold `n` 2-wide slots matching `cfg`.
+        let launched = unsafe {
+            self.module.h_s_from_q(
+                stream,
+                cfg,
+                &d_u,
+                &d_q,
+                &bnd.inside,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                a,
+                c_coeff,
+                k,
+                lambda,
+                &mut d_h,
+                &mut d_s,
+            )
+        };
+        let d_h = d_h.cast_chunks::<f64>().unwrap_or_else(|_| panic!("h back to f64"));
+        let d_s = d_s.cast_chunks::<f64>().unwrap_or_else(|_| panic!("s back to f64"));
+        launched?;
+        Ok((d_h.to_host_vec(stream)?, d_s.to_host_vec(stream)?))
+    }
+
+    /// The symmetric and antisymmetric stresses. Returns `(pi_s, pi_a)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn calculate_pi(
+        &self,
+        h: &[f64],
+        q: &[f64],
+        bnd: &DeviceBoundary,
+        lambda: f64,
+        zeta: f64,
+        k: f64,
+    ) -> Result<(Vec<f64>, Vec<f64>), CudaError> {
+        let n = bnd.cells();
+        assert_eq!(h.len(), n * 2, "H must be lx * ly * 2");
+        assert_eq!(q.len(), n * 2, "Q must be lx * ly * 2");
+        let stream = &self.stream;
+        let d_h = DeviceBuffer::from_host(stream, h)?;
+        let d_q = DeviceBuffer::from_host(stream, q)?;
+        // Both outputs are written at every cell, so neither needs a seed.
+        let mut d_pi_s = DeviceBuffer::<f64>::zeroed(stream, n * 2)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("pi_s must reinterpret as [f64;2]"));
+        let mut d_pi_a = DeviceBuffer::<f64>::zeroed(stream, n)?;
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: as above.
+        let launched = unsafe {
+            self.module.calculate_pi(
+                stream,
+                cfg,
+                &d_h,
+                &d_q,
+                &bnd.inside,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                lambda,
+                zeta,
+                k,
+                &mut d_pi_s,
+                &mut d_pi_a,
+            )
+        };
+        let d_pi_s = d_pi_s
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("pi_s back to f64"));
+        launched?;
+        Ok((d_pi_s.to_host_vec(stream)?, d_pi_a.to_host_vec(stream)?))
+    }
+
     /// Second-order upwind advection, accumulated into `out_seed`.
     pub fn upwind_advective(
         &self,

@@ -56,6 +56,33 @@ fn compare(a: &[f64], b: &[f64]) -> Gap {
     Gap { abs, ulps, differing }
 }
 
+/// As [`compare`], but each element's difference is measured against a scale
+/// the caller supplies rather than against the result.
+///
+/// For an expression that cancels, the result is much smaller than the terms
+/// that formed it, and rounding in those terms carries through undiminished. A
+/// difference counted in ulps of the result then reports the cancellation
+/// rather than the agreement. `Pi_A = 2 (Q0 H1 - H0 Q1)` is the case here: the
+/// bulk part of `H` is parallel to `Q` and cancels out of the cross product
+/// exactly, so what survives is the elastic part alone, tens of times smaller
+/// than either product. Passing `|Q0 H1| + |H0 Q1|` measures the two codes
+/// against the arithmetic they actually performed.
+fn compare_scaled(a: &[f64], b: &[f64], scale: &[f64]) -> Gap {
+    let mut abs = 0.0_f64;
+    let mut ulps = 0.0_f64;
+    let mut differing = 0usize;
+    for ((x, y), s) in a.iter().zip(b.iter()).zip(scale.iter()) {
+        let d = (x - y).abs();
+        if d > 0.0 {
+            differing += 1;
+        }
+        abs = abs.max(d);
+        let m = s.abs().max(1.0);
+        ulps = ulps.max(d / (m * f64::EPSILON));
+    }
+    Gap { abs, ulps, differing }
+}
+
 /// `tol_ulps` is how many units in the last place the kernel may differ by.
 ///
 /// Zero means bit for bit, which is what an operator with no fused
@@ -214,6 +241,117 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let gpu = dev.upwind_advective(&zero, &vector, &d_bnd, -1.0, &seed_vector)?;
         let g = compare(&cpu, &gpu);
         all_ok &= report("upwind_advective u=0", &g, n * 2, 0.0);
+    }
+
+    // The nematic kernels, on parameters the golden run actually uses.
+    let params = volterra_cgpo::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50).with_net_charge(1.5);
+
+    {
+        // Isolate the fused Laplacian inside `h_s_from_q` from everything else
+        // it does: with the bulk coefficients and the flow-alignment parameter
+        // all zero, `H` is exactly `K lap Q` and must equal what the standalone
+        // Laplacian kernel produced, which was bit for bit.
+        let mut h_cpu = seed_vector.clone();
+        ops::laplacian_vector(&vector, &mut h_cpu, &bnd, params.k_elastic);
+        let mut s_scratch = vec![0.0; n * 2];
+        let (h_gpu, _) = dev.h_s_from_q(
+            &velocity,
+            &vector,
+            &d_bnd,
+            0.0,
+            0.0,
+            params.k_elastic,
+            0.0,
+            &seed_vector,
+            &s_scratch,
+        )?;
+        s_scratch.clear();
+        let g = compare(&h_cpu, &h_gpu);
+        all_ok &= report("h_s_from_q with the bulk term off, against laplacian_vector", &g, n * 2, 0.0);
+    }
+
+    // A smooth Q, which is what a run carries. The random field used above is
+    // the worst case for a 9-point stencil: neighbouring values are
+    // uncorrelated, so the -20/4/1 weights cancel almost entirely and the
+    // result lands orders of magnitude below the terms that formed it, which
+    // amplifies any last-bit difference in those terms. At `K = 16384` that
+    // shows as a hundred ulp on a kernel whose own Laplacian is bit for bit,
+    // which the isolation check above establishes. A smooth field cancels no
+    // worse than the physics does.
+    // The two components carry different frequencies on purpose. A single
+    // phase in both makes `Q` a plane wave, and the Laplacian of a plane wave
+    // is a multiple of itself, so `H` comes out parallel to `Q` and
+    // `Pi_A = 2 (Q0 H1 - H0 Q1)` cancels to nothing. Comparing two codes on a
+    // quantity that is identically zero measures their rounding and not their
+    // agreement.
+    let smooth: Vec<f64> = (0..n * 2)
+        .map(|i| {
+            let cell = i / 2;
+            let (x, y) = ((cell / LX) as f64, (cell % LX) as f64);
+            if i % 2 == 0 {
+                0.4 * (0.10 * x + 0.07 * y).cos()
+            } else {
+                0.3 * (0.05 * x - 0.09 * y).sin()
+            }
+        })
+        .collect();
+    {
+        let mut h_cpu = vec![0.0; n * 2];
+        let mut s_cpu = vec![0.0; n * 2];
+        volterra_cgpo::nematic::h_s_from_q(
+            &velocity, &smooth, &mut h_cpu, &mut s_cpu,
+            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+        );
+        let (h_gpu, _) = dev.h_s_from_q(
+            &velocity, &smooth, &d_bnd,
+            params.a_landau, params.c_landau, params.k_elastic, params.lambda,
+            &vec![0.0; n * 2], &vec![0.0; n * 2],
+        )?;
+        let g = compare(&h_cpu, &h_gpu);
+        all_ok &= report("h_s_from_q: H on a smooth Q", &g, n * 2, 4.0);
+    }
+    {
+        // The stresses, on the same smooth Q and the H it produces, so the
+        // cancellations are the ones a run meets.
+        let mut h_cpu = vec![0.0; n * 2];
+        let mut s_cpu = vec![0.0; n * 2];
+        volterra_cgpo::nematic::h_s_from_q(
+            &velocity, &smooth, &mut h_cpu, &mut s_cpu,
+            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+        );
+        let (h_gpu, s_gpu) = dev.h_s_from_q(
+            &velocity, &smooth, &d_bnd,
+            params.a_landau, params.c_landau, params.k_elastic, params.lambda,
+            &vec![0.0; n * 2], &vec![0.0; n * 2],
+        )?;
+        all_ok &= report("h_s_from_q: S", &compare(&s_cpu, &s_gpu), n * 2, 4.0);
+        let _ = h_gpu;
+
+        let mut pi_s_cpu = vec![0.0; n * 2];
+        let mut pi_a_cpu = vec![0.0; n];
+        volterra_cgpo::nematic::calculate_pi(
+            &mut pi_s_cpu, &mut pi_a_cpu, &h_cpu, &smooth,
+            params.lambda, params.zeta, params.k_elastic, &bnd,
+        );
+        let (pi_s_gpu, pi_a_gpu) = dev.calculate_pi(
+            &h_cpu, &smooth, &d_bnd, params.lambda, params.zeta, params.k_elastic,
+        )?;
+        all_ok &= report("calculate_pi: Pi_S", &compare(&pi_s_cpu, &pi_s_gpu), n * 2, 4.0);
+        // Pi_A cancels by construction, so it is measured against the size of
+        // the two products it differences.
+        let scale: Vec<f64> = (0..n)
+            .map(|c| {
+                let (q0, q1) = (smooth[c * 2], smooth[c * 2 + 1]);
+                let (h0, h1) = (h_cpu[c * 2], h_cpu[c * 2 + 1]);
+                2.0 * ((q0 * h1).abs() + (h0 * q1).abs())
+            })
+            .collect();
+        all_ok &= report(
+            "calculate_pi: Pi_A, against the scale of its two products",
+            &compare_scaled(&pi_a_cpu, &pi_a_gpu, &scale),
+            n,
+            4.0,
+        );
     }
 
     if all_ok {
