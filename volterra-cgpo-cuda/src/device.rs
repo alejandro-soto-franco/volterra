@@ -17,10 +17,40 @@ pub struct DeviceBoundary {
     pub lx: usize,
     pub ly: usize,
     pub inside: DeviceBuffer<u8>,
+    /// The two boundary layers and their per-cell unit normals.
+    ///
+    /// The CPU resolves a cell's layer by asking for the inner layer first and
+    /// the outer second, and writes through whichever answers, so a cell in
+    /// both would take the outer. They are disjoint by construction, and the
+    /// kernels test outer first for that reason.
+    pub is_inner: DeviceBuffer<u8>,
+    pub is_outer: DeviceBuffer<u8>,
+    pub inner_normals: DeviceBuffer<f64>,
+    pub outer_normals: DeviceBuffer<f64>,
 }
 
 impl DeviceBoundary {
-    /// Upload a CPU boundary's interior mask.
+    /// Upload a CPU boundary whole.
+    pub fn upload_full(
+        stream: &Arc<CudaStream>,
+        bnd: &volterra_cgpo::boundary::Boundary,
+    ) -> Result<Self, CudaError> {
+        let n = bnd.lx * bnd.ly;
+        let flat = |v: &[[f64; 2]]| -> Vec<f64> { v.iter().flat_map(|p| [p[0], p[1]]).collect() };
+        let bytes = |v: &[bool]| -> Vec<u8> { v.iter().map(|&b| u8::from(b)).collect() };
+        assert_eq!(bnd.inside.len(), n, "mask must be lx * ly");
+        Ok(Self {
+            lx: bnd.lx,
+            ly: bnd.ly,
+            inside: DeviceBuffer::from_host(stream, &bytes(&bnd.inside))?,
+            is_inner: DeviceBuffer::from_host(stream, &bytes(&bnd.is_inner))?,
+            is_outer: DeviceBuffer::from_host(stream, &bytes(&bnd.is_outer))?,
+            inner_normals: DeviceBuffer::from_host(stream, &flat(&bnd.inner_normals))?,
+            outer_normals: DeviceBuffer::from_host(stream, &flat(&bnd.outer_normals))?,
+        })
+    }
+
+    /// Upload only the interior mask, for the operators that need nothing else.
     pub fn upload(
         stream: &Arc<CudaStream>,
         lx: usize,
@@ -29,10 +59,16 @@ impl DeviceBoundary {
     ) -> Result<Self, CudaError> {
         assert_eq!(inside.len(), lx * ly, "mask must be lx * ly");
         let bytes: Vec<u8> = inside.iter().map(|&b| u8::from(b)).collect();
+        let zeros_u8 = vec![0u8; lx * ly];
+        let zeros_f = vec![0.0_f64; lx * ly * 2];
         Ok(Self {
             lx,
             ly,
             inside: DeviceBuffer::from_host(stream, &bytes)?,
+            is_inner: DeviceBuffer::from_host(stream, &zeros_u8)?,
+            is_outer: DeviceBuffer::from_host(stream, &zeros_u8)?,
+            inner_normals: DeviceBuffer::from_host(stream, &zeros_f)?,
+            outer_normals: DeviceBuffer::from_host(stream, &zeros_f)?,
         })
     }
 
@@ -378,6 +414,156 @@ impl Device {
             .unwrap_or_else(|_| panic!("dudt back to f64"));
         launched?;
         Ok(d_dudt.to_host_vec(stream)?)
+    }
+
+    /// No-slip on the wall.
+    pub fn apply_u_bc(&self, bnd: &DeviceBoundary, u_seed: &[f64]) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let mut d_u = DeviceBuffer::from_host(stream, u_seed)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("u must reinterpret as [f64;2]"));
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: the layer masks and normals hold `n` and `2n` elements, which
+        // the kernel indexes under `lx * ly`, and `d_u` holds `n` 2-wide slots.
+        let launched = unsafe {
+            self.module.apply_u_bc(
+                stream,
+                cfg,
+                &bnd.is_inner,
+                &bnd.is_outer,
+                &bnd.inner_normals,
+                &bnd.outer_normals,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                &mut d_u,
+            )
+        };
+        let d_u = d_u.cast_chunks::<f64>().unwrap_or_else(|_| panic!("u back to f64"));
+        launched?;
+        Ok(d_u.to_host_vec(stream)?)
+    }
+
+    /// Dirichlet anchoring of Q on the wall.
+    pub fn apply_q_bc(
+        &self,
+        bnd: &DeviceBoundary,
+        s0: f64,
+        net_charge: f64,
+        q_seed: &[f64],
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let mut d_q = DeviceBuffer::from_host(stream, q_seed)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("q must reinterpret as [f64;2]"));
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: as above.
+        let launched = unsafe {
+            self.module.apply_q_bc(
+                stream,
+                cfg,
+                &bnd.is_inner,
+                &bnd.is_outer,
+                &bnd.inner_normals,
+                &bnd.outer_normals,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                s0,
+                net_charge,
+                &mut d_q,
+            )
+        };
+        let d_q = d_q.cast_chunks::<f64>().unwrap_or_else(|_| panic!("q back to f64"));
+        launched?;
+        Ok(d_q.to_host_vec(stream)?)
+    }
+
+    /// The molecular-field boundary condition.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_h_bc(
+        &self,
+        q: &[f64],
+        u: &[f64],
+        s: &[f64],
+        bnd: &DeviceBoundary,
+        gamma: f64,
+        h_seed: &[f64],
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let d_q = DeviceBuffer::from_host(stream, q)?;
+        let d_u = DeviceBuffer::from_host(stream, u)?;
+        let d_s = DeviceBuffer::from_host(stream, s)?;
+        let mut d_h = DeviceBuffer::from_host(stream, h_seed)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("h must reinterpret as [f64;2]"));
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: as above.
+        let launched = unsafe {
+            self.module.apply_h_bc(
+                stream,
+                cfg,
+                &d_q,
+                &d_u,
+                &d_s,
+                &bnd.is_inner,
+                &bnd.is_outer,
+                &bnd.inner_normals,
+                &bnd.outer_normals,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                gamma,
+                &mut d_h,
+            )
+        };
+        let d_h = d_h.cast_chunks::<f64>().unwrap_or_else(|_| panic!("h back to f64"));
+        launched?;
+        Ok(d_h.to_host_vec(stream)?)
+    }
+
+    /// The Neumann pressure boundary condition.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_p_bc(
+        &self,
+        p_aux: &[f64],
+        u: &[f64],
+        pi_s: &[f64],
+        pi_a: &[f64],
+        bnd: &DeviceBoundary,
+        rho: f64,
+        nu: f64,
+        p_seed: &[f64],
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let d_aux = DeviceBuffer::from_host(stream, p_aux)?;
+        let d_u = DeviceBuffer::from_host(stream, u)?;
+        let d_pi_s = DeviceBuffer::from_host(stream, pi_s)?;
+        let d_pi_a = DeviceBuffer::from_host(stream, pi_a)?;
+        let mut d_p = DeviceBuffer::from_host(stream, p_seed)?;
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: as above.
+        unsafe {
+            self.module.apply_p_bc(
+                stream,
+                cfg,
+                &d_aux,
+                &d_u,
+                &d_pi_s,
+                &d_pi_a,
+                &bnd.is_inner,
+                &bnd.is_outer,
+                &bnd.inner_normals,
+                &bnd.outer_normals,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                rho,
+                nu,
+                &mut d_p,
+            )?;
+        }
+        Ok(d_p.to_host_vec(stream)?)
     }
 
     /// Second-order upwind advection, accumulated into `out_seed`.

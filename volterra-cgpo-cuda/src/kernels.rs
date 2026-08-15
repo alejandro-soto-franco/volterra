@@ -601,6 +601,263 @@ pub mod kernels {
             *slot = d;
         }
     }
+
+    /// No-slip: zero the velocity on every boundary cell.
+    ///
+    /// Ports `volterra_cgpo::bc::apply_u_boundary_conditions`, which sets both
+    /// components to zero at any cell carrying a normal in either layer.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_u_bc(
+        is_inner: &[u8],
+        is_outer: &[u8],
+        inner_normals: &[f64],
+        outer_normals: &[f64],
+        lx: u32,
+        ly: u32,
+        mut u: DisjointSlice<[f64; 2]>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        let inner = is_inner[idx] != 0
+            && (inner_normals[idx * 2] != 0.0 || inner_normals[idx * 2 + 1] != 0.0);
+        let outer = is_outer[idx] != 0
+            && (outer_normals[idx * 2] != 0.0 || outer_normals[idx * 2 + 1] != 0.0);
+        if !inner && !outer {
+            return;
+        }
+        if let Some(slot) = u.get_mut(tid) {
+            *slot = [0.0, 0.0];
+        }
+    }
+
+    /// Dirichlet anchoring of Q to the winding tangent.
+    ///
+    /// Ports `volterra_cgpo::bc::apply_q_boundary_conditions`. The director
+    /// angle is `net_charge` times the polar angle of the outward normal, and
+    /// `Q` is the traceless-symmetric form of the tangent to it.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_q_bc(
+        is_inner: &[u8],
+        is_outer: &[u8],
+        inner_normals: &[f64],
+        outer_normals: &[f64],
+        lx: u32,
+        ly: u32,
+        s0: f64,
+        net_charge: f64,
+        mut q: DisjointSlice<[f64; 2]>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let n = (lx as usize) * (ly as usize);
+        if idx >= n {
+            return;
+        }
+        // The outer layer is tested first so that it wins, matching the CPU's
+        // second pass overwriting the first.
+        let (nx, ny) = if is_outer[idx] != 0
+            && (outer_normals[idx * 2] != 0.0 || outer_normals[idx * 2 + 1] != 0.0)
+        {
+            (outer_normals[idx * 2], outer_normals[idx * 2 + 1])
+        } else if is_inner[idx] != 0
+            && (inner_normals[idx * 2] != 0.0 || inner_normals[idx * 2 + 1] != 0.0)
+        {
+            (inner_normals[idx * 2], inner_normals[idx * 2 + 1])
+        } else {
+            return;
+        };
+
+        let clamped = if nx > 1.0 {
+            1.0
+        } else if nx < -1.0 {
+            -1.0
+        } else {
+            nx
+        };
+        let mut theta = clamped.acos();
+        if ny < 0.0 {
+            theta = 2.0 * core::f64::consts::PI - theta;
+        }
+        let nnx = (theta * net_charge).cos();
+        let nny = (theta * net_charge).sin();
+
+        if let Some(slot) = q.get_mut(tid) {
+            *slot = [s0 * (nny * nny - 0.5), s0 * (-nnx * nny)];
+        }
+    }
+
+    /// The molecular-field boundary condition that holds `dQ/dt` at zero on the
+    /// wall.
+    ///
+    /// Ports `volterra_cgpo::bc::apply_h_boundary_conditions`. The one-sided
+    /// difference runs inward, against the sign of each normal component.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_h_bc(
+        q: &[f64],
+        u: &[f64],
+        s: &[f64],
+        is_inner: &[u8],
+        is_outer: &[u8],
+        inner_normals: &[f64],
+        outer_normals: &[f64],
+        lx: u32,
+        ly: u32,
+        gamma: f64,
+        mut h: DisjointSlice<[f64; 2]>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let n = lxu * lyu;
+        if idx >= n {
+            return;
+        }
+        let (nx, ny) = if is_outer[idx] != 0
+            && (outer_normals[idx * 2] != 0.0 || outer_normals[idx * 2 + 1] != 0.0)
+        {
+            (outer_normals[idx * 2], outer_normals[idx * 2 + 1])
+        } else if is_inner[idx] != 0
+            && (inner_normals[idx * 2] != 0.0 || inner_normals[idx * 2 + 1] != 0.0)
+        {
+            (inner_normals[idx * 2], inner_normals[idx * 2 + 1])
+        } else {
+            return;
+        };
+
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let sign = |v: f64| -> i64 {
+            if v > 0.0 {
+                1
+            } else if v < 0.0 {
+                -1
+            } else {
+                0
+            }
+        };
+        let wrap = |i: usize, delta: i64, m: usize| -> usize {
+            let t = i as i64 + m as i64 + delta;
+            (t.rem_euclid(m as i64)) as usize
+        };
+        let a = sign(nx);
+        let b = sign(ny);
+        let xa = wrap(x, -a, lxu);
+        let yb = wrap(y, -b, lyu);
+        let v = |p: usize, r: usize, c: usize| (p * lyu + r) * 2 + c;
+
+        let ux = u[v(x, y, 0)];
+        let uy = u[v(x, y, 1)];
+        let mut out = [0.0_f64; 2];
+        for c in 0..2 {
+            let dq_x = q[v(x, y, c)] - q[v(xa, y, c)];
+            let dq_y = q[v(x, y, c)] - q[v(x, yb, c)];
+            out[c] = gamma * (a as f64 * ux * dq_x + b as f64 * uy * dq_y - s[v(x, y, c)]);
+        }
+
+        if let Some(slot) = h.get_mut(tid) {
+            *slot = out;
+        }
+    }
+
+    /// The Neumann pressure boundary condition.
+    ///
+    /// Ports `volterra_cgpo::bc::apply_p_boundary_conditions`, including the
+    /// degenerate-normal test that leaves a cell untouched when the inward
+    /// direction projects to nothing.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_p_bc(
+        p_aux: &[f64],
+        u: &[f64],
+        pi_s: &[f64],
+        pi_a: &[f64],
+        is_inner: &[u8],
+        is_outer: &[u8],
+        inner_normals: &[f64],
+        outer_normals: &[f64],
+        lx: u32,
+        ly: u32,
+        rho: f64,
+        nu: f64,
+        mut p: DisjointSlice<f64>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let n = lxu * lyu;
+        if idx >= n {
+            return;
+        }
+        let (nx, ny) = if is_outer[idx] != 0
+            && (outer_normals[idx * 2] != 0.0 || outer_normals[idx * 2 + 1] != 0.0)
+        {
+            (outer_normals[idx * 2], outer_normals[idx * 2 + 1])
+        } else if is_inner[idx] != 0
+            && (inner_normals[idx * 2] != 0.0 || inner_normals[idx * 2 + 1] != 0.0)
+        {
+            (inner_normals[idx * 2], inner_normals[idx * 2 + 1])
+        } else {
+            return;
+        };
+
+        let sign = |v: f64| -> i64 {
+            if v > 0.0 {
+                1
+            } else if v < 0.0 {
+                -1
+            } else {
+                0
+            }
+        };
+        let a = sign(nx);
+        let b = sign(ny);
+        let denom = a as f64 * nx + b as f64 * ny;
+        if denom < 1e-15 && denom > -1e-15 {
+            return;
+        }
+
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let wrap = |i: usize, delta: i64, m: usize| -> usize {
+            let t = i as i64 + 2 * m as i64 + delta;
+            (t.rem_euclid(m as i64)) as usize
+        };
+        let xa = wrap(x, -a, lxu);
+        let xaa = wrap(x, -2 * a, lxu);
+        let yb = wrap(y, -b, lyu);
+        let ybb = wrap(y, -2 * b, lyu);
+        let s = |q: usize, r: usize| q * lyu + r;
+        let v = |q: usize, r: usize, c: usize| (q * lyu + r) * 2 + c;
+
+        let fx = a as f64 * (pi_s[v(x, y, 0)] - pi_s[v(xa, y, 0)])
+            + b as f64 * (pi_s[v(x, y, 1)] + pi_a[s(x, y)] - pi_s[v(x, yb, 1)] - pi_a[s(x, yb)]);
+        let fy = a as f64
+            * (pi_s[v(x, y, 1)] - pi_a[s(x, y)] - pi_s[v(xa, y, 1)] + pi_a[s(xa, y)])
+            - b as f64 * (pi_s[v(x, y, 0)] - pi_s[v(x, yb, 0)]);
+
+        let lapu0 = 2.0 * u[v(x, y, 0)] - 2.0 * (u[v(xa, y, 0)] + u[v(x, yb, 0)])
+            + u[v(xaa, y, 0)]
+            + u[v(x, ybb, 0)];
+        let lapu1 = 2.0 * u[v(x, y, 1)] - 2.0 * (u[v(xa, y, 1)] + u[v(x, yb, 1)])
+            + u[v(xaa, y, 1)]
+            + u[v(x, ybb, 1)];
+
+        let n_dot = nx * (fx + rho * nu * lapu0) + ny * (fy + rho * nu * lapu1);
+        let p_neighbours = a as f64 * nx * p_aux[s(xa, y)] + b as f64 * ny * p_aux[s(x, yb)];
+
+        if let Some(slot) = p.get_mut(tid) {
+            *slot = (n_dot + p_neighbours) / denom;
+        }
+    }
 }
 
 // `#[cuda_module]` generates its `load`/`LoadedModule` inside the `kernels`

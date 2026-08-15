@@ -295,6 +295,20 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .collect();
+    // A smooth velocity, for the same reason Q is smooth: the viscous term is
+    // `nu lap u` at `nu = sqrt(10 K)` near 405, and a Laplacian of uncorrelated
+    // noise cancels to far below the terms that formed it.
+    let smooth_u: Vec<f64> = (0..n * 2)
+        .map(|i| {
+            let cell = i / 2;
+            let (x, y) = ((cell / LX) as f64, (cell % LX) as f64);
+            if i % 2 == 0 {
+                0.02 * (0.08 * x - 0.05 * y).sin()
+            } else {
+                0.02 * (0.06 * x + 0.11 * y).cos()
+            }
+        })
+        .collect();
     {
         let mut h_cpu = vec![0.0; n * 2];
         let mut s_cpu = vec![0.0; n * 2];
@@ -390,21 +404,6 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         {
-            // A smooth velocity, for the same reason Q is smooth above: the
-            // viscous term is `nu lap u` at `nu = sqrt(10 K) ~ 405`, and a
-            // Laplacian of uncorrelated noise cancels to far below the terms
-            // that formed it.
-            let smooth_u: Vec<f64> = (0..n * 2)
-                .map(|i| {
-                    let cell = i / 2;
-                    let (x, y) = ((cell / LX) as f64, (cell % LX) as f64);
-                    if i % 2 == 0 {
-                        0.02 * (0.08 * x - 0.05 * y).sin()
-                    } else {
-                        0.02 * (0.06 * x + 0.11 * y).cos()
-                    }
-                })
-                .collect();
             let p = random_scalar(n, &mut rng);
             let dudt_seed = random_scalar(n * 2, &mut rng);
             let mut cpu = dudt_seed.clone();
@@ -415,6 +414,93 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
                 &smooth_u, &p, &pi_s, &pi_a, &d_bnd, params.rho, params.eta, &dudt_seed,
             )?;
             all_ok &= report("u_update", &compare(&cpu, &gpu), n * 2, 4.0);
+        }
+    }
+
+    // The boundary conditions, which need the layers and normals, not just the
+    // interior mask.
+    {
+        let d_full = DeviceBoundary::upload_full(dev.stream(), &bnd)?;
+
+        {
+            let mut cpu = velocity.clone();
+            volterra_cgpo::bc::apply_u_boundary_conditions(&mut cpu, &bnd);
+            let gpu = dev.apply_u_bc(&d_full, &velocity)?;
+            all_ok &= report("apply_u_bc", &compare(&cpu, &gpu), n * 2, 0.0);
+        }
+
+        for charge in [1.0_f64, 1.5, 2.0] {
+            let mut cpu = smooth.clone();
+            volterra_cgpo::bc::apply_q_boundary_conditions(&mut cpu, &bnd, params.s0, charge);
+            let gpu = dev.apply_q_bc(&d_full, params.s0, charge, &smooth)?;
+            // The anchoring angle runs through acos and then cos and sin. The
+            // device's transcendentals are not the host libm's, and the two
+            // round differently on a minority of inputs, which is why a few
+            // hundred of the boundary cells differ while the rest are exact.
+            all_ok &= report(
+                &format!("apply_q_bc net_charge={charge}"),
+                &compare(&cpu, &gpu),
+                n * 2,
+                16.0,
+            );
+        }
+
+        {
+            let mut h = vec![0.0; n * 2];
+            let mut s = vec![0.0; n * 2];
+            volterra_cgpo::nematic::h_s_from_q(
+                &velocity, &smooth, &mut h, &mut s,
+                params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+            );
+            let h_seed = h.clone();
+            let mut cpu = h.clone();
+            volterra_cgpo::bc::apply_h_boundary_conditions(
+                &mut cpu, params.gamma, &smooth, &velocity, &s, &bnd,
+            );
+            let gpu = dev.apply_h_bc(&smooth, &velocity, &s, &d_full, params.gamma, &h_seed)?;
+            all_ok &= report("apply_h_bc", &compare(&cpu, &gpu), n * 2, 4.0);
+
+            let mut pi_s = vec![0.0; n * 2];
+            let mut pi_a = vec![0.0; n];
+            volterra_cgpo::nematic::calculate_pi(
+                &mut pi_s, &mut pi_a, &h, &smooth,
+                params.lambda, params.zeta, params.k_elastic, &bnd,
+            );
+            let p_aux = random_scalar(n, &mut rng);
+            let p_seed = random_scalar(n, &mut rng);
+            let mut cpu_p = p_seed.clone();
+            volterra_cgpo::bc::apply_p_boundary_conditions(
+                &mut cpu_p, &p_aux, &smooth_u, params.rho, params.eta, &pi_s, &pi_a, &bnd,
+            );
+            let gpu_p = dev.apply_p_bc(
+                &p_aux, &smooth_u, &pi_s, &pi_a, &d_full, params.rho, params.eta, &p_seed,
+            )?;
+            all_ok &= report("apply_p_bc", &compare(&cpu_p, &gpu_p), n, 32.0);
+
+            // Isolate the stencil from the stresses it differences. With no
+            // stress and no flow the whole forcing term vanishes and the
+            // condition reduces to the Neumann stencil on p_aux alone, which
+            // carries no cancellation. If that is exact, the residual above is
+            // in the stress differences, whose operands are of order 1e4 and
+            // whose result is not.
+            let zero_v = vec![0.0_f64; n * 2];
+            let zero_s = vec![0.0_f64; n];
+            let mut cpu_q = p_seed.clone();
+            volterra_cgpo::bc::apply_p_boundary_conditions(
+                &mut cpu_q, &p_aux, &zero_v, params.rho, params.eta, &zero_v, &zero_s, &bnd,
+            );
+            let gpu_q = dev.apply_p_bc(
+                &p_aux, &zero_v, &zero_v, &zero_s, &d_full, params.rho, params.eta, &p_seed,
+            )?;
+            // A division cannot come out bit for bit when the compiler is free
+            // to contract the multiplies feeding it, so half an ulp is the
+            // floor here, against the full condition's 18.75.
+            all_ok &= report(
+                "apply_p_bc with no stress and no flow",
+                &compare(&cpu_q, &gpu_q),
+                n,
+                1.0,
+            );
         }
     }
 
