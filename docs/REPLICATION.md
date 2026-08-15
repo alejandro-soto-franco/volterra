@@ -383,6 +383,198 @@ than reproducing the paper's own aperiodic-but-still-five-to-ten-defect
 dynamics. This is reported as the measured outcome, not adjusted towards the
 paper's qualitative description.
 
+## The epitrochoid confinements
+
+The runs above use the steady-winding circle, the boundary the paper's
+headline golden and silver results are computed on. The paper's Fig. 7 puts
+the same two braids on a physically realisable boundary instead: an
+epitrochoid with strong tangential anchoring, where the winding is supplied
+by the geometry rather than by an artificial winding index in the anchoring.
+Reproducing the braids there is a stronger test of the solver, because
+nothing about the defect count is imposed.
+
+### The geometry
+
+arXiv:2503.10880 Eq. SI.6:
+
+```text
+x(u) = r/(2q) [(2q-1) cos(u) + d cos((2q-1) u)]
+y(u) = r/(2q) [(2q-1) sin(u) + d sin((2q-1) u)]
+```
+
+with `d = 0.99`, the paper's regularisation of the sharp epicycloid. The
+curve carries `2(q-1)` cusps: one for the cardioid at `q = 3/2`, two for the
+nephroid at `q = 2`, three for the trefoiloid at `q = 5/2`.
+
+`flow-solver.py` fixes the cusp count at 2 and hardcodes `d = 0.99`, so the
+reference script can run only the nephroid; `volterra-fd` carried the same
+two constants. Both are now parameters of `boundary::Epitrochoid`. The
+nephroid interior counts against the Python reference, 5621 at `Lx = 100`
+and 1965 at `Lx = 60`, are unchanged by the generalisation, and the counted
+interiors of all three geometries agree with the closed-form area
+`A = pi m (m + d^2) (r/2q)^2`, `m = 2q-1`, to under a percent.
+
+### The regularised boundary imposes charge 1
+
+The outward normal of Eq. SI.6 is `e^{iu} (1 + d e^{i k u})` up to scale, and
+for `d < 1` the second factor never encircles the origin. The normal
+therefore winds exactly once for every `q`; only the sharp epicycloid at
+`d = 1` winds `q` times, by picking up a jump of `pi` at each cusp. So an
+epitrochoid run takes `net_charge = 1`, the same as a disk, and its excess
+defects are not imposed at all. Each regularised cusp pins a `-1/2` defect
+dynamically, and `n(+1/2) - k(-1/2) = 1` gives `n = 2 + k = 2q` mobile
+defects: three in the cardioid, four in the nephroid. Whether that happens is
+a result of a run, which is what makes these runs a test rather than a
+construction.
+
+### The published detector does not survive the change of coherence length
+
+`braid_tracker.py` thresholds
+
+```text
+ss = (2 dx Qxy)(2 dy Qxx) - (2 dx Qxx)(2 dy Qxy)
+```
+
+at 0.1. That quantity scales as the square of the director gradient, so a
+threshold calibrated at one coherence length is wrong at another. The circle
+runs above sit at `ell_c = 0.975` lattice spacings and every epitrochoid
+point in Fig. 7 sits an order of magnitude higher, which puts the core value
+of `ss` about two hundred and eighty times apart.
+
+Run at the published threshold, a cardioid frame reports one positive and
+five negative defects, a net interior charge of `-2` where the boundary
+requires `+1`. The same frame by plaquette winding of the director gives
+three mobile `+1/2` defects and one `-1/2` at radius 28.0 +/- 0.5 against a
+cusp at radius 33.3.
+
+Winding carries no scale: the four corner-to-corner turns around a
+plaquette, each wrapped into `(-pi/2, pi/2]`, sum to zero away from a core
+and to `+/- pi` at one, whatever the core's size or the field's amplitude.
+`volterra_braid::detect_defects_winding` is the new detector and
+`analyse_run` the pipeline over a run directory. Two things check it:
+
+- A unit test scales `Q` by `1/20`, which takes `ss` below any fixed
+  threshold, and asserts that winding still finds the defect and that the
+  threshold detector does not.
+- The `q = 3/2` steady-winding circle, rerun at 750,000 steps and analysed
+  with the new detector, returns `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}`
+  over 16 periods at entropy **0.962424** against a published 0.96242. The
+  detector reproduces the validated result on the boundary where the old one
+  worked.
+
+The Python alongside it in `volterra-braid/oracle/analyse_run.py` is an
+independent implementation, vectorised over plaquettes rather than
+transcribed, and agrees with the Rust frame for frame.
+
+### Where the paper's own marked points sit
+
+Fig. 7b and 7d classify each `(ell_a, ell_c)` on a grid, and mark the two
+snapshot parameters with a box. Both boxes sit on the **upper edge** of their
+braiding region, one grid step from Melted:
+
+- The cardioid box at `(0.0139, 0.0903)` sits directly above the run of Golden
+  Braiding points at `ell_c` around 0.080 to 0.085, with Melted immediately
+  above and to its left.
+- The nephroid box at `(0.0131, 0.1178)` sits at the top left corner of the
+  Silver Braiding region, with Melted on the same row at `ell_a = 0.010` and
+  the row above entirely Melted.
+
+Neither is in the interior of its region. That matters for reading any
+disagreement below: a point one grid step from a regime boundary in the
+paper's own classification is where two implementations of the same equations
+are least likely to agree, and it is not where a reproduction attempt would
+choose to stand if it were choosing.
+
+### How much order is left at these coherence lengths
+
+Before any statement about defects, how ordered the field is. `S = 2 sqrt(Qxx^2
++ Qxy^2)` against an equilibrium `S_eq = sqrt 2`, averaged over the interior of
+the trailing half of each run:
+
+| Run | `ell_c` | `S` | interior below half order |
+|-----|---------|-----|---------------------------|
+| steady-winding circle, `q = 3/2` | 0.011 | 1.403 | 0% |
+| nephroid | 0.011 | 1.406 | 0% |
+| nephroid | 0.030 | 1.266 | 3% |
+| nephroid | 0.050 | 1.135 | 8% |
+| nephroid | 0.080 | 0.906 | 35% |
+| **nephroid, the paper's point** | **0.1178** | **0.777** | **42%** |
+| **cardioid, the paper's point** | **0.0903** | **1.031** | **18%** |
+
+The circle runs that reproduce the published braids sit at 99.2% of equilibrium
+order with nothing melted. The two epitrochoid points the paper marks sit at
+73% and 55%, with a fifth and two fifths of their interiors below half order.
+
+That is a property of the coherence lengths the paper reports for those runs,
+not of this implementation: `ell_c` is an order of magnitude larger there than
+on the circle, and the melting follows it monotonically. It sets what can be
+asked of a defect position. A core 13 lattice spacings across in a domain of
+radius 99 overlaps its neighbours, and in the cardioid run the winding moves 36
+pixels between consecutive frames at one point while the other two defects move
+four, in a region where `S` has fallen to 12% of equilibrium.
+
+### Results
+
+Every run below uses `d = 0.99`, `net_charge = 1.0`, `dt = 1e-4`, `lambda = 1`,
+`max_p_iters = 50`, and the lattice the paper states for that geometry. The
+first row is the steady-winding circle, rerun here with the new detector as a
+control on the whole pipeline.
+
+| Geometry | `(ell_a, ell_c)` | grid | mobile `+1/2` | pinned `-1/2` | `S` | braid | `h` |
+|---|---|---|---|---|---|---|---|
+| circle, `q=3/2` | 0.045, 0.011 | 100 | 3 in 195/201 frames | none expected, none seen | 1.403 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` over 16 periods | **0.962424** against a published 0.96242 |
+| cardioid | 0.0139, 0.0903 | 200 | 3 in 171/200 frames | 1, at radius 24.8 against a cusp at 33.3 | 1.040 | no period stable across projections | golden entropy at 1 of 12 projections in the densely sampled rerun |
+| nephroid | 0.0131, 0.1178 | 100 | 4 in 141/144 frames | 2, at radius 18.5 (sd 0.0) against cusps at 24.6 | 0.777 | stationary | 0 |
+| nephroid | 0.0131, 0.080 | 100 | 4 in 299/301 frames | 2, at radius 20.2 | 0.909 | no period stable across projections | - |
+
+**The geometry and the topology reproduce exactly.** Both epitrochoids produce
+the defect population the paper predicts, from a boundary condition that
+imposes only charge 1: three mobile `+1/2` and one pinned `-1/2` for the
+cardioid, four and two for the nephroid, with every pinned negative sitting
+just inside its cusp and, in the nephroid, not moving by a measurable amount
+over 900,000 steps. Nothing about those counts is put in by hand.
+
+**The cardioid orbit has the right shape.** Its trajectories trace the figure-8
+the paper describes, two lobes meeting at the cusp with the third defect at the
+crossing, and the configuration is periodic: in the densely sampled rerun the
+autocorrelation peaks at 30 frames and again at 15, a period of 22,500 steps and
+its half.
+
+The cardioid row is a run at the paper's full protocol, 1.5e6 steps on a
+200x200 lattice, and a rerun of the same trajectory sampled at 750-step frames
+over its last 150,000 steps. Both give the same answer.
+
+**Neither braid word closes.** On the circle the golden word is returned
+exactly, at 9 of 12 projection directions, from a field at 99.2% of equilibrium
+order. On the cardioid the same pipeline returns a different word at nearly
+every projection, and the golden entropy at one of them. On the nephroid at the
+published point there is no motion to read a braid from at all.
+
+### Controls on the disagreement
+
+Four controls, each changing one thing:
+
+- **Initial condition.** Four independent random seeds at the nephroid's
+  published point all reach the same stationary configuration, with `S`
+  agreeing to three decimals. The arrest is the attractor there.
+- **Pressure solve.** Rerun uncapped, relaxing to convergence rather than
+  stopping at 50 Jacobi iterations, the stationary state is unchanged.
+- **Detector.** The same code path returns the published golden braid to six
+  digits on the circle.
+- **Sampling.** The cardioid was rerun at 750-step frames, forty per period,
+  against the twelve per period that suffice on the circle. The word still
+  fails to close.
+
+What separates the two families is how much nematic order is left. At the
+coherence lengths the paper reports for its epitrochoid runs, a fifth to two
+fifths of the interior sits below half the equilibrium order, cores are 12 to 13
+lattice spacings across in a domain of radius 49 to 99, and a defect position
+stops being a sharp quantity: in one cardioid frame pair the winding moves 36
+pixels while the other two defects move four, through a region where `S` has
+fallen to 12% of equilibrium. Both of the paper's marked points sit one grid
+step from its own Melted classification. A reproduction attempt free to choose
+would not stand there, and this one did not choose.
+
 ## What this means for the subsumption claim
 
 Two limits on any claim that volterra subsumes open-Qmin, independent of the
