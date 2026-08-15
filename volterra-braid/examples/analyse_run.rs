@@ -224,6 +224,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let window = &window[..];
+    report_period(window);
 
     // The braid word depends on the projection direction; the topological
     // entropy of a genuinely pseudo-Anosov stirring does not, as long as the
@@ -306,4 +307,70 @@ fn rotate(frame: &[Defect], theta: f64) -> Vec<Defect> {
             charge: d.charge,
         })
         .collect()
+}
+
+/// Report the dominant period of the defect configuration, in frames.
+///
+/// Braid extraction is only as good as the sampling: a braid word is read from
+/// the order of the strands changing, so a run sampled at four frames per
+/// period cannot resolve a period carrying four generators, however long the
+/// run is. This measures the period without tracking anything, so it is
+/// independent of the extraction it is there to qualify.
+///
+/// The observable is the mean pairwise distance among the `+1/2` defects, which
+/// is invariant under relabelling them and so needs no worldlines. Its
+/// autocorrelation peaks at the period.
+fn report_period(window: &[Vec<Defect>]) {
+    let spread: Vec<f64> = window
+        .iter()
+        .map(|frame| {
+            let mut total = 0.0;
+            let mut pairs = 0usize;
+            for i in 0..frame.len() {
+                for j in i + 1..frame.len() {
+                    let dx = frame[i].pos[0] - frame[j].pos[0];
+                    let dy = frame[i].pos[1] - frame[j].pos[1];
+                    total += (dx * dx + dy * dy).sqrt();
+                    pairs += 1;
+                }
+            }
+            if pairs == 0 { 0.0 } else { total / pairs as f64 }
+        })
+        .collect();
+    if spread.len() < 12 {
+        return;
+    }
+    let mean = spread.iter().sum::<f64>() / spread.len() as f64;
+    let dev: Vec<f64> = spread.iter().map(|v| v - mean).collect();
+    let norm: f64 = dev.iter().map(|v| v * v).sum();
+    if norm <= 0.0 {
+        println!("  defect configuration is stationary: no period to resolve");
+        return;
+    }
+    let max_lag = (spread.len() / 3).min(200);
+    let mut best = (0usize, 0.0f64);
+    for lag in 2..max_lag {
+        let r: f64 = (0..dev.len() - lag).map(|i| dev[i] * dev[i + lag]).sum::<f64>() / norm;
+        if r > best.1 {
+            best = (lag, r);
+        }
+    }
+    let rel_spread = (norm / spread.len() as f64).sqrt() / mean;
+    if best.1 < 0.2 {
+        println!(
+            "  no clear period: strongest autocorrelation {:.2} at lag {} frames, \
+             configuration varying by {:.0}% of its mean",
+            best.1,
+            best.0,
+            100.0 * rel_spread
+        );
+    } else {
+        println!(
+            "  period about {} frames (autocorrelation {:.2}), configuration varying by \
+             {:.0}% of its mean",
+            best.0,
+            best.1,
+            100.0 * rel_spread
+        );
+    }
 }
