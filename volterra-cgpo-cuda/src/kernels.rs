@@ -858,6 +858,93 @@ pub mod kernels {
             *slot = (n_dot + p_neighbours) / denom;
         }
     }
+
+    /// The Q time derivative, in one pass.
+    ///
+    /// Ports `volterra_cgpo::step::get_q_update`: `dQ = H/gamma + S` at every
+    /// cell, then minus the upwind advection inside the mask. The first part
+    /// carries no mask and the second does, which is why the mask test sits
+    /// where it does rather than at the top.
+    #[kernel]
+    #[allow(clippy::too_many_arguments)]
+    pub fn q_update(
+        q: &[f64],
+        h: &[f64],
+        s: &[f64],
+        u: &[f64],
+        inside: &[u8],
+        lx: u32,
+        ly: u32,
+        gamma: f64,
+        mut dq: DisjointSlice<[f64; 2]>,
+    ) {
+        let tid = thread::index_1d();
+        let idx = tid.get();
+        let lxu = lx as usize;
+        let lyu = ly as usize;
+        let n = lxu * lyu;
+        if idx >= n {
+            return;
+        }
+        let x = idx / lyu;
+        let y = idx % lyu;
+        let v = |p: usize, r: usize, c: usize| (p * lyu + r) * 2 + c;
+
+        let inv_gamma = 1.0 / gamma;
+        let mut d = [
+            inv_gamma * h[v(x, y, 0)] + s[v(x, y, 0)],
+            inv_gamma * h[v(x, y, 1)] + s[v(x, y, 1)],
+        ];
+
+        if inside[idx] != 0 {
+            let xup = (x + 1) % lxu;
+            let xdn = (x + lxu - 1) % lxu;
+            let xupup = (x + 2) % lxu;
+            let xdndn = (x + lxu - 2) % lxu;
+            let yup = (y + 1) % lyu;
+            let ydn = (y + lyu - 1) % lyu;
+            let yupup = (y + 2) % lyu;
+            let ydndn = (y + lyu - 2) % lyu;
+            let ux = u[v(x, y, 0)];
+            let uy = u[v(x, y, 1)];
+            let tmp_x = -0.5 * ux;
+            let tmp_y = -0.5 * uy;
+            for c in 0..2 {
+                d[c] += if ux > 0.0 {
+                    tmp_x * (3.0 * q[v(x, y, c)] - 4.0 * q[v(xdn, y, c)] + q[v(xdndn, y, c)])
+                } else {
+                    tmp_x * (-3.0 * q[v(x, y, c)] + 4.0 * q[v(xup, y, c)] - q[v(xupup, y, c)])
+                };
+            }
+            for c in 0..2 {
+                d[c] += if uy > 0.0 {
+                    tmp_y * (3.0 * q[v(x, y, c)] - 4.0 * q[v(x, ydn, c)] + q[v(x, ydndn, c)])
+                } else {
+                    tmp_y * (-3.0 * q[v(x, y, c)] + 4.0 * q[v(x, yup, c)] - q[v(x, yupup, c)])
+                };
+            }
+        }
+
+        if let Some(slot) = dq.get_mut(tid) {
+            *slot = d;
+        }
+    }
+
+    /// `field += dt * rate`, over a 2-vector field with no mask.
+    ///
+    /// Ports both integrate steps of `update_step_inner`, which advance `Q` by
+    /// `dQ` and `u` by `du/dt` over every cell.
+    #[kernel]
+    pub fn integrate(rate: &[f64], len: u32, dt: f64, mut field: DisjointSlice<f64>) {
+        let tid = thread::index_1d();
+        let j = tid.get();
+        if j >= len as usize {
+            return;
+        }
+        if let Some(slot) = field.get_mut(tid) {
+            *slot += dt * rate[j];
+        }
+    }
 }
 
 // `#[cuda_module]` generates its `load`/`LoadedModule` inside the `kernels`

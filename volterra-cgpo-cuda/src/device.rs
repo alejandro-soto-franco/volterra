@@ -566,6 +566,72 @@ impl Device {
         Ok(d_p.to_host_vec(stream)?)
     }
 
+    /// The Q time derivative.
+    #[allow(clippy::too_many_arguments)]
+    pub fn q_update(
+        &self,
+        q: &[f64],
+        h: &[f64],
+        s: &[f64],
+        u: &[f64],
+        bnd: &DeviceBoundary,
+        gamma: f64,
+    ) -> Result<Vec<f64>, CudaError> {
+        let n = bnd.cells();
+        let stream = &self.stream;
+        let d_q = DeviceBuffer::from_host(stream, q)?;
+        let d_h = DeviceBuffer::from_host(stream, h)?;
+        let d_s = DeviceBuffer::from_host(stream, s)?;
+        let d_u = DeviceBuffer::from_host(stream, u)?;
+        // Written at every cell, so no seed is needed.
+        let mut d_dq = DeviceBuffer::<f64>::zeroed(stream, n * 2)?
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("dq must reinterpret as [f64;2]"));
+        let cfg = LaunchConfig::for_num_elems(n as u32);
+        // SAFETY: every input holds `n * 2` elements, indexed under `lx * ly`,
+        // and `d_dq` holds `n` 2-wide slots matching `cfg`.
+        let launched = unsafe {
+            self.module.q_update(
+                stream,
+                cfg,
+                &d_q,
+                &d_h,
+                &d_s,
+                &d_u,
+                &bnd.inside,
+                bnd.lx as u32,
+                bnd.ly as u32,
+                gamma,
+                &mut d_dq,
+            )
+        };
+        let d_dq = d_dq.cast_chunks::<f64>().unwrap_or_else(|_| panic!("dq back to f64"));
+        launched?;
+        Ok(d_dq.to_host_vec(stream)?)
+    }
+
+    /// `field += dt * rate`.
+    pub fn integrate(&self, field: &[f64], rate: &[f64], dt: f64) -> Result<Vec<f64>, CudaError> {
+        assert_eq!(field.len(), rate.len(), "field and rate must match");
+        let stream = &self.stream;
+        let d_rate = DeviceBuffer::from_host(stream, rate)?;
+        let mut d_field = DeviceBuffer::from_host(stream, field)?;
+        let cfg = LaunchConfig::for_num_elems(field.len() as u32);
+        // SAFETY: `d_rate` and `d_field` are the same length, which the kernel
+        // bounds-checks against `len`.
+        unsafe {
+            self.module.integrate(
+                stream,
+                cfg,
+                &d_rate,
+                field.len() as u32,
+                dt,
+                &mut d_field,
+            )?;
+        }
+        Ok(d_field.to_host_vec(stream)?)
+    }
+
     /// Second-order upwind advection, accumulated into `out_seed`.
     pub fn upwind_advective(
         &self,

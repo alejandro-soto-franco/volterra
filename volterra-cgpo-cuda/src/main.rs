@@ -504,6 +504,28 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // The Q update and the integrator, which close the stage list.
+    {
+        let mut h = vec![0.0; n * 2];
+        let mut s = vec![0.0; n * 2];
+        volterra_cgpo::nematic::h_s_from_q(
+            &smooth_u, &smooth, &mut h, &mut s,
+            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+        );
+        let mut cpu = vec![0.0; n * 2];
+        volterra_cgpo::step::get_q_update(&mut cpu, &smooth, &h, &s, &smooth_u, params.gamma, &bnd);
+        let gpu = dev.q_update(&smooth, &h, &s, &smooth_u, &d_bnd, params.gamma)?;
+        all_ok &= report("q_update", &compare(&cpu, &gpu), n * 2, 4.0);
+
+        let dt = params.dt;
+        let mut cpu_i = smooth.clone();
+        for i in 0..n * 2 {
+            cpu_i[i] += dt * cpu[i];
+        }
+        let gpu_i = dev.integrate(&smooth, &cpu, dt)?;
+        all_ok &= report("integrate", &compare(&cpu_i, &gpu_i), n * 2, 1.0);
+    }
+
     if all_ok {
         println!("ALL VALIDATION PASSED");
         Ok(())
