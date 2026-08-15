@@ -122,7 +122,8 @@ neither open-zetar nor volterra with periodic-orbit discovery below.
 | Three per-site scalar defect measures, no line tracking or topological classification | open-Qmin | `volterra-solver::scan_defects` (2D, `lib.rs:715-739`), `defects_3d::scan_defects_3d` (3D disclination lines, `defects_3d.rs:38-41`) | covered, exceeds open-Qmin (volterra tracks 3D disclination lines and frame-to-frame topological events; `defects_3d::track_defect_events`, `defects_3d.rs:61-68`) |
 | Saddle-splay ("ss") Jacobian scalar field, thresholded and clustered, for plotting only; not exported, tracked, or used for braid analysis | open-zetar (`plot_2D.py`, `plot_2D_Fmin.py`) | `volterra_braid::detect_defects` (`volterra-braid/src/defect.rs:32-111`) | covered, exceeds open-zetar (volterra's detector output is a first-class, tracked, braid-analysable data type, not a plotting side effect) |
 | Per-cell Jacobian defect detection, greedy nearest-neighbour tracking (fixed defect count from frame 0, no creation/annihilation handling), braid-word extraction, topological entropy | braid_tracker.py (Klein et al. reference) | `volterra_braid::{detect_defects,track,extract_braidword,topological_entropy}` (`volterra-braid/src/defect.rs:32`, `track.rs:23-64`, `braidword.rs:242`, `entropy.rs:56`) | covered, verified to 1e-9 against the paper's closed-form golden/silver entropies (`entropy.rs`); volterra's tracker has the same fixed-count, no-creation/annihilation limitation as the reference (`track.rs`), so this is a shared limitation, not a volterra deficit relative to the reference |
-| 3D disclination-line or -loop braid/topology extraction | none of the three (all defect-braid analysis in this corpus is 2D) | none | **gap, structural**: `volterra-braid` is built around 2D point defects end to end (detection, tracking, braid-word extraction); a 3D line/loop tracker is a different data model, not an extension of the existing one; needed for the 3D "novel material" paper (arXiv:2607.10234), not attempted this dispatch |
+| 3D disclination winding character (wedge against twist) | Head et al. 2026 (arXiv:2607.10234), via Schimming and Viñals' disclination density tensor | `volterra_braid::disclination::{disclination_density, decompose, disclination_sites}` | covered: `D_ij = eps_{i mu nu} eps_{j l k} d_l Q_{mu a} d_k Q_{nu a}`, factored as `D = s Omega T^T` for the tangent, the rotation axis and `cos(beta)`. Checked against analytic wedge and twist lines, against a line rotated onto a different axis, and for rank-one reconstruction |
+| 3D disclination-line braid extraction | none of the three (all defect-braid analysis in this corpus is 2D) | none | **gap, structural**: `volterra-braid`'s braid-word machinery is built around 2D point defects end to end, and a line or loop is a different data model. Line *detection* and *character* are both covered (`defects_3d::scan_defects_3d` by voxel-face holonomy, `disclination` by the density tensor); what has no 3D counterpart is the braid word itself |
 
 ## 7. Observables
 
@@ -201,17 +202,19 @@ much they cost the claim:
    anchoring; open-Qmin's L2/L3/L4/L6 and Rapini-Papoular-style anchoring
    terms have no volterra equivalent, though each enters machinery volterra
    already has.
-4. **No 3D disclination-line braid/topology extraction (structural).**
+4. **No 3D disclination-line braid extraction (structural).**
    volterra's braid machinery, its most distinctive capability relative to
-   all three reference codes in 2D, is strictly 2D. This blocks any claim on
-   the 2026 3D "novel material" paper (arXiv:2607.10234) regardless of the
-   solver-level 3D capability volterra already has.
-5. **The new circular-boundary and variable-`net_charge` code is
-   unvalidated.** Added during this dispatch to make the paper's
-   steady-winding-circle boundary reachable at all, it has not been checked
-   against a captured Python reference the way the nephroid path has; see
-   `docs/REPLICATION.md` for the attempted PDE-level reproduction and where
-   it currently fails.
+   all three reference codes in 2D, is strictly 2D: a braid word is read from
+   point positions, and a line is a different data model. Detection and
+   winding character in 3D are both covered (`defects_3d::scan_defects_3d`,
+   `volterra_braid::disclination`), so this is now the only part of
+   arXiv:2607.10234's analysis with no volterra counterpart, where before it
+   stood for all of it.
+5. **The circular-boundary and variable-`net_charge` code is validated by
+   reproduction.** Added to make the paper's steady-winding-circle boundary
+   reachable, and since checked line by line against `flow-solver.py`'s own
+   `'circular'` branch. It produces the published golden and silver braids at
+   the published dilatations; see `docs/REPLICATION.md`.
 
 Set against these: volterra's 3D solver, DEC curved-manifold engine
 (sphere, tested; torus, geometry-only), Cahn-Hilliard/Maier-Saupe coupling,

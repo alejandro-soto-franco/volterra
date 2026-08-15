@@ -377,12 +377,102 @@ runs above:
   not a difference in emphasis.
 - Beller's 2026 three-dimensional preprint (Head, Digregorio, Marenduzzo,
   Pagonabarraga, Beller, Negro, "Topological delocalisation of confined 3D
-  active nematics", arXiv:2607.10234) needs, on top of volterra's existing
-  validated 3D Beris-Edwards solver: a Cahn-Hilliard phase field for the
-  double-emulsion cylinder confinement, tangential anchoring on a curved 3D
-  boundary, and a 3D defect-line/loop tracker (`volterra-braid` currently
-  extracts 2D point defects only). None of this was attempted in this
-  dispatch.
+  active nematics", arXiv:2607.10234) is now mostly reachable; see **The 3D
+  preprint** below for what was built and what is left.
+
+## The 3D preprint
+
+Head, Digregorio, Marenduzzo, Pagonabarraga, Beller and Negro,
+"Topological delocalisation of confined 3D active nematics", arXiv:2607.10234.
+Read from the arXiv LaTeX source rather than the PDF.
+
+Three things stood between volterra and this paper. Reading the Methods moved
+two of them.
+
+**The bulk free energy is already there.** The paper writes it with one
+coupling `chi(phi)`:
+
+```text
+(A0/2)(1 - chi/3) Q_ab Q_ab  -  (A0 chi/3) Q_ab Q_bc Q_ca  +  (A0 chi/4) (Q_ab Q_ab)^2
+```
+
+which is the `a Tr(Q^2) + b Tr(Q^3) + c (Tr Q^2)^2` volterra carries, at
+`a = (A0/2)(1 - chi/3)`, `b = -A0 chi/3`, `c = A0 chi/4`. Volterra's existing
+equilibrium condition `6a + 3bq + 8cq^2 = 0` then puts the equilibrium scalar
+order parameter at **0.556186** against the paper's stated **0.556**. The cubic
+term this needs is the one added for the open-Qmin comparison
+(`BENCHMARKS.md` section 1); without it the mapping has nowhere to put
+`-A0 chi/3`.
+
+**The phase field does not need a Cahn-Hilliard solver.** `phi` obeys
+Cahn-Hilliard in general, but the paper's own protocol relaxes the interface
+for `10^4` steps and then **freezes** `phi`, initialises `Q` at random, relaxes
+that, and only then switches activity on. Nothing after the freeze moves `phi`.
+Reproducing the protocol therefore needs the equilibrium profile, which is a
+`tanh` of the signed distance at width `xi = sqrt(2k/a)`, and not the equation
+that reaches it. `PhaseField3D::capped_cylinder` writes it down.
+
+**Anchoring on a curved boundary is a free-energy term, not a boundary mesh.**
+The confining surface is a level set of `phi`, and anchoring is
+`W (d_a phi) Q_ab (d_b phi)`, whose variation contributes
+`-W [(d_a phi)(d_b phi) - (delta_ab/3)|grad phi|^2]` to the molecular field.
+For `W > 0` this is minimised by a director perpendicular to `grad phi`, so
+tangential to the surface. No curved-boundary geometry is involved, which
+removes the third item as it was originally posed.
+
+What was built (`volterra_solver::confinement_3d`,
+`volterra_braid::disclination`):
+
+| Piece | State |
+|---|---|
+| `chi(phi)` to `(a, b, c)` mapping | equilibrium `q = 0.556186` against the stated `0.556` |
+| Capped-cylinder `tanh` phase field | interface width and surface tension to the paper's own formulas |
+| Tangential anchoring molecular field | traceless by construction, linear in `W`, vanishing in the bulk, and lower in energy for a tangential director than a normal one |
+| Spatially varying molecular field | interior orders, exterior relaxes to `Q = 0`, and the relaxation lowers the free energy monotonically |
+| Disclination density tensor | tangent, rotation axis and `cos(beta)` against analytic wedge and twist lines |
+| Activity number `A = R / sqrt(K/zeta)` | the parameter the paper's regime map is drawn against |
+
+Two things volterra already had and this paper also uses: 3D disclination-line
+detection by voxel-face holonomy (`defects_3d::scan_defects_3d`, which is the
+method the paper cites for defect number and contour length) and the 3D
+Beris-Edwards solver itself.
+
+### The equilibrium state reproduces
+
+The paper's equilibrium result, at zero activity: "two short disclination lines
+are formed close to the edges of the cylinder and each connect between two
+`+1/2` endpoints" (p. 207 of the source), with the line length growing with
+radius.
+
+Running its protocol at `R = 10`, cylinder length `40`, grid `53x53x73`, the
+paper's own constants, `Q` random at amplitude `0.05` and 40,000 relaxation
+steps at `dt = 0.05` (476 s, `examples/confined_cylinder_3d`):
+
+| Quantity | Measured |
+|---|---|
+| Sites above a quarter of the peak disclination density | 265 |
+| In the outer half of the cylinder | **265** |
+| In the inner half | **0** |
+| `+1/2` wedge, `cos(beta) > 0.5` | 177 |
+| `-1/2` wedge, `cos(beta) < -0.5` | 54 |
+| Twist, `abs(cos(beta)) <= 0.5` | 34 |
+| Occupied axial range | the full cylinder span, 16 to 56, meaning both endcaps |
+
+Every disclination site sits in the outer half, none in the middle, at both
+ends, and the character is dominated by `+1/2` wedge. That is the localisation
+the paper describes, from a model with no fitted quantity in it: every constant
+is the paper's own, and the free-energy mapping was fixed by the equilibrium `q`
+before any of this was run.
+
+This is the equilibrium stage only. The activity that drives delocalisation
+enters through the flow, which is the part still missing.
+
+What remains: the flow. The paper couples the nematic to incompressible
+Navier-Stokes through a lattice-Boltzmann solver, with viscous, elastic,
+interfacial and active stresses. volterra has Stokes rather than
+Navier-Stokes in 3D, and no interfacial stress. Every result past the
+equilibrium state, which is to say the delocalisation transition itself,
+needs that coupling.
 
 ## Reproduce
 
