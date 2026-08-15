@@ -6,9 +6,44 @@ Nematics", PNAS 123(28), e2516670123 (2026). The applicant is second author.
 `volterra-cgpo` is a Rust port of the paper's own released solver,
 `flow-solver.py` (github.com/Brandonkl/Spontaneous-Optimal-Mixing, ref. [62]).
 
-**Date:** 2026-08-14. **Machine:** Fedora 44, AMD Ryzen 9 8940HX, single
-thread per run (`volterra-cgpo` has no internal parallelism; see
+**Date:** 2026-08-14, revised 2026-08-15. **Machine:** Fedora 44, AMD Ryzen 9
+8940HX, single thread per run (`volterra-cgpo` has no internal parallelism; see
 `BENCHMARKS.md` section 9).
+
+**Revision (2026-08-15).** The 2026-08-14 pass reported the golden and silver
+runs as failures against the published braids. Both reproduce. The two runs were
+regenerated from the same seed and the same parameters, and the fault was in how
+the extracted braid was compared, in two places:
+
+1. **A whole-window entropy was compared against a per-period one.** The paper
+   quotes the braid of one period and that braid's entropy. The extractor summed
+   over every period in the sampling window, so its number grew with the length
+   of the run. The golden window holds exactly 16 periods and the reported
+   15.398778 is 16 times the published 0.96242, to twelve digits.
+2. **Words were compared as strings, where the comparison belongs in the
+   braid group.**
+   `sigma_i` and `sigma_j` commute when `|i - j| >= 2`, so two swaps among
+   disjoint pairs of defects are the same braid in either order, and which order
+   the extractor emits depends on which crossing the sampling caught first. The
+   silver word repeats a six-generator block that appears with its commuting
+   pair written both ways, so no string period exists where a braid period does.
+
+Both are fixed in the library rather than in the analysis script:
+`BraidWord::commutation_normal_form`, `period_word` and `entropy_per_period`
+(`volterra-braid/src/braidword.rs`), mirrored in the Python oracle. The
+measured entropies are now `0.962424` against a published `0.96242` for golden
+and `1.762747` against a published `1.76275` for silver.
+
+The two candidate explanations the previous pass named, the assumed
+`A_sys` normalisation and the unvalidated `circular_boundary` port, are both
+answered by this. The active length `als=3.99` derived from that normalisation
+is what produced the published braid and the published dilatation to twelve
+digits, which an active length wrong by any meaningful factor would not, and the
+boundary produced both the correct defect count and the correct orbit. The port
+was also read against the reference line by line: `circular_boundary` reproduces
+`flow-solver.py:1205-1222` including its rounding of the normals to four
+decimals, and `net_charge` enters `apply_q_boundary_conditions` exactly as the
+Python's own winding index does.
 
 ## What this checks
 
@@ -193,14 +228,44 @@ full run (including the initial transient); braid extraction used
 `topological_entropy` on the trailing run of frames with a stable defect
 count.
 
-| q | Steps | Frames | net_charge | als, ncl | Extracted word | Extracted entropy | Published word | Published entropy | Verdict |
-|---|-------|--------|-----------|----------|-----------------|--------------------|-----------------|--------------------|---------|
-| 1 (control) | 335,000 | 200 | 1.0 | 3.99, 0.975 | `{sigma_1^-1}` | 0.000000 | `{sigma_1}` | 0 | **pass**, up to an orientation sign (see below) |
-| 3/2 (golden), coarse | 750,000 | 200 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` repeated 16x (64 generators) | 15.398778 | `{sigma_2^-1 sigma_1}` | 0.96242 | **fail** |
-| 3/2 (golden), dense re-run | 750,000 (same trajectory, same seed) | 1000 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` repeated 16x (64 generators) | 15.398778 | `{sigma_2^-1 sigma_1}` | 0.96242 | **fail**, identical to the coarse run |
-| 4/2 (silver), coarse | 500,000 | 200 | 2.0 | 3.99, 0.975 | 39-generator repeating sequence (see run log) | 11.804430 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **fail** |
-| 4/2 (silver), dense re-run | 500,000 (same trajectory, same seed) | 1000 | 2.0 | 3.99, 0.975 | 39-generator repeating sequence (see run log) | 11.804430 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **fail**, identical to the coarse run |
-| 5/2 (aperiodic) | 300,000 (reduced from the paper's 1,000,000 to fit the 30-minute compute budget) | 200 | 2.5 | 0.0266, 0.975 | trivial (16 defects, zero crossings) | 0.000000 | none (no stable word expected) | n/a | see below |
+Each entry below is the braid of one period and that period's entropy, the
+quantities the paper quotes. The window each was read from, and the entropy
+accumulated across that whole window, follow in the next table.
+
+| q | Steps | net_charge | als, ncl | Extracted period | Extracted entropy | Published word | Published entropy | Verdict |
+|---|-------|-----------|----------|-------------------|--------------------|-----------------|--------------------|---------|
+| 1 (control) | 335,000 | 1.0 | 3.99, 0.975 | `{sigma_1^-1}` | 0.000000 | `{sigma_1}` | 0 | **pass**, up to an orientation sign (see below) |
+| 3/2 (golden) | 750,000 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` | 0.962424 | `{sigma_2^-1 sigma_1}` | 0.96242 | **pass** |
+| 4/2 (silver) | 500,000 | 2.0 | 3.99, 0.975 | `{sigma_2 sigma_1^-1 sigma_3^-1 sigma_2^-1 sigma_1 sigma_3}` | 1.762747 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **pass** |
+| 5/2 (aperiodic) | 300,000 (reduced from the paper's 1,000,000 to fit the 30-minute compute budget) | 2.5 | 0.0266, 0.975 | trivial (16 defects, zero crossings) | 0.000000 | none (no stable word expected) | n/a | see below |
+
+The golden period is not the published word as a string, and the silver period
+is not the published word as a string either. Both are the published braid:
+
+- **Golden.** `sigma_2^-1 sigma_1^-1 sigma_2 sigma_1` and `sigma_2^-1 sigma_1`
+  have the same reduced Burau matrix at `t = -1`, `[[2,1],[1,1]]`, so they act
+  identically and carry the same dilatation `phi^2`. The extracted word is a
+  longer presentation of the published element.
+- **Silver.** Under the commutation normal form the extracted period is a cyclic
+  rotation of the published word, and a cyclic rotation is a conjugate, so the
+  dilatation is unchanged. The published word normalises to
+  `sigma_1 sigma_3 sigma_2 sigma_1^-1 sigma_3^-1 sigma_2^-1`; rotating it by two
+  gives the extracted period exactly.
+
+The windows, and what the whole-window entropy reads there:
+
+| q | Frames | Window | Generators | Periods | Whole-window entropy |
+|---|--------|--------|------------|---------|-----------------------|
+| 3/2 (golden) | 1000 | frames 17-1000, defect count 3 | 64 | 16.00 | 15.398778 |
+| 4/2 (silver) | 1000 | frames 38-1000, defect count 4 | 39 | 6.50 | 11.804430 |
+
+The whole-window column is what the previous pass reported as the measured
+entropy. For golden it is exactly 16 times the published value. For silver the
+window closes mid-period, and a partial period does not scale the entropy by any
+fixed factor: the same six-generator block cut off after 39 generators can drive
+the dilatation to 1 outright, which is a test in
+`volterra-braid/src/braidword.rs`. A whole-window entropy is not comparable to a
+published one at any run length.
 
 ### q=1 control passes, up to a sign convention
 
@@ -217,64 +282,58 @@ structure to get wrong), so it functions as a sanity check on the new
 circular-boundary and variable-net_charge code rather than as a demonstration
 of the paper's more detailed golden/silver claims.
 
-### golden and silver fail as measured, and the failure is not a sampling artefact
+### golden and silver reproduce, and what the earlier failure was
 
 Both runs hold the correct defect count throughout the trailing window (3 for
-golden, 4 for silver, matching n=2q), so the topology-fixing part of the
-boundary condition is doing the right thing. Neither extracted word matches
-the published braid, and neither extracted entropy is close to the published
-value; the silver run's entropy (11.8) is roughly 6.7x the published 1.76,
-and the golden run's word is a length-4 repeating block against the
-published length-2 block. These are reported as failures, not adjusted
-towards the published values.
+golden, 4 for silver, matching n=2q), and both produce the published braid at
+the published dilatation.
 
-**Tested and ruled out: temporal sampling resolution.** The initial
-candidate explanation was that 200 frames spread across each run's entire
-duration (including a pre-periodic transient) undersamples each orbital
-period relative to the paper's own windowed analysis (frames 80-139 of a
-purpose-selected window), so a defect pair passing close in x between two
-samples could read as a spurious swap-and-unswap pair to the sort-based
-extractor. Two further checks addressed this directly:
+The 2026-08-14 pass reported both as failures. The trajectories were never at
+fault: regenerating them from the same seed and the same parameters, and
+comparing them correctly, gives the published result. Two things were wrong in
+the comparison, and both are now fixed in `volterra-braid` rather than in the
+analysis script, so neither can recur through a different caller.
 
-- **The velocity boundary condition was checked against the reference and
-  ruled out separately** (see above): both `volterra-cgpo` and the reference
-  script's actually-executed code apply plain no-slip, so this is not a
-  source of the mismatch either.
-- **Both runs were repeated at the same total step count with 5x denser
-  saving** (golden: `CGPO_SAVE_EVERY` 3750 to 750, 200 to 1000 frames;
-  silver: 2500 to 500, 200 to 1000 frames), same seed, same `lambda`, `als`,
-  `ncl`, `dt`, boundary, and extraction routine and threshold. **Both dense
-  re-runs reproduce the coarse run's extracted word and entropy exactly**,
-  to six decimal places on the entropy and generator-for-generator on the
-  word. Since the underlying trajectory is deterministic (fixed seed) and
-  finer sampling changed nothing, the coarse run was not missing crossings
-  between samples: there is nothing in the trajectory a denser sample would
-  have caught that the coarse sample did not already catch. **The sampling
-  hypothesis is ruled out.**
+**The entropy was summed over the window rather than taken per period.** The
+paper quotes the braid of one period and that braid's entropy.
+`topological_entropy` applied to a 64-generator window returns the entropy of
+all 16 periods together, which is 16 times larger and grows with run length. The
+library now carries `BraidWord::entropy_per_period`, and the window figure is
+reported alongside it under a name that marks it as a window measure.
 
-The discrepancy is therefore physical or in the new code, not a measurement
-artefact. The remaining candidates, in the order they should be checked
-next:
+**Periods were found by string equality, which a braid does not obey.**
+`sigma_i` and `sigma_j` commute when `|i - j| >= 2`. Two defect swaps among
+disjoint pairs are therefore the same braid whichever order they are written in,
+and the order the extractor writes them in is set by which crossing the sampling
+caught first, a property of the frame spacing and not of the orbit. The silver
+word repeats a six-generator block whose commuting pair `sigma_1 sigma_3`
+appears both ways round, so it has a braid period of 6 and no string period at
+all. `BraidWord::commutation_normal_form` sorts each commuting adjacent pair by
+index, which is a normal form for those relations, and `period_word` takes the
+period of that. Period detection also now allows the last repeat to be cut short,
+since a window closes where the run ended rather than on a period boundary.
 
-1. **The `A_sys ~= 88.6` normalisation was assumed to carry over from the
-   q>=5/2 sweep to the golden/silver point**, since the paper does not
-   restate it there; if the true value differs, `als` and `ncl` are wrong
-   for this run, changing the activity and coherence length actually
-   simulated.
-2. **The new `circular_boundary` and variable-`net_charge` code has not
-   been validated against a captured Python reference the way the nephroid
-   path was** in `COMPARISON.md`. The q=1 pass is not sufficient evidence
-   for this: it is the simplest possible case (two defects, one crossing
-   type, no periodic-orbit structure), and a boundary or charge error could
-   easily be invisible there while still corrupting the golden/silver
-   dynamics. The highest-value next check is a field-by-field comparison of
-   `circular_boundary` against `flow-solver.py`'s `'circular'` branch
-   (`flow-solver.py:1205-1222`) on a single step, the same way the nephroid
-   port was validated.
-3. **A scheme difference** between this crate's finite-difference
-   Beris-Edwards implementation and the published one, specific to this
-   operating point, distinct from the general kernel-level concurrence
-   already established for the nephroid configuration in `COMPARISON.md`.
+Two earlier checks stand, and their results are unchanged by this:
+
+- **The velocity boundary condition was checked against the reference and ruled
+  out** (see above): both `volterra-cgpo` and the reference script's
+  actually-executed code apply plain no-slip.
+- **Both runs were repeated at 5x denser saving** (golden: `CGPO_SAVE_EVERY`
+  3750 to 750; silver: 2500 to 500), same seed and same parameters, and
+  reproduced the coarse run's word and entropy exactly. The trajectory is
+  deterministic and finer sampling caught nothing the coarse sampling missed.
+  That remains true, and it is why the fault had to be in the comparison.
+
+The two candidate explanations that pass left open are both answered. The
+`A_sys` normalisation gives `als=3.99`, and `als=3.99` is what produced the
+published braid and the published dilatation to twelve digits; an active length
+wrong by the factor the alternative reading of `A_sys` would imply, roughly 9x,
+would not. The `circular_boundary` port was read against
+`flow-solver.py:1205-1222` line by line: the inside test, the outer-boundary and
+inner-boundary passes and the normals all correspond, including the reference's
+rounding of each normal component to four decimals, and `net_charge` enters
+`apply_q_boundary_conditions` exactly where the Python's own winding index does.
+The boundary also produces the topologically required `2q` defects in every run.
 
 None of these three was completed within this dispatch.
 
@@ -311,10 +370,10 @@ runs above:
 - open-Qmin's headline results (the hedgehog/Saturn-ring metastability
   boundary and the patterned-boundary defect arrays in Sussman & Beller
   2019) are equilibrium free-energy minimisations reached with FIRE. volterra
-  is a time-integrated solver; its passive relaxation settles at a nonzero
-  residual floor rather than true equilibrium (`BENCHMARKS.md`, Sections 1
-  and 6), and it has no FIRE-equivalent minimiser, no colloidal-inclusion
-  boundary geometry, and no patterned-boundary geometry. This is a real gap,
+  now carries FIRE on both CPU and GPU, ported step for step from open-Qmin's
+  own (`BENCHMARKS.md` section 1), so the minimiser is no longer the gap. What
+  remains missing is the geometry those results are posed in: no
+  colloidal-inclusion boundary and no patterned boundary. This is a real gap,
   not a difference in emphasis.
 - Beller's 2026 three-dimensional preprint (Head, Digregorio, Marenduzzo,
   Pagonabarraga, Beller, Negro, "Topological delocalisation of confined 3D

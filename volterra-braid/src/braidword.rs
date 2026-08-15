@@ -114,19 +114,79 @@ impl BraidWord {
         crate::entropy::topological_entropy(self)
     }
 
-    /// If the word is an exact repetition of a shorter block, return the shortest
-    /// such generating period; otherwise return the whole word.
+    /// The shortest block the word repeats, allowing the last repeat to be cut
+    /// short.
+    ///
+    /// A sampling window closes wherever the run ended, so an extracted word
+    /// generally holds a whole number of periods plus part of one more. Requiring
+    /// the length to divide by the period, as an earlier version did, rejects the
+    /// period in that case and returns the whole word, whose entropy is then the
+    /// accumulated entropy of every period in the window rather than the entropy
+    /// of the braid. Two full repeats are required before a period is claimed.
     pub fn fundamental_period(&self) -> &[Generator] {
         let len = self.gens.len();
-        for period in 1..=len {
-            if len % period != 0 {
-                continue;
-            }
+        for period in 1..=len / 2 {
             if (0..len).all(|i| self.gens[i] == self.gens[i % period]) {
                 return &self.gens[..period];
             }
         }
         &self.gens[..]
+    }
+
+    /// The word with adjacent commuting generators put in index order.
+    ///
+    /// `sigma_i` and `sigma_j` commute whenever `|i - j| >= 2`, so a swap of one
+    /// pair of strands and a swap of a disjoint pair are the same braid in
+    /// either order. Extraction emits them in whichever order the sampling
+    /// caught, which is set by how close the two crossings fell in time and not
+    /// by the braid, so two samplings of one orbit can differ as strings while
+    /// being the same element. Sorting each commuting adjacent pair by index is
+    /// a normal form for those relations, and comparing normal forms compares
+    /// braids.
+    ///
+    /// The braid relation `sigma_i sigma_{i+1} sigma_i = sigma_{i+1} sigma_i
+    /// sigma_{i+1}` is not applied: adjacent generators do not commute, and the
+    /// far-commutation relations alone are what an extraction order can vary.
+    pub fn commutation_normal_form(&self) -> BraidWord {
+        let mut gens = self.gens.clone();
+        let mut moved = true;
+        while moved {
+            moved = false;
+            for i in 0..gens.len().saturating_sub(1) {
+                let (a, b) = (gens[i], gens[i + 1]);
+                if a.index.abs_diff(b.index) >= 2 && a.index > b.index {
+                    gens.swap(i, i + 1);
+                    moved = true;
+                }
+            }
+        }
+        BraidWord {
+            n_strands: self.n_strands,
+            gens,
+        }
+    }
+
+    /// The braid of one period, as a word in its own right.
+    ///
+    /// The period is taken of the [commutation normal
+    /// form](Self::commutation_normal_form), so a period whose generators were
+    /// emitted in a different order from one repeat to the next is still found.
+    pub fn period_word(&self) -> BraidWord {
+        let normal = self.commutation_normal_form();
+        BraidWord {
+            n_strands: self.n_strands,
+            gens: normal.fundamental_period().to_vec(),
+        }
+    }
+
+    /// The topological entropy of one period.
+    ///
+    /// This is the quantity a braid is quoted by, and the quantity to compare
+    /// against a published dilatation. [`topological_entropy`](Self::topological_entropy)
+    /// applied to a multi-period window returns the entropy of the whole window,
+    /// which grows with the length of the run.
+    pub fn entropy_per_period(&self) -> f64 {
+        self.period_word().topological_entropy()
     }
 }
 
@@ -225,6 +285,74 @@ mod braidword_tests {
 
         let aab = BraidWord::from_codes(3, &[1, 1, 2]);
         assert_eq!(aab.fundamental_period(), &aab.gens[..]);
+    }
+
+    #[test]
+    fn fundamental_period_survives_a_truncated_last_repeat() {
+        // Six full silver periods and half of a seventh: the length is not a
+        // multiple of six, which is the shape a window that closes mid-period has.
+        let block = [3, 1, 2, -3, -1, -2];
+        let mut codes: Vec<i32> = block.iter().cycle().take(39).copied().collect();
+        let w = BraidWord::from_codes(4, &codes);
+        assert_eq!(w.fundamental_period().len(), 6);
+        assert!((w.entropy_per_period() - crate::SILVER_H).abs() < 1e-9);
+
+        // Six whole periods carry six times the entropy, so the window measure
+        // depends on how long the run was.
+        let six = BraidWord::from_codes(4, &block.repeat(6));
+        assert!((six.topological_entropy() - 6.0 * crate::SILVER_H).abs() < 1e-9);
+
+        // Cutting the seventh period short does not shorten the window measure by
+        // a known amount: here it collapses the dilatation to 1 outright. A
+        // whole-window entropy is not comparable to a published one at all.
+        assert!(w.topological_entropy() < 1e-9);
+
+        // A word with no repeat still reports itself.
+        codes[20] = 1;
+        let broken = BraidWord::from_codes(4, &codes);
+        assert_eq!(broken.fundamental_period().len(), codes.len());
+    }
+
+    #[test]
+    fn commutation_normal_form_preserves_the_braid() {
+        // sigma_1 and sigma_3 commute in B_4, so ordering them either way is the
+        // same element and must carry the same entropy.
+        let a = BraidWord::from_codes(4, &[3, 1, 2, -3, -1, -2]);
+        let b = BraidWord::from_codes(4, &[1, 3, 2, -1, -3, -2]);
+        assert_eq!(a.commutation_normal_form(), b.commutation_normal_form());
+        assert!((a.topological_entropy() - b.topological_entropy()).abs() < 1e-12);
+
+        // Adjacent generators do not commute and must not be reordered.
+        let adj = BraidWord::from_codes(3, &[2, 1]);
+        assert_eq!(adj.commutation_normal_form().codes(), vec![2, 1]);
+    }
+
+    #[test]
+    fn period_survives_commuting_generators_emitted_in_either_order() {
+        // Six silver periods, one of them with its commuting pair swapped, then
+        // cut short: the shape the measured silver word has.
+        let block = [1, 3, 2, -1, -3, -2];
+        let mut codes: Vec<i32> = block.iter().cycle().take(39).copied().collect();
+        codes.swap(6, 7); // sigma_1 sigma_3 -> sigma_3 sigma_1 in the second repeat
+        let w = BraidWord::from_codes(4, &codes);
+
+        assert_eq!(w.fundamental_period().len(), codes.len(), "as a string, no period");
+        assert_eq!(w.period_word().gens.len(), 6, "as a braid, period six");
+        assert!((w.entropy_per_period() - crate::SILVER_H).abs() < 1e-9);
+    }
+
+    #[test]
+    fn entropy_per_period_is_independent_of_window_length() {
+        let block = [-2, 1];
+        for repeats in 2..12 {
+            let codes: Vec<i32> = block.iter().cycle().take(2 * repeats).copied().collect();
+            let w = BraidWord::from_codes(3, &codes);
+            assert!(
+                (w.entropy_per_period() - crate::GOLDEN_H).abs() < 1e-9,
+                "{repeats} repeats gave {}",
+                w.entropy_per_period()
+            );
+        }
     }
 }
 

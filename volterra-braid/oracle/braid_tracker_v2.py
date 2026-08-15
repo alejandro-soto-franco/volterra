@@ -245,12 +245,57 @@ def realize_braid(n_strands, codes, frames_per_gen=8, periods=1):
     return frames
 
 
+def commutation_normal_form(codes):
+    """Adjacent commuting generators put in index order.
+
+    ``sigma_i`` and ``sigma_j`` commute when ``|i - j| >= 2``, so a swap of one
+    pair of strands and a swap of a disjoint pair are the same braid in either
+    order. Extraction emits them in whichever order the sampling caught, which is
+    set by how close the two crossings fell in time and not by the braid.
+    Mirrors ``volterra_braid::BraidWord::commutation_normal_form``.
+    """
+    cs = list(codes)
+    moved = True
+    while moved:
+        moved = False
+        for i in range(len(cs) - 1):
+            a, b = cs[i], cs[i + 1]
+            if abs(abs(a) - abs(b)) >= 2 and abs(a) > abs(b):
+                cs[i], cs[i + 1] = b, a
+                moved = True
+    return cs
+
+
+def period_word(codes):
+    """One period of ``codes``, taken of the commutation normal form."""
+    return _fundamental_period(commutation_normal_form(codes))
+
+
 def _fundamental_period(codes):
+    """Shortest repeating block, allowing the last repeat to be cut short.
+
+    A sampling window closes where the run ended, so an extracted word holds a
+    whole number of periods plus part of one more. Requiring ``n % period == 0``
+    rejects the period there and returns the whole word. Two full repeats are
+    required before a period is claimed. Mirrors
+    ``volterra_braid::BraidWord::fundamental_period``.
+    """
     n = len(codes)
-    for period in range(1, n + 1):
-        if n % period == 0 and all(codes[i] == codes[i % period] for i in range(n)):
+    for period in range(1, n // 2 + 1):
+        if all(codes[i] == codes[i % period] for i in range(n)):
             return codes[:period]
     return codes
+
+
+def entropy_per_period(n_strands, codes):
+    """Topological entropy of one period of ``codes``.
+
+    The quantity to compare against a published dilatation.
+    ``topological_entropy`` over a multi-period window returns the entropy of the
+    whole window, which depends on how long the run was, and which a window
+    ending mid-period can drive to zero outright.
+    """
+    return topological_entropy(n_strands, period_word(codes))
 
 
 def _self_test():
