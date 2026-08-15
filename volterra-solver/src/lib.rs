@@ -88,6 +88,11 @@ pub use ch_3d::ch_step_etd_3d;
 pub mod defects_3d;
 pub use defects_3d::{scan_defects_3d, track_defect_events};
 
+pub mod confinement_3d;
+pub use confinement_3d::{
+    LdgFromChi, PhaseField3D, activity_number, anchoring_molecular_field,
+};
+
 pub mod runner_3d;
 pub use runner_3d::{run_dry_active_nematic_3d, run_bech_3d, SnapStats3D, BechStats3D};
 
