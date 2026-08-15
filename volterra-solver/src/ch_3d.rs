@@ -45,7 +45,7 @@
 
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, ScalarField3D};
+use volterra_core::{QField3D, ScalarField3D};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -422,7 +422,7 @@ pub fn enriched_ch_dt_bound(p: &ActiveNematicParams3D) -> f64 {
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::{QField3D, ScalarField3D};
+    use volterra_core::{QField3D, ScalarField3D};
 
     /// Enriched stepper with kappa_w=0 and kappa_bar_g=0 must exactly reproduce
     /// the plain ch_step_etd_3d result (no new physics).

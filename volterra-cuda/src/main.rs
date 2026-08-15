@@ -33,7 +33,7 @@
 use std::time::Instant;
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::{fire_minimize_3d_par, FireParams as CpuFireParams};
 
 use volterra_cuda::{Bookkeeping, Device, FireParams as GpuFireParams, LdgParams};

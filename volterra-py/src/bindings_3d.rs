@@ -15,7 +15,7 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray4, PyReadonlyArray1, PyReado
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
+use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
 use volterra_solver::{BechStats3D, SnapStats3D};
 use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCharge, Sign};
 

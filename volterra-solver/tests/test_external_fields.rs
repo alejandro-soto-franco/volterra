@@ -7,7 +7,7 @@
 //! says.
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::molecular_field_3d;
 
 fn params() -> ActiveNematicParams3D {

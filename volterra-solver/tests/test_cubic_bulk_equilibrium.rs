@@ -25,7 +25,7 @@
 //! `test_b_zero_reduces_to_the_existing_formula`, below).
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::{
     beris_edwards_rhs_3d_par_dry, euler_step_fused_par, fire_minimize_3d_par, FireParams,
 };

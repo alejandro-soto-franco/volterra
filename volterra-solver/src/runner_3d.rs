@@ -23,7 +23,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, ScalarField3D};
+use volterra_core::{QField3D, ScalarField3D};
 
 use crate::defects_3d::{scan_defects_3d, track_defect_events};
 use cartan_geo::disclination::DisclinationLine;
@@ -196,7 +196,7 @@ pub fn run_bech_3d(
     use crate::sim_impls::cartesian3d::{BechState3D, Cartesian3DBech};
     use volterra_core::sim::PhysicsStep;
     use volterra_core::sim::snapshot::write_npy;
-    use volterra_fields::VelocityField3D;
+    use volterra_core::VelocityField3D;
 
     let mut st = BechState3D {
         q: q_init.clone(),
@@ -331,7 +331,7 @@ fn compute_bech_stats(
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::{QField3D, ScalarField3D};
+    use volterra_core::{QField3D, ScalarField3D};
 
     /// Smoke test: 5 steps of dry active turbulence on a tiny grid, no crash.
     #[test]

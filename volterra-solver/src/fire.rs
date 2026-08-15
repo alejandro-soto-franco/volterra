@@ -44,7 +44,7 @@
 
 use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 
 use crate::beris_3d::{beris_edwards_rhs_3d_par_dry, beris_edwards_rhs_3d_par_dry_into};
 

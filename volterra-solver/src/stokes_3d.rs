@@ -21,7 +21,7 @@
 
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, VelocityField3D, PressureField3D};
+use volterra_core::{QField3D, VelocityField3D, PressureField3D};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -312,7 +312,7 @@ fn wavenumber(idx: usize, n: usize, dx: f64) -> f64 {
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::QField3D;
+    use volterra_core::QField3D;
 
     /// The Stokes solver must produce a divergence-free velocity field.
     ///

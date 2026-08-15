@@ -6,7 +6,7 @@
 //! spatially modulated field must change the driven flow.
 
 use volterra_core::ActiveNematicParams;
-use volterra_fields::QField2D;
+use volterra_core::QField2D;
 use volterra_solver::stokes_solve;
 
 fn perturbed_q(nx: usize, ny: usize, dx: f64) -> QField2D {

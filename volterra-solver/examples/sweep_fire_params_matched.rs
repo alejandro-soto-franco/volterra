@@ -9,7 +9,7 @@
 //! Run: `cargo run --release --example sweep_fire_params_matched -p volterra-solver`
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::{fire_minimize_3d_par, FireParams};
 
 const A_OQ: f64 = -0.172;

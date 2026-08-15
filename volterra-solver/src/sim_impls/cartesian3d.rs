@@ -9,7 +9,7 @@ use volterra_core::sim::noise::LangevinNoise;
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::PhysicsStep;
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
+use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
 
 use crate::beris_3d::{beris_edwards_rhs_3d, EulerIntegrator3D};
 use crate::ch_3d::ch_step_etd_3d;

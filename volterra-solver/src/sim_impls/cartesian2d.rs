@@ -4,7 +4,7 @@ use volterra_core::sim::noise::LangevinNoise;
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::PhysicsStep;
 use volterra_core::{ActiveNematicParams, Integrator};
-use volterra_fields::{QField2D, ScalarField2D};
+use volterra_core::{QField2D, ScalarField2D};
 use crate::{beris_edwards_rhs, RK4Integrator, stokes_solve, k0_convolution, ch_step_etd};
 
 /// Dry (no-flow) active nematic on a flat 2D grid: RK4 Beris-Edwards + Langevin.

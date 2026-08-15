@@ -10,7 +10,7 @@
 //! | 2: line assembly | [`connect_disclination_lines`]: BFS connected components |
 //! | 3: event tracking | [`track_disclination_events`]: creation/annihilation/reconnection |
 
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use cartan_geo::disclination::{
     scan_disclination_lines_3d, connect_disclination_lines,
     track_disclination_events, DisclinationLine, DisclinationEvent,

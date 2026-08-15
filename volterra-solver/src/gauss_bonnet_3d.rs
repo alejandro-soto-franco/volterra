@@ -41,7 +41,7 @@
 //! Far from the interface |grad(phi)| approx 0. We set K_G = 0 at vertices where
 //! |grad(phi)| < GRAD_THRESHOLD to avoid division by nearly-zero values.
 
-use volterra_fields::ScalarField3D;
+use volterra_core::ScalarField3D;
 
 /// Minimum |grad(phi)| below which K_G is set to zero (far from the interface).
 const GRAD_THRESHOLD: f64 = 1e-6;
@@ -251,7 +251,7 @@ pub fn compute_kg_field(phi: &ScalarField3D) -> (Vec<f64>, Vec<f64>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volterra_fields::ScalarField3D;
+    use volterra_core::ScalarField3D;
 
     #[test]
     fn test_uniform_field_chi_zero() {

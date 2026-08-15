@@ -210,7 +210,7 @@ fn make_out_dir(dir: &std::path::Path) -> Result<(), DynErr> {
 /// Run the flat 2D Cartesian active nematic.
 fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams;
-    use volterra_fields::{QField2D, ScalarField2D};
+    use volterra_core::{QField2D, ScalarField2D};
     use volterra_solver::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
 
     // Start from the deterministic test defaults, optionally merge a TOML config
@@ -278,7 +278,7 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
 /// and `stats.json` into the output directory.
 fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::{QField3D, ScalarField3D};
+    use volterra_core::{QField3D, ScalarField3D};
     use volterra_solver::runner_3d::{run_bech_3d, run_dry_active_nematic_3d};
 
     let mut params = ActiveNematicParams3D::default_test();

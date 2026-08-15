@@ -66,7 +66,7 @@ fn embed(q: [f64; 5]) -> Matrix3<f64> {
 /// The disclination density tensor at every site, row-major `[D_00 .. D_22]`.
 ///
 /// `q` holds `[q11, q12, q13, q22, q23]` per site, indexed `((i * ny) + j) * nz
-/// + l`, matching `volterra_fields::QField3D`. Derivatives are central
+/// + l`, matching `volterra_core::QField3D`. Derivatives are central
 /// differences with periodic wrapping, the same stencil convention
 /// `QField3D::laplacian` uses.
 pub fn disclination_density(

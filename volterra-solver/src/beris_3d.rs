@@ -16,7 +16,7 @@
 
 use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, VelocityField3D};
+use volterra_core::{QField3D, VelocityField3D};
 use crate::mol_field_3d::{molecular_field_3d, molecular_field_3d_par, co_rotation_3d};
 
 /// Full Beris-Edwards RHS: `dQ/dt = -u · nabla Q + S(W, Q) + Gamma_r * H`.
@@ -242,7 +242,7 @@ pub fn euler_step_par(q: &QField3D, dt: f64, rhs: &QField3D) -> QField3D {
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::QField3D;
+    use volterra_core::QField3D;
 
     /// Verify that the RHS output has the same number of vertices as the input.
     #[test]

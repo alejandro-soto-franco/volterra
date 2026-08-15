@@ -23,7 +23,7 @@ use volterra_core::sim::snapshot::write_npy;
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
 use volterra_core::ActiveNematicParams;
-use volterra_fields::QField2D;
+use volterra_core::QField2D;
 use volterra_solver::sim_impls::cartesian2d::Cartesian2DWet;
 
 /// Observer that streams Q-tensor snapshots to `.npy` on the snapshot cadence.

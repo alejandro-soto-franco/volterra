@@ -1,5 +1,5 @@
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, ScalarField3D};
+use volterra_core::{QField3D, ScalarField3D};
 use volterra_solver::runner_3d::run_bech_3d;
 
 fn fixture() -> (QField3D, ScalarField3D, ActiveNematicParams3D) {

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use criterion::{criterion_group, criterion_main, Criterion};
 
 use volterra_core::{ActiveNematicParams, ActiveNematicParams3D};
-use volterra_fields::{QField2D, QField3D};
+use volterra_core::{QField2D, QField3D};
 use volterra_solver::{run_active_nematic_hydro, run_dry_active_nematic_3d};
 
 // Snapshot cadence set far above the step count: no per-snapshot defect scan or

@@ -47,7 +47,7 @@
 //! against the `0.556` the reference states.
 
 use rayon::prelude::*;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 
 /// A scalar phase field on the same grid as a [`QField3D`].
 ///

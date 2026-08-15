@@ -44,12 +44,12 @@
 pub mod cli;
 
 pub use volterra_core as core;
-pub use volterra_fields as fields;
+pub use volterra_core::fields;
 pub use volterra_solver as solver;
 
 pub mod prelude {
     pub use volterra_core::{ActiveNematicParams, VError};
-    pub use volterra_fields::{QField2D, VelocityField2D};
+    pub use volterra_core::{QField2D, VelocityField2D};
     pub use volterra_solver::{
         DefectInfo, SnapStats, beris_edwards_rhs, defect_count, k0_convolution,
         molecular_field, run_dry_active_nematic, scan_defects,

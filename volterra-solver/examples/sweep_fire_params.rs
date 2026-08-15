@@ -8,7 +8,7 @@
 //! Run: `cargo run --release --example sweep_fire_params -p volterra-solver`
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::{fire_minimize_3d_par, FireParams};
 
 fn analytic_s0(p: &ActiveNematicParams3D) -> f64 {

@@ -19,7 +19,7 @@
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::beris_edwards_rhs_3d_par_dry;
 
 /// Exactly the arithmetic `force_fused_aos` performs, transcribed from

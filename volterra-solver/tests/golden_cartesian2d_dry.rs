@@ -1,5 +1,5 @@
 use volterra_core::ActiveNematicParams;
-use volterra_fields::QField2D;
+use volterra_core::QField2D;
 use volterra_solver::run_dry_active_nematic;
 
 // Fixed tiny problem: 8x8, 6 steps, snapshot every 2, noise on.

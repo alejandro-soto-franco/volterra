@@ -1,5 +1,5 @@
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 use volterra_solver::runner_3d::run_dry_active_nematic_3d;
 
 fn fixture() -> (QField3D, ActiveNematicParams3D) {

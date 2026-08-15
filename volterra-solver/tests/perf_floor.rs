@@ -30,7 +30,7 @@
 use std::time::Instant;
 
 use volterra_core::ActiveNematicParams;
-use volterra_fields::QField2D;
+use volterra_core::QField2D;
 use volterra_solver::run_active_nematic_hydro;
 
 /// Generous release-mode ceiling, microseconds per site per step.

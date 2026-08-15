@@ -17,6 +17,15 @@
 //!
 //! - [`VError`] -- unified error type for all volterra crates
 
+/// Field types on Cartesian grids: the Q-tensor, velocity, pressure and scalar
+/// fields, in two and three dimensions.
+///
+/// These were `volterra-fields` until they were folded in here. They are types
+/// with no physics attached, which is what `volterra-core` is for, and keeping
+/// them one crate away bought a dependency edge and nothing else.
+pub mod fields;
+pub use fields::*;
+
 pub mod nematic_params;
 pub use nematic_params::NematicParams;
 

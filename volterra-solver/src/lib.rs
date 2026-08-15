@@ -65,7 +65,7 @@
 
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::{Integrator, ActiveNematicParams};
-use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
+use volterra_core::{QField2D, ScalarField2D, VelocityField2D};
 
 use cartan_geo::holonomy::{Disclination, scan_disclinations};
 use cartan_manifolds::frame_field::FrameField3D;

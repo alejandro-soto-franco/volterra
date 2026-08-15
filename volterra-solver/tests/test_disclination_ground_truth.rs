@@ -18,7 +18,7 @@
 //! confined-cylinder work uses.
 
 use volterra_braid::disclination::{decompose, disclination_density, disclination_lines};
-use volterra_fields::QField3D;
+use volterra_core::QField3D;
 
 /// `Q = q (nn - I/3)`, the convention the 3D papers use.
 fn uniaxial(n: [f64; 3], q_mag: f64) -> [f64; 5] {

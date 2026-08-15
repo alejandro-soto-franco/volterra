@@ -79,7 +79,7 @@
 use nalgebra::SMatrix;
 use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, VelocityField3D};
+use volterra_core::{QField3D, VelocityField3D};
 
 /// Cubic bulk contribution to the molecular field, `H_cubic = -3b Q^2 + b
 /// Tr(Q^2) I`, restricted to the 5 independent components. See this module's
@@ -487,7 +487,7 @@ pub fn co_rotation_3d(vel: &VelocityField3D, q: &QField3D, xi: f64) -> QField3D 
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::{QField3D, VelocityField3D};
+    use volterra_core::{QField3D, VelocityField3D};
 
     #[test]
     fn test_molecular_field_uniform_no_mag() {
