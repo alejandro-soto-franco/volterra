@@ -3,9 +3,9 @@ resolver = "2"
 members = [
     "volterra",
     "volterra-braid",
-    "volterra-fd2d",
     "volterra-core",
     "volterra-dec",
+    "volterra-fd2d",
     "volterra-fields",
     "volterra-mars",
     "volterra-solver",
