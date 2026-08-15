@@ -1,9 +1,9 @@
 //! `Device`: an open CUDA context holding Q, V (FIRE velocity), F (force)
 //! and the reduction accumulators, running the same FIRE algorithm as
-//! `volterra_solver::fire` (see that module's doc comment for the algorithm
+//! `volterra_fd::fire` (see that module's doc comment for the algorithm
 //! and the open-Qmin correspondence) with the elementwise and stencil work
 //! on the GPU and the small adaptive-timestep bookkeeping on the host,
-//! exactly mirroring `volterra_solver::fire::FireState`.
+//! exactly mirroring `volterra_fd::fire::FireState`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,7 +15,7 @@ use crate::error::CudaError;
 use crate::kernels;
 
 /// FIRE tuning parameters. Field-for-field identical to
-/// `volterra_solver::fire::FireParams`, duplicated here so this crate does
+/// `volterra_fd::fire::FireParams`, duplicated here so this crate does
 /// not need to compile `volterra-solver` through the CUDA host toolchain for
 /// its own sake beyond the CPU cross-check binary, which already depends on
 /// it directly.
@@ -52,7 +52,7 @@ impl FireParams {
     }
 
     /// Retuned for volterra's own energy landscape, matching
-    /// `volterra_solver::fire::FireParams::volterra_tuned` exactly (see that
+    /// `volterra_fd::fire::FireParams::volterra_tuned` exactly (see that
     /// constructor's doc comment for the sweep it comes from).
     pub fn volterra_tuned(delta_t: f64, force_cutoff: f64, max_iterations: usize) -> Self {
         Self {
@@ -64,7 +64,7 @@ impl FireParams {
     }
 
     /// Retuned for the matched-physics landscape, matching
-    /// `volterra_solver::fire::FireParams::matched_tuned` exactly (see that
+    /// `volterra_fd::fire::FireParams::matched_tuned` exactly (see that
     /// constructor's doc comment for the sweep it comes from).
     pub fn matched_tuned(delta_t: f64, force_cutoff: f64, max_iterations: usize) -> Self {
         Self {
@@ -87,7 +87,7 @@ pub struct LdgParams {
     pub a_eff: f64,
     /// Cubic bulk coefficient. `0.0` reproduces every result measured before
     /// this term existed exactly, bit for bit (see
-    /// `volterra_solver::mol_field_3d`'s module header for the derivation).
+    /// `volterra_fd::mol_field_3d`'s module header for the derivation).
     pub b_landau: f64,
     pub c_landau: f64,
     pub k_r: f64,

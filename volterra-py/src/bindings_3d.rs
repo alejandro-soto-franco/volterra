@@ -16,7 +16,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
-use volterra_solver::{BechStats3D, SnapStats3D};
+use volterra_fd::{BechStats3D, SnapStats3D};
 use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCharge, Sign};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -677,7 +677,7 @@ fn run_dry_active_nematic_3d_py(
     track_defects: bool,
 ) -> PyResult<(PyQField3D, Vec<PySnapStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, stats) = volterra_solver::run_dry_active_nematic_3d(
+    let (q_final, stats) = volterra_fd::run_dry_active_nematic_3d(
         &q_init.inner,
         &params.inner,
         n_steps,
@@ -706,7 +706,7 @@ fn run_bech_3d_py(
     track_defects: bool,
 ) -> PyResult<(PyQField3D, PyScalarField3D, Vec<PyBechStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, phi_final, stats) = volterra_solver::run_bech_3d(
+    let (q_final, phi_final, stats) = volterra_fd::run_bech_3d(
         &q_init.inner,
         &phi_init.inner,
         &params.inner,

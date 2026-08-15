@@ -39,6 +39,17 @@ All notable changes to volterra are documented here.
 
 ### Changed
 
+- **`volterra-solver` is dissolved.** It was not a crate with a subject: 6,982
+  lines that split three ways with nothing left over. The finite-difference
+  physics, in two dimensions and three, went to `volterra-fd`; the engine layer
+  and the runners written against DEC meshes went to `volterra-dec`; and its
+  tests, examples and benches followed the code they exercise. Its dependencies
+  were redistributed with it.
+
+  Anything that imported `volterra_solver::X` now imports it from
+  `volterra_fd::X` or `volterra_dec::X`, depending on which discretisation X
+  belongs to. `volterra-solver` 0.3.2 stays on crates.io.
+
 - **`volterra-cgpo` is renamed `volterra-fd`**, and `volterra-cgpo-cuda`
   becomes `volterra-fd-cuda`. CGPO is the acronym of one paper, and carrying
   it in a crate name, a CLI subcommand, fifteen environment variables and six

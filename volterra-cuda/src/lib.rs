@@ -2,7 +2,7 @@
 //! Gennes relaxation, via cuda-oxide (the pattern `cartan-cuda` establishes:
 //! kernels are ordinary Rust, compiled to PTX by `rustc-codegen-cuda`).
 //!
-//! See `volterra_solver::fire` for the algorithm this ports (it is the same
+//! See `volterra_fd::fire` for the algorithm this ports (it is the same
 //! FIRE, ported step for step from open-Qmin's reference implementation) and
 //! `device.rs` for how it is split across kernel launches.
 

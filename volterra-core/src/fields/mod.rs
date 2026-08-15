@@ -1,6 +1,5 @@
-// ~/volterra/volterra-fields/src/lib.rs
 
-//! # volterra-fields
+//! # Field types
 //!
 //! Tensor field types for 2D and 3D active nematics on regular Cartesian grids.
 //!

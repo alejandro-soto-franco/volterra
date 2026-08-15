@@ -5,7 +5,7 @@
 //! ## Layout
 //!
 //! Q, V (FIRE velocity) and F (force = `gamma_r * H`, the same quantity
-//! `volterra_solver::beris_edwards_rhs_3d_par_dry` computes on the CPU) are
+//! `volterra_fd::beris_edwards_rhs_3d_par_dry` computes on the CPU) are
 //! all flat `f64` buffers of length `n_sites * 5`, component-fastest:
 //! `buf[site * 5 + c]`, `c` in `[q11, q12, q13, q22, q23]` -- the same layout
 //! `QField3D::q` uses once flattened. `trq2` is one `f64` per site.
@@ -32,7 +32,7 @@
 //! over 5 separate component planes, to answer the memory-layout question
 //! independently of the fusion question. Neither fused kernel is wired into
 //! `Device::fire_minimize` yet; both compile, and their arithmetic is
-//! checked against the CPU reference (`volterra_solver::mol_field_3d`) in
+//! checked against the CPU reference (`volterra_fd::mol_field_3d`) in
 //! this crate's tests, ready for a GPU timing run to decide whether either
 //! earns the switch.
 //!
@@ -86,7 +86,7 @@ pub mod kernels {
     /// The fused 6-point Laplacian stencil plus bulk Landau-de Gennes terms,
     /// scaled by `gamma_r`: `F = gamma_r * (k_r * lap(Q) + bulk * Q)`, `bulk
     /// = -a_eff - 2 c Tr(Q^2)`. One thread per (site, component), matching
-    /// `volterra_solver::mol_field_3d::molecular_field_3d_par`'s CPU kernel
+    /// `volterra_fd::mol_field_3d::molecular_field_3d_par`'s CPU kernel
     /// exactly (same periodic 6-neighbour stencil, same bulk formula).
     #[kernel]
     #[allow(clippy::too_many_arguments)]
@@ -141,7 +141,7 @@ pub mod kernels {
             * inv_dx2;
         let bulk = -a_eff - 2.0 * c_landau * trq2[s];
 
-        // Cubic bulk term (see `volterra_solver::mol_field_3d`'s module
+        // Cubic bulk term (see `volterra_fd::mol_field_3d`'s module
         // header for the derivation): not proportional to `qk` like the a/c
         // terms above, so this thread reads its own site's other 4
         // components to form it, same as `trq2` already does once per site.
@@ -232,7 +232,7 @@ pub mod kernels {
         let trq2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
         let bulk = -a_eff - 2.0 * c_landau * trq2;
 
-        // Cubic bulk term (see `volterra_solver::mol_field_3d`'s module
+        // Cubic bulk term (see `volterra_fd::mol_field_3d`'s module
         // header for the derivation): `H_cubic = -3b Q^2 + b Tr(Q^2) I`.
         let qq11 = q11 * q11 + q12 * q12 + q13 * q13;
         let qq12 = q11 * q12 + q12 * q22 + q13 * q23;

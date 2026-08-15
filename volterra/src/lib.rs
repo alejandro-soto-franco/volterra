@@ -14,8 +14,8 @@
 //! ```text
 //! volterra          -- facade crate (use this)
 //! volterra-core     -- trait definitions and error types
-//! volterra-fields   -- Q-tensor, velocity, pressure, and stress field types
-//! volterra-solver   -- equations of motion, time integration, defect tracking
+//! volterra-fd       -- finite-difference physics, 2D and 3D, and its runners
+//! volterra-dec      -- discrete exterior calculus, its engine and its runners
 //! volterra-dec      -- DEC mesh, Hodge operators, covariant differential operators
 //! ```
 //!
@@ -45,12 +45,12 @@ pub mod cli;
 
 pub use volterra_core as core;
 pub use volterra_core::fields;
-pub use volterra_solver as solver;
+pub use volterra_fd as fd;
 
 pub mod prelude {
     pub use volterra_core::{ActiveNematicParams, VError};
     pub use volterra_core::{QField2D, VelocityField2D};
-    pub use volterra_solver::{
+    pub use volterra_fd::{
         DefectInfo, SnapStats, beris_edwards_rhs, defect_count, k0_convolution,
         molecular_field, run_dry_active_nematic, scan_defects,
         EulerIntegrator, RK4Integrator,

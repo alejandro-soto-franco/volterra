@@ -155,3 +155,44 @@ impl Params {
         self
     }
 }
+
+// The finite-difference physics that was `volterra-solver` until that crate was
+// dissolved. It is all finite difference on Cartesian grids, in two dimensions
+// and three, which is what this crate is named for.
+
+pub mod cartesian_2d;
+pub use cartesian_2d::*;
+
+pub mod mol_field_3d;
+pub use mol_field_3d::{molecular_field_3d, molecular_field_3d_par, molecular_field_3d_par_into,
+                       euler_step_fused_par, co_rotation_3d};
+
+pub mod beris_3d;
+pub use beris_3d::{beris_edwards_rhs_3d, beris_edwards_rhs_3d_par_dry,
+                   beris_edwards_rhs_3d_par_dry_into, euler_step_par};
+
+pub mod fire;
+pub use fire::{fire_minimize_3d_par, fire_step_3d_par, force_max_metric, FireParams, FireState};
+
+pub mod stokes_3d;
+pub use stokes_3d::stokes_solve_3d;
+
+pub mod ch_3d;
+pub use ch_3d::ch_step_etd_3d;
+
+pub mod defects_3d;
+pub use defects_3d::{scan_defects_3d, track_defect_events};
+
+pub mod confinement_3d;
+pub use confinement_3d::{
+    ConfinedLdg, LdgFromChi, PhaseField3D, activity_number, anchoring_molecular_field,
+    molecular_field_confined_3d, relax_step_confined_3d,
+};
+
+pub mod gauss_bonnet_3d;
+pub use gauss_bonnet_3d::gauss_bonnet_chi;
+
+pub mod runner_3d;
+pub use runner_3d::{run_dry_active_nematic_3d, run_bech_3d, SnapStats3D, BechStats3D};
+
+pub mod sim_impls;

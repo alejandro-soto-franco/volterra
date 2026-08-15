@@ -188,7 +188,7 @@ type DynErr = Box<dyn std::error::Error>;
 /// Execute the parsed CLI command.
 ///
 /// Each `run` subcommand builds the appropriate initial field and parameters,
-/// drives the matching runner from `volterra-solver`, writes its output under
+/// drives the matching runner, writes its output under
 /// the resolved output directory, and prints a one-line summary.
 pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
     match cli.command {
@@ -211,7 +211,7 @@ fn make_out_dir(dir: &std::path::Path) -> Result<(), DynErr> {
 fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams;
     use volterra_core::{QField2D, ScalarField2D};
-    use volterra_solver::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
+    use volterra_fd::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
 
     // Start from the deterministic test defaults, optionally merge a TOML config
     // (ActiveNematicParams derives `Deserialize`), then let CLI flags win for nx/ny.
@@ -279,7 +279,7 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
 fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams3D;
     use volterra_core::{QField3D, ScalarField3D};
-    use volterra_solver::runner_3d::{run_bech_3d, run_dry_active_nematic_3d};
+    use volterra_fd::runner_3d::{run_bech_3d, run_dry_active_nematic_3d};
 
     let mut params = ActiveNematicParams3D::default_test();
     if let Some(cfg) = &args.common.config {
@@ -358,7 +358,7 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams;
     use volterra_dec::mesh_gen::{icosphere, torus_mesh};
     use volterra_dec::{DecDomain, QFieldDec};
-    use volterra_solver::{run_dry_active_nematic_dec, run_wet_active_nematic_dec};
+    use volterra_dec::{run_dry_active_nematic_dec, run_wet_active_nematic_dec};
 
     let mut params = ActiveNematicParams::default_test();
     if let Some(cfg) = &args.common.config {

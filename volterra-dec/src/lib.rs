@@ -46,6 +46,32 @@ pub mod molecular_field_dec;
 pub mod qfield_dec;
 pub mod variational;
 
+// The engine layer and the runners that drive it, moved here from
+// volterra-solver. Each is written against DEC types, so this is where they
+// belong: `engine` reaches for the connection Laplacian, the curved Stokes
+// solver and semi-Lagrangian advection, and the runners drive those.
+pub mod engine;
+pub use engine::{NematicEngine, EngineStats};
+
+pub mod active_nematic_engine;
+pub use active_nematic_engine::{ActiveNematicEngine, EngineParams, StepDiagnostics};
+
+pub mod stokes_trait;
+pub use stokes_trait::{
+    StokesSolver, StokesBackend, FlowField, KillingOperatorSolver, StreamFunctionStokes,
+};
+
+pub mod nematic_field_2d;
+pub use nematic_field_2d::NematicField2D;
+
+pub mod runner_dec;
+pub use runner_dec::{run_dry_active_nematic_dec, run_dry_active_nematic_dec_smoke, SnapStatsDec};
+
+pub mod runner_dec_wet;
+pub use runner_dec_wet::{run_wet_active_nematic_dec, run_wet_active_nematic_dec_confined};
+
+pub mod sim_impls;
+
 pub use domain::DecDomain;
 pub use evolving_domain::EvolvingDomain;
 pub use molecular_field_dec::molecular_field_dec;

@@ -29,4 +29,4 @@ cuda-core = { git = "https://github.com/NVlabs/cuda-oxide.git" }
 # The CPU reference the GPU path is checked against, and the shared IC
 # generator so both sides start from bit-identical initial conditions.
 volterra-core = { path = "../volterra-core" }
-volterra-solver = { path = "../volterra-solver" }
+volterra-fd = { path = "../volterra-fd" }

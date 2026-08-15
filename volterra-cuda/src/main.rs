@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
-use volterra_solver::{fire_minimize_3d_par, FireParams as CpuFireParams};
+use volterra_fd::{fire_minimize_3d_par, FireParams as CpuFireParams};
 
 use volterra_cuda::{Bookkeeping, Device, FireParams as GpuFireParams, LdgParams};
 
@@ -115,7 +115,7 @@ fn setup(n: usize) -> (ActiveNematicParams3D, LdgParams) {
 
 /// Matched physics: volterra's `(a_eff, b_landau, c_landau, k_r)` set to
 /// open-Qmin's own default `(a, b, c, L1)` under the mapping derived in
-/// `volterra_solver::mol_field_3d`'s module header (`a_eff = 2a`, `b_landau
+/// `volterra_fd::mol_field_3d`'s module header (`a_eff = 2a`, `b_landau
 /// = b`, `c_landau = 2c`, `k_r = L1`, both giving the identical equilibrium
 /// condition `6a + 3bM + 8cM^2 = 0`). open-Qmin's own CLI defaults
 /// (`openQmin.cpp`): `a=-0.172, b=-2.12, c=1.73, L1=4.64`. With this
