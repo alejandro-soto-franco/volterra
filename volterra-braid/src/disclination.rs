@@ -691,3 +691,194 @@ mod disclination_tests {
         let _ = PI;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Linking
+// ---------------------------------------------------------------------------
+
+/// Gauss linking number of two closed curves, each a list of points.
+///
+/// ```text
+/// Lk = (1/4 pi) \oint \oint (r1 - r2) . (dr1 x dr2) / |r1 - r2|^3
+/// ```
+///
+/// evaluated as the double sum over segments. For two closed curves this is an
+/// integer, and the deviation from one measures the discretisation: a curve
+/// sampled too coarsely against the separation returns something visibly
+/// non-integral, which is the check to apply before believing a value.
+///
+/// # What it is for
+///
+/// Two things at once, because they are the same object. In three dimensions
+/// the disclinations of a nematic are curves and their linking is a property of
+/// the texture. In two dimensions the defect worldlines, drawn in `(x, y, t)`,
+/// are also curves: a braid is a link once time is a coordinate, and closing a
+/// periodic orbit turns its braid into one. So the same integral reads the
+/// topology of a 3D texture and of a 2D orbit.
+///
+/// # Caveat for half-integer lines
+///
+/// A `+/-1/2` disclination is not orientable on its own: transporting the
+/// director around it returns a rotation by `pi`, so the loop is a class in
+/// `pi_1(RP^2) = Z/2` and only the parity of the linking is an invariant of the
+/// texture. The integral below is the geometric linking of whatever orientation
+/// the point ordering gives, which is what is wanted for worldlines, where the
+/// time direction orients everything, and which needs that caveat for genuine
+/// disclination loops.
+pub fn linking_number(a: &[[f64; 3]], b: &[[f64; 3]]) -> f64 {
+    let mut total = 0.0;
+    for i in 0..a.len() {
+        let p1 = a[i];
+        let p2 = a[(i + 1) % a.len()];
+        let d1 = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+        for j in 0..b.len() {
+            let q1 = b[j];
+            let q2 = b[(j + 1) % b.len()];
+            let d2 = [q2[0] - q1[0], q2[1] - q1[1], q2[2] - q1[2]];
+            // midpoint separation, which halves the segment-count needed for a
+            // given accuracy against using an endpoint
+            let r = [
+                (p1[0] + p2[0]) / 2.0 - (q1[0] + q2[0]) / 2.0,
+                (p1[1] + p2[1]) / 2.0 - (q1[1] + q2[1]) / 2.0,
+                (p1[2] + p2[2]) / 2.0 - (q1[2] + q2[2]) / 2.0,
+            ];
+            let r2 = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+            if r2 < 1e-12 {
+                continue;
+            }
+            let cross = [
+                d1[1] * d2[2] - d1[2] * d2[1],
+                d1[2] * d2[0] - d1[0] * d2[2],
+                d1[0] * d2[1] - d1[1] * d2[0],
+            ];
+            total += (r[0] * cross[0] + r[1] * cross[1] + r[2] * cross[2]) / (r2 * r2.sqrt());
+        }
+    }
+    total / (4.0 * std::f64::consts::PI)
+}
+
+/// The points of a [`DisclinationCurve`] in grid coordinates.
+pub fn curve_points(c: &DisclinationCurve) -> Vec<[f64; 3]> {
+    c.sites
+        .iter()
+        .map(|s| [s.ijl.0 as f64, s.ijl.1 as f64, s.ijl.2 as f64])
+        .collect()
+}
+
+/// Pairwise linking numbers of every pair of closed curves.
+///
+/// Open curves are skipped: linking is defined for closed ones, and a line
+/// running out of the box has to be closed through the boundary before it means
+/// anything.
+pub fn pairwise_linking(curves: &[DisclinationCurve]) -> Vec<(usize, usize, f64)> {
+    let closed: Vec<usize> = (0..curves.len()).filter(|&i| curves[i].is_loop).collect();
+    let mut out = Vec::new();
+    for a in 0..closed.len() {
+        for b in a + 1..closed.len() {
+            let (i, j) = (closed[a], closed[b]);
+            out.push((
+                i,
+                j,
+                linking_number(&curve_points(&curves[i]), &curve_points(&curves[j])),
+            ));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod linking_tests {
+    use super::*;
+
+    /// A circle of `n` points in the plane `z = z0`, centred on `(cx, cy)`.
+    fn circle(cx: f64, cy: f64, z0: f64, r: f64, n: usize) -> Vec<[f64; 3]> {
+        (0..n)
+            .map(|k| {
+                let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                [cx + r * t.cos(), cy + r * t.sin(), z0]
+            })
+            .collect()
+    }
+
+    /// The same circle stood up in the `xz` plane, centred on `(cx, cy, z0)`.
+    ///
+    /// Standing it up in `yz` instead puts it beside the first circle rather
+    /// than through it, and the pair is then unlinked: the integral says zero
+    /// and it is right to.
+    fn circle_xz(cx: f64, cy: f64, z0: f64, r: f64, n: usize) -> Vec<[f64; 3]> {
+        (0..n)
+            .map(|k| {
+                let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                [cx + r * t.cos(), cy, z0 + r * t.sin()]
+            })
+            .collect()
+    }
+
+    /// Two circles side by side are unlinked.
+    #[test]
+    fn unlink_is_zero() {
+        let a = circle(0.0, 0.0, 0.0, 1.0, 400);
+        let b = circle(5.0, 0.0, 0.0, 1.0, 400);
+        assert!(linking_number(&a, &b).abs() < 1e-3);
+    }
+
+    /// The Hopf link has linking number one, and minus one reversed.
+    #[test]
+    fn hopf_link_is_one() {
+        let a = circle(0.0, 0.0, 0.0, 1.0, 600);
+        let b = circle_xz(1.0, 0.0, 0.0, 1.0, 600);
+        let lk = linking_number(&a, &b);
+        assert!(
+            (lk.abs() - 1.0).abs() < 1e-2,
+            "expected |Lk| = 1, got {lk}"
+        );
+        let mut rev = b.clone();
+        rev.reverse();
+        assert!(
+            (linking_number(&a, &rev) + lk).abs() < 1e-2,
+            "reversing one curve must flip the sign"
+        );
+    }
+
+    /// Linking is symmetric in its two arguments.
+    #[test]
+    fn linking_is_symmetric() {
+        let a = circle(0.0, 0.0, 0.0, 1.0, 300);
+        let b = circle_xz(1.0, 0.0, 0.0, 1.0, 300);
+        assert!((linking_number(&a, &b) - linking_number(&b, &a)).abs() < 1e-6);
+    }
+
+    /// The Borromean rings: every pair unlinked, the whole linked.
+    ///
+    /// This is the case that matters for reading a braid, because a braid whose
+    /// word is a commutator has vanishing pairwise linking while being far from
+    /// trivial. Pairwise linking is a first invariant, never a complete one.
+    #[test]
+    fn borromean_rings_are_pairwise_unlinked() {
+        let n = 800;
+        let (a, b, c) = (2.0_f64, 1.0_f64, 0.0_f64);
+        // three mutually orthogonal ellipses, the standard realisation
+        let e1: Vec<[f64; 3]> = (0..n)
+            .map(|k| {
+                let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                [a * t.cos(), b * t.sin(), c]
+            })
+            .collect();
+        let e2: Vec<[f64; 3]> = (0..n)
+            .map(|k| {
+                let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                [c, a * t.cos(), b * t.sin()]
+            })
+            .collect();
+        let e3: Vec<[f64; 3]> = (0..n)
+            .map(|k| {
+                let t = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+                [b * t.sin(), c, a * t.cos()]
+            })
+            .collect();
+        for (x, y, nm) in [(&e1, &e2, "1-2"), (&e2, &e3, "2-3"), (&e1, &e3, "1-3")] {
+            let lk = linking_number(x, y);
+            assert!(lk.abs() < 1e-2, "pair {nm} should be unlinked, got {lk}");
+        }
+    }
+}
