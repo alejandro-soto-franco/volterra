@@ -6,17 +6,18 @@
 //!
 //! volterra solves the Beris-Edwards nematohydrodynamics equations for active
 //! liquid crystals. It is built on `cartan`, a Riemannian geometry library,
-//! and uses discrete exterior calculus (DEC) to discretize covariant
+//! and uses discrete exterior calculus (DEC) to discretise covariant
 //! differential operators on arbitrary manifolds.
 //!
 //! ## Crate structure
 //!
 //! ```text
 //! volterra          -- facade crate (use this)
-//! volterra-core     -- trait definitions and error types
-//! volterra-fields   -- Q-tensor, velocity, pressure, and stress field types
-//! volterra-solver   -- equations of motion, time integration, defect tracking
-//! volterra-dec      -- DEC mesh, Hodge operators, covariant differential operators
+//! volterra-core     -- trait definitions, parameters and error types
+//! volterra-fd       -- finite-difference physics on a lattice, 2D and 3D
+//! volterra-dec      -- DEC mesh physics: Hodge operators, confined domains, Stokes
+//! volterra-braid    -- braid words, tracking and topological entropy
+//! volterra-py       -- Python bindings, published as a wheel rather than to crates.io
 //! ```
 //!
 //! ## Quick start
@@ -44,13 +45,13 @@
 pub mod cli;
 
 pub use volterra_core as core;
-pub use volterra_fields as fields;
-pub use volterra_solver as solver;
+pub use volterra_core::fields;
+pub use volterra_fd as fd;
 
 pub mod prelude {
     pub use volterra_core::{ActiveNematicParams, VError};
-    pub use volterra_fields::{QField2D, VelocityField2D};
-    pub use volterra_solver::{
+    pub use volterra_core::{QField2D, VelocityField2D};
+    pub use volterra_fd::{
         DefectInfo, SnapStats, beris_edwards_rhs, defect_count, k0_convolution,
         molecular_field, run_dry_active_nematic, scan_defects,
         EulerIntegrator, RK4Integrator,

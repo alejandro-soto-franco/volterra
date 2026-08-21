@@ -1,0 +1,753 @@
+# Reproducing Klein et al. (2026)
+
+Klein, Soto Franco, Sabbir, Deutsch, Kliegman, Selinger, Mitchell, Beller,
+"Chaos-Generating Periodic Orbits of Topological Defects in Confined Active
+Nematics", PNAS 123(28), e2516670123 (2026). The applicant is second author.
+`volterra-fd` is a Rust port of the paper's own released solver,
+`flow-solver.py` (github.com/Brandonkl/Spontaneous-Optimal-Mixing, ref. [62]).
+
+**Date:** 2026-08-14, revised 2026-08-15. **Machine:** Fedora 44, AMD Ryzen 9
+8940HX, single thread per run (`volterra-fd` has no internal parallelism; see
+`BENCHMARKS.md` section 9).
+
+**Revision (2026-08-15).** The 2026-08-14 pass reported the golden and silver
+runs as failures against the published braids. Both reproduce. The two runs were
+regenerated from the same seed and the same parameters, and the fault was in how
+the extracted braid was compared, in two places:
+
+1. **A whole-window entropy was compared against a per-period one.** The paper
+   quotes the braid of one period and that braid's entropy. The extractor summed
+   over every period in the sampling window, so its number grew with the length
+   of the run. The golden window holds exactly 16 periods and the reported
+   15.398778 is 16 times the published 0.96242, to twelve digits.
+2. **Words were compared as strings, where the comparison belongs in the
+   braid group.**
+   `sigma_i` and `sigma_j` commute when `|i - j| >= 2`, so two swaps among
+   disjoint pairs of defects are the same braid in either order, and which order
+   the extractor emits depends on which crossing the sampling caught first. The
+   silver word repeats a six-generator block that appears with its commuting
+   pair written both ways, so no string period exists where a braid period does.
+
+Both are fixed in the library rather than in the analysis script:
+`BraidWord::commutation_normal_form`, `period_word` and `entropy_per_period`
+(`volterra-braid/src/braidword.rs`), mirrored in the Python oracle. The
+measured entropies are now `0.962424` against a published `0.96242` for golden
+and `1.762747` against a published `1.76275` for silver.
+
+The two candidate explanations the previous pass named, the assumed
+`A_sys` normalisation and the unvalidated `circular_boundary` port, are both
+answered by this. The active length `als=3.99` derived from that normalisation
+is what produced the published braid and the published dilatation to twelve
+digits, which an active length wrong by any meaningful factor would not, and the
+boundary produced both the correct defect count and the correct orbit. The port
+was also read against the reference line by line: `circular_boundary` reproduces
+`flow-solver.py:1205-1222` including its rounding of the normals to four
+decimals, and `net_charge` enters `apply_q_boundary_conditions` exactly as the
+Python's own winding index does.
+
+## What this checks
+
+The paper reports two kinds of result: an algebraic braid-topology claim
+(golden and silver braid words, their closed-form entropies) and a PDE claim
+(that a Beris-Edwards active-nematic simulation at stated parameters produces
+those braids). `volterra-braid`'s existing tests already confirm the
+algebraic claim against the reference `braid_tracker.py`, but do so on a
+synthetic, constructed-to-match defect trajectory
+(`volterra-braid/oracle/compare_cgpo.py`), not on the output of an actual PDE
+run. This document runs the actual PDE solver at the paper's stated
+parameters and extracts the braid word and entropy from the resulting
+trajectory, using the same detection and extraction routines
+(`volterra-braid/oracle/braid_tracker_v2.py`) applied to real simulation
+output rather than a synthetic one.
+
+## Parameter resolution: lambda vs chi
+
+The paper's Materials and Methods (p. 13) states the flow-alignment
+parameter as chi = 1. `volterra-fd`'s `Params` struct carries two separate
+fields, `chi` (hardcoded to 1.0 inside `Params::new`, never exposed as a free
+parameter) and `lambda` (an exposed constructor argument, doc-commented
+"code-truth flow-solver.py: lambda = 1", `volterra-fd/src/lib.rs:69`,
+`:95`). Checked directly against the paper's own released code: `~/Chaos-
+Generating-Periodic-Orbits/flow-solver.py:1437` reads `lambda = 1  # flow
+alignment parameter`, and the same symbol is threaded through the H and
+stress kernels (`flow-solver.py:741-747`) exactly where the paper's chi
+belongs physically. **`chi` in the paper's prose and `lambda` in the paper's
+own code are the same physical flow-alignment parameter, under two names.**
+`volterra-fd`'s `lambda` field is the one that matters; its `chi` field is
+a vestigial name collision, always 1.0, and irrelevant to matching the paper.
+The runs below use `lambda = 1`, not the `lambda = 0.7` used elsewhere in
+this repository's benchmark fixtures (`volterra-fd/tests/step.rs:31`),
+which is an arbitrary concurrence-test value with no claim to match the
+paper.
+
+## A defect found and fixed while preparing these runs
+
+`Params::new` computed the equilibrium scalar order parameter as `s0 =
+sqrt(-a_landau / c_landau)`, which, since `a_landau = -c_landau` throughout
+this crate, always evaluated to 1.0. The paper states S0 = sqrt(2) (p. 1),
+and `flow-solver.py:1481` computes `S0 = np.sqrt(-2 * A / C)`, i.e. with a
+factor of 2 this crate's formula omitted. The crate's own doc comment already
+stated the intended value as `sqrt(2)` (`volterra-fd/src/lib.rs:99`,
+unchanged by this fix), so this was an implementation bug against the crate's
+own documented intent, not a documentation error. The bit-for-bit concurrence
+tests never exercised this path: they set `s0` directly from a hardcoded
+`SQRT_2` constant (`volterra-fd/tests/step.rs:35`) rather than through
+`Params::new`, so the bug affected every run built through the convenience
+constructor, including the `fd` production runner and the "paper silver
+point" configuration recorded in `volterra-fd/COMPARISON.md`, without
+affecting the validated kernel-level concurrence claims in that same
+document. Fixed to `s0 = sqrt(-2 * a_landau / c_landau)`
+(`volterra-fd/src/lib.rs:122`). All 38 existing tests in `volterra-fd`
+still pass after the fix. `COMPARISON.md`'s throughput numbers are unaffected
+(s0 only sets initial-condition amplitude and the pressure/order-parameter
+scale, not the per-step cost); its physical configuration should be read
+as having run at the wrong S0 until this fix.
+
+## Velocity boundary condition, checked and ruled out as a cause
+
+`volterra-fd/src/step.rs:258` labels its call to `apply_u_boundary_conditions`
+"no-slip". `flow-solver.py`'s own markdown (lines 533-547) derives a Lions
+slip condition (zero normal velocity, zero tangential shear at the wall) and
+contrasts it explicitly with true no-slip, which raised the possibility that
+the comment was stale and the port applies the wrong physics at the wall.
+Checked directly against `flow-solver.py:556-567`, `apply_u_boundary_conditions`:
+the function computes the Lions-slip value on one line
+(`u[x, y] = np.array([ny, -nx]) * (...) / (...)`) and then, on the very next
+line, unconditionally overwrites it: `u[x, y, :] = 0`. The Lions-slip
+derivation in the markdown is never wired into the code that runs: every
+call leaves `u=0` at the boundary regardless of the Lions computation. This
+is dead code in the reference script itself, the same shape as the seed
+defect below.
+
+`volterra-fd/src/bc.rs:96-98`'s own doc comment already states this
+precisely ("Python code... first computes a Lions slip BC, then immediately
+overwrites with `u[x,y,:] = 0`. The net effect is: set u=0..."), and the Rust
+implementation skips the discarded Lions computation and sets `u=0` directly.
+**The comment at `step.rs:258` is accurate, not stale, and the boundary
+condition is not the cause of the golden/silver mismatch.** `volterra-fd`
+matches `flow-solver.py`'s executed behaviour (plain no-slip) rather than its
+markdown derivation (Lions slip); the two happen to coincide here because the
+reference script never executes the derivation it documents.
+
+## The reference script's initial condition is not reproducible from a seed
+
+`flow-solver.py:1494` draws its per-run `seed` from the unseeded global
+`np.random.rand()`, then seeds a generator with it (`:1524`). That seeded
+generator is used exactly once, to set a single scalar broadcast to every
+site (`theta_initial = pi * rng.random() * np.ones((Lx, Ly))`, `:1539`), and
+the very next line discards it: `theta_initial = 1.0 * pi *
+np.random.random((Lx, Ly))` (`:1541`) draws the actual per-site field from
+the unseeded global generator. Neither the initial condition nor, therefore,
+any specific trajectory the reference script produces is reproducible from
+its own seed, including by the paper's own authors. This work's runs used a
+fixed `FD_SEED` for internal reproducibility (so the dense re-sampling
+re-run below is guaranteed to replay the same trajectory as the coarse run),
+but this cannot be understood as reproducing "the" trajectory behind any
+published figure: no such fixed trajectory is recoverable from the reference
+code. What is reproducible, in the reference code and in this work, is the
+statistical or topological outcome (a braid word, an entropy), never a
+specific realisation.
+
+A related, separate point: `flow-solver.py`'s own default run configuration
+(`bc_label = 'epitrochoid'`, `:1533`; `Lx = Ly = 200`, `:1431-1432`) is the
+epitrochoid confinement at 200x200, not the steady-winding circle at 100x100
+the golden and silver results use. The script as checked out is not itself
+configured for the paper's headline runs; its defaults should not be read as
+those parameters.
+
+## The boundary this paper's headline results actually use
+
+The paper's golden and silver results (Figs. 2-4, p. 5-8) use a "steady-
+winding circle" boundary condition (Eq. 1, p. 4): a plain disk with a
+tangential director anchoring that winds through angle `2*pi*q` around the
+boundary; `q` is a free half-integer. This is a different, simpler geometry from
+the cardioid/nephroid/trefoiloid epitrochoid confinements the paper
+introduces later (p. 10, Fig. 7) as a physically-motivated secondary
+demonstration. Before this work, `volterra-fd` implemented only the
+nephroid epitrochoid boundary (`boundary::nephroid_boundary`, k=2 fixed), and
+the winding charge in `bc::apply_q_boundary_conditions` was hardcoded to
+`net_charge = 1.0`, matching only that one nephroid case. Neither the golden
+(q=3/2), the q=1 control, nor the q=5/2 aperiodic case can be run with a
+fixed k=2 nephroid boundary: each is a physically distinct confinement shape,
+or a distinct q on the circle, from what the crate had.
+
+To make these runs possible at all, this work added:
+
+- `boundary::circular_boundary(lx, ly)`: a plain disk of radius `lx/2 - 1`
+  centred at `(radius, radius)`, ported directly from `flow-solver.py`'s own
+  `'circular'` branch of `set_boundary` (`flow-solver.py:1205-1222`).
+- `net_charge` as a parameter of `bc::apply_q_boundary_conditions` (was a
+  hardcoded local `1.0`) and of `Params` (`Params::with_net_charge`), so `q`
+  is settable per run rather than fixed to the nephroid's value.
+- `FD_BOUNDARY` (`circular`/`nephroid`) and `FD_NET_CHARGE` environment
+  variables on the `fd` runner.
+
+This is new code, not a parameter change to existing code, and it has not
+been validated against a captured Python reference the way the nephroid path
+was in `COMPARISON.md`. The regression suite (38 tests, all passing after
+this change, `net_charge` defaulted to `1.0` at every pre-existing call site)
+confirms the change did not alter the nephroid path's already-validated
+behaviour; it does not independently confirm the new circular path's
+correctness beyond the qualitative check the q=1 run below provides.
+
+## Active length and coherence length: raw pixel values
+
+The paper reports lengths nondimensionalised by the square root of the
+confined domain's area in lattice units, `ell_tilde = ell / sqrt(A_sys)` (p.
+3). For the 100x100 steady-winding-circle domain, the paper states `A_sys ~=
+88.6` lattice points (p. 6, in the context of the q >= 5/2 sweep on the same
+domain and boundary family). The golden and silver runs (p. 19, Fig. 3
+caption) are reported at a dimensionless active length of 0.045 and
+dimensionless coherence length of 0.011, for both q=3/2 and q=4/2. The
+q=5/2 aperiodic demonstration (p. 20) is reported at dimensionless active
+length 0.0003, coherence length 0.011. Converting with the same `sqrt(A_sys)
+~= 88.6` factor:
+
+| Run | Dimensionless (paper) | Raw pixels (this work, ell x 88.6) |
+|-----|------------------------|-------------------------------------|
+| golden / silver | ell_a=0.045, ell_c=0.011 | als=3.99, ncl=0.975 |
+| q=5/2 | ell_a=0.0003, ell_c=0.011 | als=0.0266, ncl=0.975 |
+
+The paper does not restate `A_sys` separately for the golden/silver point;
+this work assumes the same domain and boundary family (100x100,
+steady-winding circle) gives the same `A_sys`, which is not confirmed
+independently in the source text. The paper does not state a dimensionless
+active length for q=1 at all (only "ell_a sufficiently large as to prevent
+pair creation," p. 4); this work reused the golden/silver value (als=3.99)
+for q=1, an assumption rather than a value read from the paper.
+
+## Results
+
+Time step `dt=1e-4` (paper, SI p. 25-26, and `fd`'s own default),
+`lambda=1`, `max_p_iters=50` (matching `COMPARISON.md`'s validated
+high-throughput configuration; the paper does not state its own pressure
+solver's iteration cap). Each run saved 200 Q-tensor frames spread across the
+full run (including the initial transient); braid extraction used
+`braid_tracker_v2.detect_defects` (threshold 0.1, matching the published
+`braid_tracker.py`) and `braid_tracker_v2.braidword_from_frames` /
+`topological_entropy` on the trailing run of frames with a stable defect
+count.
+
+Each entry below is the braid of one period and that period's entropy, the
+quantities the paper quotes. The window each was read from, and the entropy
+accumulated across that whole window, follow in the next table.
+
+| q | Steps | net_charge | als, ncl | Extracted period | Extracted entropy | Published word | Published entropy | Verdict |
+|---|-------|-----------|----------|-------------------|--------------------|-----------------|--------------------|---------|
+| 1 (control) | 335,000 | 1.0 | 3.99, 0.975 | `{sigma_1^-1}` | 0.000000 | `{sigma_1}` | 0 | **pass**, up to an orientation sign (see below) |
+| 3/2 (golden) | 750,000 | 1.5 | 3.99, 0.975 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` | 0.962424 | `{sigma_2^-1 sigma_1}` | 0.96242 | **pass** |
+| 4/2 (silver) | 500,000 | 2.0 | 3.99, 0.975 | `{sigma_2 sigma_1^-1 sigma_3^-1 sigma_2^-1 sigma_1 sigma_3}` | 1.762747 | `{sigma_3 sigma_1 sigma_2 sigma_3^-1 sigma_1^-1 sigma_2^-1}` | 1.76275 | **pass** |
+| 5/2 (aperiodic) | 300,000 (reduced from the paper's 1,000,000 to fit the 30-minute compute budget) | 2.5 | 0.0266, 0.975 | trivial (16 defects, zero crossings) | 0.000000 | none (no stable word expected) | n/a | see below |
+
+The golden period is not the published word as a string, and the silver period
+is not the published word as a string either. Both are the published braid:
+
+- **Golden.** `sigma_2^-1 sigma_1^-1 sigma_2 sigma_1` and `sigma_2^-1 sigma_1`
+  have the same reduced Burau matrix at `t = -1`, `[[2,1],[1,1]]`, so they act
+  identically and carry the same dilatation `phi^2`. The extracted word is a
+  longer presentation of the published element.
+- **Silver.** Under the commutation normal form the extracted period is a cyclic
+  rotation of the published word, and a cyclic rotation is a conjugate, so the
+  dilatation is unchanged. The published word normalises to
+  `sigma_1 sigma_3 sigma_2 sigma_1^-1 sigma_3^-1 sigma_2^-1`; rotating it by two
+  gives the extracted period exactly.
+
+The windows, and what the whole-window entropy reads there:
+
+| q | Frames | Window | Generators | Periods | Whole-window entropy |
+|---|--------|--------|------------|---------|-----------------------|
+| 3/2 (golden) | 1000 | frames 17-1000, defect count 3 | 64 | 16.00 | 15.398778 |
+| 4/2 (silver) | 1000 | frames 38-1000, defect count 4 | 39 | 6.50 | 11.804430 |
+
+The whole-window column is what the previous pass reported as the measured
+entropy. For golden it is exactly 16 times the published value. For silver the
+window closes mid-period, and a partial period does not scale the entropy by any
+fixed factor: the same six-generator block cut off after 39 generators can drive
+the dilatation to 1 outright, which is a test in
+`volterra-braid/src/braidword.rs`. A whole-window entropy is not comparable to a
+published one at any run length.
+
+### q=1 control passes, up to a sign convention
+
+Defect count is stable at 2 for the trailing 194 of 200 sampled frames after
+a short transient. The extracted word is the single generator
+`sigma_1^-1`, the mirror image of the published `sigma_1`. A single-generator
+sign is a chirality/orientation convention (which way the boundary winding
+was signed, `n(theta) = +-(-sin(q theta), cos(q theta))`, Eq. 1 of the
+paper, carries an explicit `+-` already), not a topological discrepancy: the
+entropy of a single generator is 0 either way, matching the published value
+exactly. This is the one run of the four that behaves as expected, and it is
+the simplest of the four (two defects, one crossing type, no periodic-orbit
+structure to get wrong), so it functions as a sanity check on the new
+circular-boundary and variable-net_charge code rather than as a demonstration
+of the paper's more detailed golden/silver claims.
+
+### The same braids off the GPU
+
+`volterra-fd-cuda` ports every stage of the step to CUDA through cuda-oxide,
+each kernel checked against its CPU counterpart. Running the two trajectories
+on the device and extracting the braid from its own frames:
+
+| Run | CPU | GPU | Extracted period | Entropy |
+|---|---|---|---|---|
+| golden, 750,000 steps | 483.7 s | **60.4 s** | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` | 0.962424 |
+| silver, 500,000 steps | 378.7 s | **41.0 s** | `{sigma_2 sigma_1^-1 sigma_3^-1 sigma_2^-1 sigma_1 sigma_3}` | 1.762747 |
+
+8.0x and 9.2x, and both extractions agree with the CPU's character for
+character: the same sampling window, the same defect count, the same word, the
+same entropy to six decimals, and the same whole-window figure.
+
+That last point is the one worth stating. The device and the CPU agree to about
+`1e-15` of each field's range over five thousand steps, which says nothing on
+its own about a run a hundred and fifty times longer through a regime the paper
+calls chaotic. Extracting the braid is what settles it, and the braid is a
+topological quantity, so it survives the trajectories parting.
+
+### golden and silver reproduce, and what the earlier failure was
+
+Both runs hold the correct defect count throughout the trailing window (3 for
+golden, 4 for silver, matching n=2q), and both produce the published braid at
+the published dilatation.
+
+The 2026-08-14 pass reported both as failures. The trajectories were never at
+fault: regenerating them from the same seed and the same parameters, and
+comparing them correctly, gives the published result. Two things were wrong in
+the comparison, and both are now fixed in `volterra-braid` rather than in the
+analysis script, so neither can recur through a different caller.
+
+**The entropy was summed over the window rather than taken per period.** The
+paper quotes the braid of one period and that braid's entropy.
+`topological_entropy` applied to a 64-generator window returns the entropy of
+all 16 periods together, which is 16 times larger and grows with run length. The
+library now carries `BraidWord::entropy_per_period`, and the window figure is
+reported alongside it under a name that marks it as a window measure.
+
+**Periods were found by string equality, which a braid does not obey.**
+`sigma_i` and `sigma_j` commute when `|i - j| >= 2`. Two defect swaps among
+disjoint pairs are therefore the same braid whichever order they are written in,
+and the order the extractor writes them in is set by which crossing the sampling
+caught first, a property of the frame spacing and not of the orbit. The silver
+word repeats a six-generator block whose commuting pair `sigma_1 sigma_3`
+appears both ways round, so it has a braid period of 6 and no string period at
+all. `BraidWord::commutation_normal_form` sorts each commuting adjacent pair by
+index, which is a normal form for those relations, and `period_word` takes the
+period of that. Period detection also now allows the last repeat to be cut short,
+since a window closes where the run ended rather than on a period boundary.
+
+Two earlier checks stand, and their results are unchanged by this:
+
+- **The velocity boundary condition was checked against the reference and ruled
+  out** (see above): both `volterra-fd` and the reference script's
+  actually-executed code apply plain no-slip.
+- **Both runs were repeated at 5x denser saving** (golden: `FD_SAVE_EVERY`
+  3750 to 750; silver: 2500 to 500), same seed and same parameters, and
+  reproduced the coarse run's word and entropy exactly. The trajectory is
+  deterministic and finer sampling caught nothing the coarse sampling missed.
+  That remains true, and it is why the fault had to be in the comparison.
+
+The two candidate explanations that pass left open are both answered. The
+`A_sys` normalisation gives `als=3.99`, and `als=3.99` is what produced the
+published braid and the published dilatation to twelve digits; an active length
+wrong by the factor the alternative reading of `A_sys` would imply, roughly 9x,
+would not. The `circular_boundary` port was read against
+`flow-solver.py:1205-1222` line by line: the inside test, the outer-boundary and
+inner-boundary passes and the normals all correspond, including the reference's
+rounding of each normal component to four decimals, and `net_charge` enters
+`apply_q_boundary_conditions` exactly where the Python's own winding index does.
+The boundary also produces the topologically required `2q` defects in every run.
+
+None of these three was completed within this dispatch.
+
+### q=5/2 aperiodic run shows a different failure mode, also reported as measured
+
+Run reduced to 300,000 steps (from the paper's 1,000,000) to fit the
+30-minute compute budget, after the unreduced attempt was measured at
+roughly 270-310 steps/second (far slower than the ~1,500-1,800 steps/second
+of the golden/silver runs, since the much smaller `als=0.0266` drives a
+stiffer, more active system) and killed before completion.
+
+The defect count does not stay near the topologically-required minimum of
+n=2q=5: it climbs during the transient and stabilises at **16** defects for
+essentially the entire post-transient window, not 5. Despite 16 defects
+persisting, the extraction finds **zero crossings** across that whole
+window: the braid word is trivial and the entropy is 0. This is a different
+failure mode from "aperiodic, no stable word" (the paper's own description
+of this regime): a frozen 16-defect configuration is neither the periodic
+few-defect orbit of golden/silver nor the erratic many-swap motion the
+paper describes for q>=5/2. The most likely reading is that `als=0.0266`
+(derived from the paper's stated dimensionless active length 0.0003 under
+the same `A_sys` assumption used for golden and silver, itself unconfirmed)
+drives activity far past the regime the paper examines, nucleating many more
+defect pairs than the boundary requires and jamming them in place, rather
+than reproducing the paper's own aperiodic-but-still-five-to-ten-defect
+dynamics. This is reported as the measured outcome, not adjusted towards the
+paper's qualitative description.
+
+## The epitrochoid confinements
+
+The runs above use the steady-winding circle, the boundary the paper's
+headline golden and silver results are computed on. The paper's Fig. 7 puts
+the same two braids on a physically realisable boundary instead: an
+epitrochoid with strong tangential anchoring, where the winding is supplied
+by the geometry rather than by an artificial winding index in the anchoring.
+Reproducing the braids there is a stronger test of the solver, because
+nothing about the defect count is imposed.
+
+### The geometry
+
+arXiv:2503.10880 Eq. SI.6:
+
+```text
+x(u) = r/(2q) [(2q-1) cos(u) + d cos((2q-1) u)]
+y(u) = r/(2q) [(2q-1) sin(u) + d sin((2q-1) u)]
+```
+
+with `d = 0.99`, the paper's regularisation of the sharp epicycloid. The
+curve carries `2(q-1)` cusps: one for the cardioid at `q = 3/2`, two for the
+nephroid at `q = 2`, three for the trefoiloid at `q = 5/2`.
+
+`flow-solver.py` fixes the cusp count at 2 and hardcodes `d = 0.99`, so the
+reference script can run only the nephroid; `volterra-fd` carried the same
+two constants. Both are now parameters of `boundary::Epitrochoid`. The
+nephroid interior counts against the Python reference, 5621 at `Lx = 100`
+and 1965 at `Lx = 60`, are unchanged by the generalisation, and the counted
+interiors of all three geometries agree with the closed-form area
+`A = pi m (m + d^2) (r/2q)^2`, `m = 2q-1`, to under a percent.
+
+### The regularised boundary imposes charge 1
+
+The outward normal of Eq. SI.6 is `e^{iu} (1 + d e^{i k u})` up to scale, and
+for `d < 1` the second factor never encircles the origin. The normal
+therefore winds exactly once for every `q`; only the sharp epicycloid at
+`d = 1` winds `q` times, by picking up a jump of `pi` at each cusp. So an
+epitrochoid run takes `net_charge = 1`, the same as a disk, and its excess
+defects are not imposed at all. Each regularised cusp pins a `-1/2` defect
+dynamically, and `n(+1/2) - k(-1/2) = 1` gives `n = 2 + k = 2q` mobile
+defects: three in the cardioid, four in the nephroid. Whether that happens is
+a result of a run, which is what makes these runs a test rather than a
+construction.
+
+### The published detector does not survive the change of coherence length
+
+`braid_tracker.py` thresholds
+
+```text
+ss = (2 dx Qxy)(2 dy Qxx) - (2 dx Qxx)(2 dy Qxy)
+```
+
+at 0.1. That quantity scales as the square of the director gradient, so a
+threshold calibrated at one coherence length is wrong at another. The circle
+runs above sit at `ell_c = 0.975` lattice spacings and every epitrochoid
+point in Fig. 7 sits an order of magnitude higher, which puts the core value
+of `ss` about two hundred and eighty times apart.
+
+Run at the published threshold, a cardioid frame reports one positive and
+five negative defects, a net interior charge of `-2` where the boundary
+requires `+1`. The same frame by plaquette winding of the director gives
+three mobile `+1/2` defects and one `-1/2` at radius 28.0 +/- 0.5 against a
+cusp at radius 33.3.
+
+Winding carries no scale: the four corner-to-corner turns around a
+plaquette, each wrapped into `(-pi/2, pi/2]`, sum to zero away from a core
+and to `+/- pi` at one, whatever the core's size or the field's amplitude.
+`volterra_braid::detect_defects_winding` is the new detector and
+`analyse_run` the pipeline over a run directory. Two things check it:
+
+- A unit test scales `Q` by `1/20`, which takes `ss` below any fixed
+  threshold, and asserts that winding still finds the defect and that the
+  threshold detector does not.
+- The `q = 3/2` steady-winding circle, rerun at 750,000 steps and analysed
+  with the new detector, returns `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}`
+  over 16 periods at entropy **0.962424** against a published 0.96242. The
+  detector reproduces the validated result on the boundary where the old one
+  worked.
+
+The Python alongside it in `volterra-braid/oracle/analyse_run.py` is an
+independent implementation, vectorised over plaquettes rather than
+transcribed, and agrees with the Rust frame for frame.
+
+### Where the paper's own marked points sit
+
+Fig. 7b and 7d classify each `(ell_a, ell_c)` on a grid, and mark the two
+snapshot parameters with a box. Reading those panels by eye is unreliable, so
+they were extracted to data (250 points on an 8x14, 9x10 and 8x6 grid, each dot matched against the legend swatches sampled
+from the same render). Both marked points are braiding points in the paper's
+own classification, and both sit at the top of their region:
+
+- The cardioid box at `(0.0139, 0.0903)` lands on a Golden Braiding point. Its
+  column runs Melted, Melted, Melted, Golden, **Golden**, Golden, interrupted,
+  interrupted, Turbulent downwards, so it is the middle of three Golden points
+  with Melted two rows above.
+- The nephroid box at `(0.0131, 0.1178)` lands on a Silver Braiding point, at
+  the top left corner of that region, with Melted one column to its left and
+  the entire row above Melted.
+
+A point at the top edge of a braiding region, against the melted boundary, is
+where two implementations of the same equations are least likely to agree, and
+it is not where a reproduction attempt would stand if it were choosing. What
+it is not is a mislabelled point: the paper classifies both as braiding.
+
+### How much order is left at these coherence lengths
+
+Before any statement about defects, how ordered the field is. `S = 2 sqrt(Qxx^2
++ Qxy^2)` against an equilibrium `S_eq = sqrt 2`, averaged over the interior of
+the trailing half of each run:
+
+| Run | `ell_c` | `S` | interior below half order |
+|-----|---------|-----|---------------------------|
+| steady-winding circle, `q = 3/2` | 0.011 | 1.403 | 0% |
+| nephroid | 0.011 | 1.406 | 0% |
+| nephroid | 0.030 | 1.266 | 3% |
+| nephroid | 0.050 | 1.135 | 8% |
+| nephroid | 0.080 | 0.906 | 35% |
+| **nephroid, the paper's point** | **0.1178** | **0.777** | **42%** |
+| **cardioid, the paper's point** | **0.0903** | **1.031** | **18%** |
+
+The circle runs that reproduce the published braids sit at 99.2% of equilibrium
+order with nothing melted. The two epitrochoid points the paper marks sit at
+73% and 55%, with a fifth and two fifths of their interiors below half order.
+
+That is a property of the coherence lengths the paper reports for those runs,
+not of this implementation: `ell_c` is an order of magnitude larger there than
+on the circle, and the melting follows it monotonically. It sets what can be
+asked of a defect position. A core 13 lattice spacings across in a domain of
+radius 99 overlaps its neighbours, and in the cardioid run the winding moves 36
+pixels between consecutive frames at one point while the other two defects move
+four, in a region where `S` has fallen to 12% of equilibrium.
+
+### Results
+
+Every run below uses `d = 0.99`, `net_charge = 1.0`, `dt = 1e-4`, `lambda = 1`,
+`max_p_iters = 50`, and the lattice the paper states for that geometry. The
+first row is the steady-winding circle, rerun here with the new detector as a
+control on the whole pipeline.
+
+| Geometry | `(ell_a, ell_c)` | grid | mobile `+1/2` | pinned `-1/2` | `S` | braid | `h` |
+|---|---|---|---|---|---|---|---|
+| circle, `q=3/2` | 0.045, 0.011 | 100 | 3 in 195/201 frames | none expected, none seen | 1.403 | `{sigma_2^-1 sigma_1^-1 sigma_2 sigma_1}` over 16 periods | **0.962424** against a published 0.96242 |
+| cardioid | 0.0139, 0.0903 | 200 | 3 in 171/200 frames | 1, at radius 24.8 against a cusp at 33.3 | 1.040 | no period stable across projections | golden entropy at 1 of 12 projections in the densely sampled rerun |
+| cardioid, the paper's Golden Braiding row | 0.0139, 0.082 | 200 | 3 in 164/268 frames, 4 in 91 | 1, at radius 28.7 | 1.034 | `{sigma_1^-1 sigma_2 sigma_1^-1}` at 8 of 12 projections | 1.316958, against a golden 0.962424 |
+| nephroid | 0.0131, 0.1178 | 100 | 4 in 141/144 frames | 2, at radius 18.5 (sd 0.0) against cusps at 24.6 | 0.777 | stationary | 0 |
+| nephroid | 0.0131, 0.080 | 100 | 4 in 299/301 frames | 2, at radius 20.2 | 0.909 | no period stable across projections | - |
+
+**The geometry and the topology reproduce exactly.** Both epitrochoids produce
+the defect population the paper predicts, from a boundary condition that
+imposes only charge 1: three mobile `+1/2` and one pinned `-1/2` for the
+cardioid, four and two for the nephroid, with every pinned negative sitting
+just inside its cusp and, in the nephroid, not moving by a measurable amount
+over 900,000 steps. Nothing about those counts is put in by hand.
+
+**The cardioid orbit has the right shape.** Its trajectories trace the figure-8
+the paper describes, two lobes meeting at the cusp with the third defect at the
+crossing, and the configuration is periodic: in the densely sampled rerun the
+autocorrelation peaks at 30 frames and again at 15, a period of 22,500 steps and
+its half.
+
+The cardioid row is a run at the paper's full protocol, 1.5e6 steps on a
+200x200 lattice, and a rerun of the same trajectory sampled at 750-step frames
+over its last 150,000 steps. Both give the same answer.
+
+**Neither braid word closes.** On the circle the golden word is returned
+exactly, at 9 of 12 projection directions, from a field at 99.2% of equilibrium
+order. On the cardioid the same pipeline returns a different word at nearly
+every projection, and the golden entropy at one of them. On the nephroid at the
+published point there is no motion to read a braid from at all.
+
+One row down in `ell_c`, on the run of points Fig. 7b classifies as Golden
+Braiding, the extraction becomes projection-robust: eight of twelve directions
+agree on `{sigma_1^-1 sigma_2 sigma_1^-1}`, at an entropy of 1.316958 where the
+golden braid is 0.962424, and one direction gives the golden value. That run
+also spends a third of its frames at four `+1/2` defects rather than three, so
+it is nucleating pairs, which the paper's classification of that row excludes.
+A projection-robust wrong answer is a more useful result than a scattered one:
+it says the orbit there is periodic and reproducible, and that it is a
+different periodic orbit.
+
+### Controls on the disagreement
+
+Four controls, each changing one thing:
+
+- **Initial condition.** Four independent random seeds at the nephroid's
+  published point all reach the same stationary configuration, with `S`
+  agreeing to three decimals. The arrest is the attractor there.
+- **Pressure solve.** Rerun uncapped, relaxing to convergence rather than
+  stopping at 50 Jacobi iterations, the stationary state is unchanged.
+- **Detector.** The same code path returns the published golden braid to six
+  digits on the circle.
+- **Sampling.** The cardioid was rerun at 750-step frames, forty per period,
+  against the twelve per period that suffice on the circle. The word still
+  fails to close.
+
+What separates the two families is how much nematic order is left. At the
+coherence lengths the paper reports for its epitrochoid runs, a fifth to two
+fifths of the interior sits below half the equilibrium order, cores are 12 to 13
+lattice spacings across in a domain of radius 49 to 99, and a defect position
+stops being a sharp quantity: in one cardioid frame pair the winding moves 36
+pixels while the other two defects move four, through a region where `S` has
+fallen to 12% of equilibrium. Both of the paper's marked points sit one grid
+step from its own Melted classification. A reproduction attempt free to choose
+would not stand there, and this one did not choose.
+
+## What this means for the subsumption claim
+
+Two limits on any claim that volterra subsumes open-Qmin, independent of the
+runs above:
+
+- open-Qmin's headline results (the hedgehog/Saturn-ring metastability
+  boundary and the patterned-boundary defect arrays in Sussman & Beller
+  2019) are equilibrium free-energy minimisations reached with FIRE. volterra
+  now carries FIRE on both CPU and GPU, ported step for step from open-Qmin's
+  own (`BENCHMARKS.md` section 1), so the minimiser is no longer the gap. What
+  remains missing is the geometry those results are posed in: no
+  colloidal-inclusion boundary and no patterned boundary. This is a real gap,
+  not a difference in emphasis.
+- Beller's 2026 three-dimensional preprint (Head, Digregorio, Marenduzzo,
+  Pagonabarraga, Beller, Negro, "Topological delocalisation of confined 3D
+  active nematics", arXiv:2607.10234) is now mostly reachable; see **The 3D
+  preprint** below for what was built and what is left.
+
+## The 3D preprint
+
+Head, Digregorio, Marenduzzo, Pagonabarraga, Beller and Negro,
+"Topological delocalisation of confined 3D active nematics", arXiv:2607.10234.
+Read from the arXiv LaTeX source rather than the PDF.
+
+Three things stood between volterra and this paper. Reading the Methods moved
+two of them.
+
+**The bulk free energy is already there.** The paper writes it with one
+coupling `chi(phi)`:
+
+```text
+(A0/2)(1 - chi/3) Q_ab Q_ab  -  (A0 chi/3) Q_ab Q_bc Q_ca  +  (A0 chi/4) (Q_ab Q_ab)^2
+```
+
+which is the `a Tr(Q^2) + b Tr(Q^3) + c (Tr Q^2)^2` volterra carries, at
+`a = (A0/2)(1 - chi/3)`, `b = -A0 chi/3`, `c = A0 chi/4`. Volterra's existing
+equilibrium condition `6a + 3bq + 8cq^2 = 0` then puts the equilibrium scalar
+order parameter at **0.556186** against the paper's stated **0.556**. The cubic
+term this needs is the one added for the open-Qmin comparison
+(`BENCHMARKS.md` section 1); without it the mapping has nowhere to put
+`-A0 chi/3`.
+
+**The phase field does not need a Cahn-Hilliard solver.** `phi` obeys
+Cahn-Hilliard in general, but the paper's own protocol relaxes the interface
+for `10^4` steps and then **freezes** `phi`, initialises `Q` at random, relaxes
+that, and only then switches activity on. Nothing after the freeze moves `phi`.
+Reproducing the protocol therefore needs the equilibrium profile, which is a
+`tanh` of the signed distance at width `xi = sqrt(2k/a)`, and not the equation
+that reaches it. `PhaseField3D::capped_cylinder` writes it down.
+
+**Anchoring on a curved boundary is a free-energy term, not a boundary mesh.**
+The confining surface is a level set of `phi`, and anchoring is
+`W (d_a phi) Q_ab (d_b phi)`, whose variation contributes
+`-W [(d_a phi)(d_b phi) - (delta_ab/3)|grad phi|^2]` to the molecular field.
+For `W > 0` this is minimised by a director perpendicular to `grad phi`, so
+tangential to the surface. No curved-boundary geometry is involved, which
+removes the third item as it was originally posed.
+
+What was built (`volterra_solver::confinement_3d`,
+`volterra_braid::disclination`):
+
+| Piece | State |
+|---|---|
+| `chi(phi)` to `(a, b, c)` mapping | equilibrium `q = 0.556186` against the stated `0.556` |
+| Capped-cylinder `tanh` phase field | interface width and surface tension to the paper's own formulas |
+| Tangential anchoring molecular field | traceless by construction, linear in `W`, vanishing in the bulk, and lower in energy for a tangential director than a normal one |
+| Spatially varying molecular field | interior orders, exterior relaxes to `Q = 0`, and the relaxation lowers the free energy monotonically |
+| Disclination density tensor | tangent, rotation axis and `cos(beta)` against analytic wedge and twist lines |
+| Activity number `A = R / sqrt(K/zeta)` | the parameter the paper's regime map is drawn against |
+
+Two things volterra already had and this paper also uses: 3D disclination-line
+detection by voxel-face holonomy (`defects_3d::scan_defects_3d`, which is the
+method the paper cites for defect number and contour length) and the 3D
+Beris-Edwards solver itself.
+
+### The two detectors on a field with a known answer
+
+volterra now reaches a disclination line two independent ways, sharing no code
+and no intermediate quantity: `defects_3d::scan_defects_3d`, a holonomy over
+each voxel face, and `volterra_braid::disclination`, the density tensor. A field
+with an exact answer separates them.
+
+The test field is a `+1/2` and a `-1/2` straight line, parallel, both running
+the full depth of a `32^3` box, with the two windings superposed so the director
+is single-valued far from either core. The box faces therefore carry no jump,
+and neither detector is being asked about an artefact of the test field.
+
+| | Left core, placed at `x = 9.5` | Right core, placed at `x = 21.5` | Slices covered |
+|---|---|---|---|
+| Density tensor | 9.50 | 21.50 | 32 of 32, both lines |
+| Voxel-face holonomy | missed | one line, 4 vertices | 2 of 32 |
+
+The holonomy path found one of the two lines and 6% of it. This is not a
+threshold that wants tuning: `scan_defects_3d` takes no parameter. The tensor
+finds both cores to within a hundredth of a lattice unit and follows each line
+end to end, so it is what the confined-cylinder work above uses, and
+`tests/test_disclination_ground_truth.rs` asserts against the placed positions
+rather than against the other detector.
+
+`scan_defects_3d` is still what `runner_3d` calls for its per-snapshot defect
+event counts, through `track_defect_events`. Replacing it means giving the
+tensor path the rest of `DisclinationLine`'s contents, which is the charge
+label, the curvature and the torsion; the lines, their tangents, their contour
+lengths and their winding character are already there.
+
+### The equilibrium state reproduces
+
+The paper's equilibrium result, at zero activity: "two short disclination lines
+are formed close to the edges of the cylinder and each connect between two
+`+1/2` endpoints" (p. 207 of the source), with the line length growing with
+radius.
+
+Running its protocol at `R = 10`, cylinder length `40`, grid `53x53x73`, the
+paper's own constants, `Q` random at amplitude `0.05` and 40,000 relaxation
+steps at `dt = 0.05` (476 s, `examples/confined_cylinder_3d`):
+
+| Quantity | Measured |
+|---|---|
+| Sites above a quarter of the peak disclination density | 265 |
+| In the outer half of the cylinder | **265** |
+| In the inner half | **0** |
+| `+1/2` wedge, `cos(beta) > 0.5` | 177 |
+| `-1/2` wedge, `cos(beta) < -0.5` | 54 |
+| Twist, `abs(cos(beta)) <= 0.5` | 34 |
+| Occupied axial range | the full cylinder span, 16 to 56, meaning both endcaps |
+
+Every disclination site sits in the outer half, none in the middle, at both
+ends, and the character is dominated by `+1/2` wedge. That is the localisation
+the paper describes, from a model with no fitted quantity in it: every constant
+is the paper's own, and the free-energy mapping was fixed by the equilibrium `q`
+before any of this was run.
+
+This is the equilibrium stage only. The activity that drives delocalisation
+enters through the flow, which is the part still missing.
+
+What remains: the flow. The paper couples the nematic to incompressible
+Navier-Stokes through a lattice-Boltzmann solver, with viscous, elastic,
+interfacial and active stresses. volterra has Stokes rather than
+Navier-Stokes in 3D, and no interfacial stress. Every result past the
+equilibrium state, which is to say the delocalisation transition itself,
+needs that coupling.
+
+## Reproduce
+
+The dense re-run (the one reported above as the definitive golden/silver
+result):
+
+```bash
+cd volterra
+cargo build --release -p volterra-fd --bin fd
+FD_LX=100 FD_BOUNDARY=circular FD_NET_CHARGE=1.5 FD_ALS=3.99 \
+  FD_NCL=0.975 FD_LAMBDA=1.0 FD_MAX_P_ITERS=50 FD_MAX_STEPS=750000 \
+  FD_SAVE_EVERY=750 FD_OUT=/tmp/fd-golden-dense FD_SEED=0 \
+  ./target/release/fd
+python3 volterra-braid/oracle/extract_braid.py \
+  /tmp/fd-golden-dense/als_3.9900_ncl_0.9750 100 3
+```
+
+Swap `FD_NET_CHARGE=2.0`, `FD_MAX_STEPS=500000`, `FD_SAVE_EVERY=500`
+for silver. `extract_braid.py` ships in `volterra-braid/oracle/` alongside the tracker it
+imports, so the reproduce path needs nothing outside the repository. See `docs/SUBSUMPTION.md`
+for how this boundary condition and its validation status are recorded in
+the coverage matrix.

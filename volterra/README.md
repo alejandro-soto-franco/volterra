@@ -13,7 +13,7 @@ users can depend on a single crate.
 `volterra` solves the Beris-Edwards nematohydrodynamics equations for active
 liquid crystals on curved spaces. It is built on the
 [cartan](https://crates.io/crates/cartan) Riemannian geometry library and uses
-discrete exterior calculus (DEC) to discretize covariant differential operators
+discrete exterior calculus (DEC) to discretise covariant differential operators
 on arbitrary triangle meshes. The primary objects of study are the topological
 defects of the nematic order parameter and their dynamics in confined and
 curved geometries.
@@ -24,7 +24,7 @@ The facade re-exports:
 - `volterra-fields`: Q-tensor and velocity field containers.
 - `volterra-solver`: time integration, Stokes solvers, and defect tracking.
 
-Parallel transport of the spin-2 Q-tensor is carried covariantly through the
+Parallel transport of the spin-2 Q-tensor is covariant through the
 Levi-Civita connection, with the transport represented either as SO(d) matrices
 or as geometric-algebra rotors from `cartan-core`.
 

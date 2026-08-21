@@ -8,9 +8,9 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Active nematics simulations and CGPO on the command line.
+/// Active nematics simulations on the command line.
 #[derive(Debug, Parser)]
-#[command(name = "volterra", about = "Active nematics simulations and CGPO")]
+#[command(name = "volterra", about = "Active nematics simulations")]
 pub struct Cli {
     /// Top-level command.
     #[command(subcommand)]
@@ -56,7 +56,7 @@ pub struct CommonArgs {
 impl CommonArgs {
     /// Resolve the output directory, falling back to `./output/<sub>`.
     ///
-    /// `sub` is the subcommand name string, e.g. `"cgpo"` or `"cartesian2d"`.
+    /// `sub` is the subcommand name string, e.g. `"fd"` or `"cartesian2d"`.
     pub fn out_or_default(&self, sub: &str) -> PathBuf {
         self.out_raw
             .clone()
@@ -73,8 +73,8 @@ pub enum RunTarget {
     Cartesian3d(Cartesian3dArgs),
     /// DEC manifold run on a sphere or torus.
     Dec(DecArgs),
-    /// Nephroid-confined CGPO finite-difference solver.
-    Cgpo(CgpoArgs),
+    /// Finite-difference solver on a confined Cartesian domain.
+    Fd(FdArgs),
 }
 
 /// Arguments for a flat 2D Cartesian run.
@@ -137,12 +137,12 @@ pub struct DecArgs {
     pub common: CommonArgs,
 }
 
-/// Arguments for the nephroid-confined CGPO finite-difference solver.
+/// Arguments for the finite-difference solver.
 ///
-/// These mirror the env-var knobs of `cgpo_fd` but are expressed as CLI flags.
+/// These mirror the env-var knobs of `fd` but are expressed as CLI flags.
 /// All physics parameters default to the `Params::new` defaults when absent.
 #[derive(Debug, Args)]
-pub struct CgpoArgs {
+pub struct FdArgs {
     /// Grid width (and height) in lattice units.
     #[arg(long, default_value_t = 64)]
     pub lx: usize,
@@ -171,7 +171,7 @@ pub struct CgpoArgs {
     #[arg(long)]
     pub theta_ic: Option<PathBuf>,
 
-    /// Run the finiteness guard every step, not just at snapshots.
+    /// Check for non-finite values every step, and not only at snapshots.
     ///
     /// When set, any NaN or Inf causes the run to abort with a non-zero exit.
     #[arg(long, default_value_t = false)]
@@ -188,7 +188,7 @@ type DynErr = Box<dyn std::error::Error>;
 /// Execute the parsed CLI command.
 ///
 /// Each `run` subcommand builds the appropriate initial field and parameters,
-/// drives the matching runner from `volterra-solver`, writes its output under
+/// drives the matching runner, writes its output under
 /// the resolved output directory, and prints a one-line summary.
 pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
     match cli.command {
@@ -196,7 +196,7 @@ pub fn dispatch(cli: Cli) -> Result<(), DynErr> {
             RunTarget::Cartesian2d(args) => run_cartesian2d(args),
             RunTarget::Cartesian3d(args) => run_cartesian3d(args),
             RunTarget::Dec(args) => run_dec(args),
-            RunTarget::Cgpo(args) => run_cgpo(args),
+            RunTarget::Fd(args) => run_fd(args),
         },
     }
 }
@@ -210,11 +210,11 @@ fn make_out_dir(dir: &std::path::Path) -> Result<(), DynErr> {
 /// Run the flat 2D Cartesian active nematic.
 fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams;
-    use volterra_fields::{QField2D, ScalarField2D};
-    use volterra_solver::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
+    use volterra_core::{QField2D, ScalarField2D};
+    use volterra_fd::{run_active_nematic_hydro, run_bech, run_dry_active_nematic};
 
     // Start from the deterministic test defaults, optionally merge a TOML config
-    // (ActiveNematicParams derives Deserialize), then let CLI flags win for nx/ny.
+    // (ActiveNematicParams derives `Deserialize`), then let CLI flags win for nx/ny.
     let mut params = ActiveNematicParams::default_test();
     if let Some(cfg) = &args.common.config {
         let text = std::fs::read_to_string(cfg)
@@ -231,7 +231,7 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     make_out_dir(&out)?;
 
     // Each branch produces a per-snapshot (time, mean_s) summary; the stats
-    // structs themselves are not Serialize, so we hand-build the JSON.
+    // structs themselves are not `Serialize`, so we hand-build the JSON.
     let mode = args.mode.as_str();
     let summary: Vec<(f64, f64)> = match mode {
         "dry" => {
@@ -278,8 +278,8 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
 /// and `stats.json` into the output directory.
 fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams3D;
-    use volterra_fields::{QField3D, ScalarField3D};
-    use volterra_solver::runner_3d::{run_bech_3d, run_dry_active_nematic_3d};
+    use volterra_core::{QField3D, ScalarField3D};
+    use volterra_fd::runner_3d::{run_bech_3d, run_dry_active_nematic_3d};
 
     let mut params = ActiveNematicParams3D::default_test();
     if let Some(cfg) = &args.common.config {
@@ -358,7 +358,7 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
     use volterra_core::ActiveNematicParams;
     use volterra_dec::mesh_gen::{icosphere, torus_mesh};
     use volterra_dec::{DecDomain, QFieldDec};
-    use volterra_solver::{run_dry_active_nematic_dec, run_wet_active_nematic_dec};
+    use volterra_dec::{run_dry_active_nematic_dec, run_wet_active_nematic_dec};
 
     let mut params = ActiveNematicParams::default_test();
     if let Some(cfg) = &args.common.config {
@@ -430,25 +430,25 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
     Ok(())
 }
 
-/// Run the nephroid-confined CGPO solver.
+/// Run the finite-difference solver.
 ///
-/// Builds `Params` from `CgpoArgs` (optionally merging a TOML config), constructs
+/// Builds `Params` from `FdArgs` (optionally merging a TOML config), constructs
 /// the nephroid boundary and initial condition, then drives the solver through
-/// `CgpoStep` and `SimulationRunner`. At each snapshot the observer writes Q/u/p
-/// frames via the shared `volterra_cgpo::output::write_state_frame` and checks
+/// `FdStep` and `SimulationRunner`. At each snapshot the observer writes Q/u/p
+/// frames via the shared `volterra_fd::output::write_state_frame` and checks
 /// finiteness. With `--strict`, finiteness is also checked after every step.
-fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
-    use volterra_cgpo::{
+fn run_fd(args: FdArgs) -> Result<(), DynErr> {
+    use volterra_fd::{
         guard::check_finite,
         nephroid_boundary,
         output::write_state_frame,
-        sim_step::CgpoStep,
+        sim_step::FdStep,
         step::State,
-        CgpoError, Params,
+        FdError, Params,
     };
     use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
 
-    // --- build Params ---
+    // build Params
     // Start from TOML config if provided, then apply CLI overrides.
     let mut params = if let Some(cfg) = &args.common.config {
         let text = std::fs::read_to_string(cfg)
@@ -475,12 +475,12 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     let lx = params.lx;
     let ly = params.ly;
 
-    // --- boundary + initial condition ---
+    // boundary + initial condition
     let boundary = nephroid_boundary(lx, ly);
 
     let mut state = State::new(lx, ly);
     if let Some(ref theta_path) = args.theta_ic {
-        // Load theta IC from file (same format as cgpo_fd).
+        // Load theta IC from file (same format as fd).
         let n = lx * ly;
         let contents = std::fs::read_to_string(theta_path)
             .map_err(|e| -> DynErr { format!("read theta IC {}: {e}", theta_path.display()).into() })?;
@@ -503,7 +503,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
             }
         }
     } else {
-        // Deterministic IC: small uniform Q on interior cells (same as test_smoke / test_cgpo_step).
+        // Deterministic IC: small uniform Q on interior cells (same as test_smoke / test_fd_step).
         let amplitude = 0.1 * params.s0;
         for x in 0..lx {
             for y in 0..ly {
@@ -516,17 +516,17 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         }
     }
 
-    // --- output directory ---
-    let out = args.common.out_or_default("cgpo");
-    // Per-run sub-dir matching cgpo_fd layout: <out>/als_<als>_ncl_<ncl>/
+    // output directory
+    let out = args.common.out_or_default("fd");
+    // Per-run sub-dir matching fd layout: <out>/als_<als>_ncl_<ncl>/
     let run_dir = out.join(format!("als_{}_ncl_{}", args.als, args.ncl));
     for sub in &["Q", "u", "p"] {
         make_out_dir(&run_dir.join(sub))?;
     }
 
-    // --- physics + runner ---
+    // physics + runner
     let target_rel_change = 1e-4_f64;
-    let mut physics = CgpoStep {
+    let mut physics = FdStep {
         params: params.clone(),
         boundary: boundary.clone(),
         target_rel_change,
@@ -543,27 +543,27 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     };
     let runner = SimulationRunner { config: cfg };
 
-    // --- observer: writes frames + guards at snapshot cadence ---
-    // On strict mode, also guard after every step (implemented via a wrapper observer).
+    // observer: writes frames and checks finiteness at snapshot cadence
+    // On strict mode, also check after every step, through a wrapper observer.
     let strict = args.strict;
     let boundary_ref = &boundary;
     let run_dir_ref = &run_dir;
 
-    // Track the first guard error across snapshots.
-    let mut guard_err: Option<CgpoError> = None;
+    // Track the first finiteness error across snapshots.
+    let mut guard_err: Option<FdError> = None;
 
-    struct CgpoObserver<'a> {
+    struct FdObserver<'a> {
         run_dir: &'a std::path::Path,
-        boundary: &'a volterra_cgpo::boundary::Boundary,
-        guard_err: &'a mut Option<CgpoError>,
+        boundary: &'a volterra_fd::boundary::Boundary,
+        guard_err: &'a mut Option<FdError>,
     }
 
-    impl<'a> Observer<State> for CgpoObserver<'a> {
+    impl<'a> Observer<State> for FdObserver<'a> {
         fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
             if self.guard_err.is_some() {
                 return;
             }
-            // Finiteness guard
+            // Finiteness check
             let r = check_finite(&state.q, "Q", step)
                 .and_then(|_| check_finite(&state.u, "u", step))
                 .and_then(|_| check_finite(&state.p, "p", step));
@@ -579,12 +579,12 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     }
 
     // For --strict we need to observe every step.  The simplest approach:
-    // set snap_every=1 in the runner if strict, so we guard every step.
+    // set snap_every=1 in the runner if strict, so every step is checked.
     // But we still want to write frames at the original cadence.
     // Instead, use a two-observer approach via a wrapper that calls the
     // real observer at snap cadence and guards-only at every step.
     //
-    // Since SimulationRunner calls observe() per snap_every, the guard is
+    // Since SimulationRunner calls observe() per snap_every, the check is
     // already at snapshot cadence by default. For --strict, we run with
     // snap_every=1 but only write frames at the original cadence.
 
@@ -594,9 +594,9 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         // Strict: observe every step; write frames only at original cadence.
         struct StrictObserver<'a> {
             run_dir: &'a std::path::Path,
-            boundary: &'a volterra_cgpo::boundary::Boundary,
+            boundary: &'a volterra_fd::boundary::Boundary,
             orig_snap_every: usize,
-            guard_err: &'a mut Option<CgpoError>,
+            guard_err: &'a mut Option<FdError>,
         }
         impl<'a> Observer<State> for StrictObserver<'a> {
             fn observe(&mut self, step: usize, _t: f64, state: &State, _stats: &StepStats) {
@@ -633,7 +633,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
         };
         strict_runner.run(&mut state, &mut physics, &mut obs);
     } else {
-        let mut obs = CgpoObserver {
+        let mut obs = FdObserver {
             run_dir: run_dir_ref,
             boundary: boundary_ref,
             guard_err: &mut guard_err,
@@ -646,7 +646,7 @@ fn run_cgpo(args: CgpoArgs) -> Result<(), DynErr> {
     }
 
     println!(
-        "cgpo: {}x{} grid, {} steps, snap_every={}, strict={} -> {}",
+        "fd: {}x{} grid, {} steps, snap_every={}, strict={} -> {}",
         lx,
         ly,
         args.common.steps,

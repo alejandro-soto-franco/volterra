@@ -54,4 +54,4 @@ jobs:
       # Compile-gate the benches (catches API drift without spending time measuring).
       - run: cargo bench --workspace --exclude volterra-py --no-run
       # Execute the release-mode regression assertion.
-      - run: cargo test --release -p volterra-solver --test perf_floor
+      - run: cargo test --release -p volterra-fd --test perf_floor

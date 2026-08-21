@@ -1,0 +1,39 @@
+[package]
+name = "volterra-fd"
+description = "Finite-difference active-nematic solver on confined Cartesian domains (Beris-Edwards + relaxation Stokes)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace     = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+volterra-core = { workspace = true }
+thiserror     = { workspace = true }
+rayon      = { workspace = true }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+rand       = { workspace = true }
+# Carried over with the finite-difference physics absorbed from volterra-solver.
+cartan-core      = { workspace = true }
+cartan-dec       = { workspace = true }
+cartan-geo       = { workspace = true }
+cartan-manifolds = { workspace = true }
+nalgebra         = { workspace = true }
+rustfft          = { workspace = true }
+num-complex      = "0.4"
+
+[dev-dependencies]
+approx = { workspace = true }
+criterion = { workspace = true }
+volterra-braid = { workspace = true }
+[[bench]]
+name = "fd_bench"
+harness = false
+
+[[bench]]
+name = "fd_solver_bench"
+harness = false

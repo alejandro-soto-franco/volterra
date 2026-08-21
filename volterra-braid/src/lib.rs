@@ -29,18 +29,24 @@
 
 pub mod braidword;
 pub mod defect;
+pub mod disclination;
 pub mod entropy;
 pub mod synthetic;
 pub mod track;
 
 pub use braidword::{BraidWord, Generator, extract_braidword};
-pub use defect::{Defect, detect_defects};
+pub use defect::{Defect, detect_defects, detect_defects_winding};
+pub use disclination::{
+    curve_points, linking_number, pairwise_linking,
+    Disclination, DisclinationCurve, DisclinationSite, disclination_density,
+    disclination_lines, disclination_sites,
+};
 pub use entropy::{
     burau_spectral_radius_minus1, is_exact_regime, paper_burau_matrix,
     paper_burau_spectral_radius, paper_burau_word, topological_entropy,
 };
 pub use synthetic::{RealizeOpts, golden_orbit, realize_braid, silver_orbit};
-pub use track::{Worldline, track};
+pub use track::{Worldline, track, track_core};
 
 /// The golden ratio `phi = (1 + sqrt 5) / 2`.
 pub const PHI: f64 = 1.618_033_988_749_895;

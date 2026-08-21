@@ -1,8 +1,8 @@
 //! Fast-tier analytic invariants on the unit sphere.
 //!
-//! These run in the default `cargo test` gate at a single coarse resolution. They assert
+//! These run in the default `cargo test` run at a single coarse resolution. They assert
 //! structural properties that hold for *any* correct discretisation (self-adjointness,
-//! sign-definiteness, kernel content, linearity), so they are cheap regression guards that
+//! sign-definiteness, kernel content, linearity), so they are cheap regression checks that
 //! do not need a mesh-refinement sweep. The `O(h^p)` convergence oracles live in
 //! `test_convergence.rs` behind `#[ignore]`.
 

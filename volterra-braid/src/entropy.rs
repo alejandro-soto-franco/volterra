@@ -29,7 +29,7 @@ use nalgebra::DMatrix;
 /// any pseudo-Anosov braid is well above this: it exceeds 2 on at most four
 /// strands and is conjecturally bounded below by Lehmer's number `~1.17628` in
 /// general. So any spectral radius within `1e-3` of 1 is numerical noise around
-/// a true value of 1, and clamping there never hides a genuine positive entropy.
+/// a true value of 1, and clamping there never hides a positive entropy.
 const DILATATION_TOL: f64 = 1e-3;
 
 /// Topological entropy of `word`: `log` of the dilatation (Burau at `t = -1`).
@@ -41,7 +41,7 @@ const DILATATION_TOL: f64 = 1e-3;
 ///
 /// This returns `log` of the **unreduced Burau spectral radius at `t = -1`**,
 /// which equals the true dilatation `λ` (hence the exact topological entropy
-/// `h = log λ`) only when the braid's invariant foliation is orientable — the
+/// `h = log λ`) only when the braid's invariant foliation is orientable: the
 /// case for the golden (`B_3`) and silver (`B_4`) orbits this crate is built to
 /// certify. For a general braid it is a **Fried lower bound**: `return ≤ h`.
 ///
@@ -68,7 +68,7 @@ pub fn topological_entropy(word: &BraidWord) -> f64 {
 /// The Burau representation is faithful through four strands, so the spectral
 /// radius equals the dilatation there; from five strands on it is unfaithful and
 /// the result is only a Fried lower bound. This is a necessary condition on the
-/// strand count, not a guarantee for a specific word — a `B_3`/`B_4` word whose
+/// strand count, not a guarantee for a specific word: a `B_3`/`B_4` word whose
 /// invariant foliation is non-orientable is still handled exactly by the
 /// unreduced representation, which is why the crate's golden/silver certificates
 /// hold, but callers feeding simulation-extracted words should branch on this.
@@ -123,7 +123,7 @@ fn generator_matrix(n: usize, g: &Generator) -> DMatrix<f64> {
 /// inconsistent sigma_1/sigma_2 labelings (SI.11 disagrees with both the general
 /// Burau formula and SI.16). We reproduce each as written, so the stated products
 /// SI.12 and SI.17 are matched verbatim; the dilatation `|b_max|` -- and hence the
-/// entropy -- is unaffected by the labeling. Tabulated for B_3 and B_4 only (the
+/// entropy -- is unaffected by the labelling. Tabulated for B_3 and B_4 only (the
 /// golden and silver braids); other strand counts use the unreduced-at-`t=-1`
 /// representation via [`burau_spectral_radius_minus1`].
 pub fn paper_burau_matrix(n_strands: usize, g: crate::braidword::Generator) -> DMatrix<f64> {

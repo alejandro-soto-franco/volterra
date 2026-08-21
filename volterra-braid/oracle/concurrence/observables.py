@@ -108,7 +108,7 @@ def line_stretching_entropy(u_frames, dt: float, p0: np.ndarray, p1: np.ndarray,
     return float(h), times, logL
 
 
-# --------------------------------------------------------------------------- #
+#
 def _self_test():
     fails = 0
 

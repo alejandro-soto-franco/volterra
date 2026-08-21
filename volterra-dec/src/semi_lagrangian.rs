@@ -62,6 +62,48 @@ impl SemiLagrangian {
         self.advect_with_params(q, vel, dt, 1.0)
     }
 
+    /// Backward trace and interpolate, with no pullback.
+    ///
+    /// This is the advective transport `Q(x) <- Q(x - u dt)` and nothing else.
+    /// [`Self::advect_with_params`] additionally applies the deformation
+    /// gradient, which realises a Lie or Jaumann derivative and so folds a
+    /// particular flow-coupling closure into the transport. Klein's system
+    /// carries its own closure explicitly, as
+    ///
+    /// ```text
+    /// S = lambda S E + Q omega - omega Q - 2 Tr(Q E) Q
+    /// ```
+    ///
+    /// which is algebraic in the velocity gradient and is applied as a separate
+    /// term. Using the pullback as well would count that coupling twice and
+    /// would replace the reference's closure with a different one. The reason to
+    /// reach for the semi-Lagrangian form here is the Courant condition alone:
+    /// the mesh is graded a thousand to one into the cusp, so an explicit
+    /// `u . grad Q` is unstable there long before accuracy binds, while a
+    /// backward trace is stable at any step.
+    ///
+    /// A departure point outside the mesh keeps the arrival value, which is the
+    /// same fallback [`Self::advect_with_params`] uses. On a no-slip wall the
+    /// velocity vanishes, so the trace from a boundary vertex does not leave.
+    pub fn transport(&self, q: &QFieldDec, vel: &VelocityFieldDec, dt: f64) -> QFieldDec {
+        let nv = self.n_vertices;
+        let mut out = QFieldDec::zeros(nv);
+        for v in 0..nv {
+            let departure = self.rk4_backtrack(self.coords[v], &vel.v, dt);
+            let (tri_idx, bary) = self.locate_point_bvh(departure);
+            if let Some(ti) = tri_idx {
+                let [i0, i1, i2] = self.triangles[ti];
+                let (w0, w1, w2) = bary;
+                out.q1[v] = w0 * q.q1[i0] + w1 * q.q1[i1] + w2 * q.q1[i2];
+                out.q2[v] = w0 * q.q2[i0] + w1 * q.q2[i1] + w2 * q.q2[i2];
+            } else {
+                out.q1[v] = q.q1[v];
+                out.q2[v] = q.q2[v];
+            }
+        }
+        out
+    }
+
     /// Advect with tumbling parameter lambda.
     ///
     /// lambda = 1.0: full Lie derivative (flow-aligning).

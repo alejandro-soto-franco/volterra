@@ -6,11 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme.workspace     = true
 keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-volterra-core    = { path = "../volterra-core",   version = "0.3.0" }
+serde      = { workspace = true }
+volterra-core    = { workspace = true }
 cartan-core      = { workspace = true }
 cartan-manifolds = { workspace = true }
 cartan-dec       = { workspace = true }
@@ -18,6 +20,7 @@ nalgebra         = { workspace = true }
 rand             = { workspace = true }
 delaunator       = "1"
 sprs             = "0.11"
+num-complex      = "0.4"
 serde_json       = { workspace = true }
 
 [dev-dependencies]

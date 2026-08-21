@@ -20,8 +20,8 @@ mod bindings_3d;
 mod braid;
 
 use volterra_core::ActiveNematicParams;
-use volterra_fields::{QField2D, ScalarField2D, VelocityField2D};
-use volterra_solver::{
+use volterra_core::{QField2D, ScalarField2D, VelocityField2D};
+use volterra_fd::{
     BechStats, DefectInfo, SnapStats,
     ch_step_etd,
     k0_convolution,

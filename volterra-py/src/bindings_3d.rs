@@ -15,8 +15,8 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArray4, PyReadonlyArray1, PyReado
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use volterra_core::ActiveNematicParams3D;
-use volterra_fields::{QField3D, ScalarField3D, VelocityField3D};
-use volterra_solver::{BechStats3D, SnapStats3D};
+use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
+use volterra_fd::{BechStats3D, SnapStats3D};
 use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCharge, Sign};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40,7 +40,8 @@ impl PyActiveNematicParams3D {
         a_landau, c_landau, b_landau, lambda_,
         k_l, gamma_l, xi_l, chi_ms,
         kappa_ch, a_ch, b_ch, m_l,
-        chi_a=0.0, b0=1.0, omega_b=1.0, noise_amp=0.0
+        chi_a=0.0, b0=1.0, omega_b=1.0, noise_amp=0.0,
+        epsilon_a=None, e0=None, omega_e=None
     ))]
     fn new(
         nx: usize,
@@ -68,6 +69,10 @@ impl PyActiveNematicParams3D {
         b0: f64,
         omega_b: f64,
         noise_amp: f64,
+        // The electric coupling, defaulted off so an existing call is unchanged.
+        epsilon_a: Option<f64>,
+        e0: Option<f64>,
+        omega_e: Option<f64>,
     ) -> PyResult<Self> {
         let p = ActiveNematicParams3D {
             nx, ny, nz, dx, dt,
@@ -75,6 +80,9 @@ impl PyActiveNematicParams3D {
             a_landau, c_landau, b_landau,
             lambda: lambda_,
             noise_amp, chi_a, b0, omega_b,
+            epsilon_a: epsilon_a.unwrap_or(0.0),
+            e0: e0.unwrap_or(0.0),
+            omega_e: omega_e.unwrap_or(0.0),
             k_l, gamma_l, xi_l, chi_ms,
             kappa_ch, a_ch, b_ch, m_l,
             c0_sp: 0.0,
@@ -669,7 +677,7 @@ fn run_dry_active_nematic_3d_py(
     track_defects: bool,
 ) -> PyResult<(PyQField3D, Vec<PySnapStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, stats) = volterra_solver::run_dry_active_nematic_3d(
+    let (q_final, stats) = volterra_fd::run_dry_active_nematic_3d(
         &q_init.inner,
         &params.inner,
         n_steps,
@@ -698,7 +706,7 @@ fn run_bech_3d_py(
     track_defects: bool,
 ) -> PyResult<(PyQField3D, PyScalarField3D, Vec<PyBechStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, phi_final, stats) = volterra_solver::run_bech_3d(
+    let (q_final, phi_final, stats) = volterra_fd::run_bech_3d(
         &q_init.inner,
         &phi_init.inner,
         &params.inner,

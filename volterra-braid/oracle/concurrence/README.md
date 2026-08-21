@@ -1,7 +1,7 @@
 # Numerical concurrence: volterra DEC solver vs CGPO flow-solver
 
 Implements the comparison specified in
-`docs/superpowers/specs/2026-05-29-numerical-concurrence-volterra-cgpo-design.md`,
+`docs/superpowers/specs/2026-05-29-numerical-concurrence-volterra-fd-design.md`,
 at the paper's known-optimal phase points (arXiv:2503.10880):
 **cardioid → golden** `(ℓ̃a,ℓ̃c)=(0.0139,0.0903)`, 200×200; **nephroid → silver**
 `(0.0128,0.0766)`, 100×100; both 1.5×10⁶ steps.
@@ -35,7 +35,7 @@ uv run observables.py            # double-gyre -> 2 gyres; extensional -> h=lamb
 
 # Generate the CGPO reference runner, then a short smoke (validates Q+u+IC output):
 uv run patch_flow_solver.py
-CGPO_LX=60 CGPO_LY=60 CGPO_MAX_STEPS=2000 uv run --with numpy --with numba flow_solver_run.py
+FD_LX=60 FD_LY=60 FD_MAX_STEPS=2000 uv run --with numpy --with numba flow_solver_run.py
 ```
 
 ## Remaining critical path (the field-level concurrence)

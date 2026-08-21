@@ -9,9 +9,9 @@ Covariant active nematics simulation on Riemannian manifolds, in Rust.
 
 > **Python users:** the PyPI distribution is `volterra-nematic` (`pip install volterra-nematic`), but the Python module is imported as `import volterra`. The name `volterra` was already taken on PyPI.
 
-**volterra** solves the Beris-Edwards nematohydrodynamics equations for active liquid crystals on curved spaces. It is built on [cartan](https://github.com/alejandro-soto-franco/cartan), a Riemannian geometry library, and uses discrete exterior calculus (DEC) to discretize covariant differential operators on arbitrary manifolds.
+**volterra** solves the Beris-Edwards nematohydrodynamics equations for active liquid crystals on curved spaces. It is built on [cartan](https://github.com/alejandro-soto-franco/cartan), a Riemannian geometry library, and uses discrete exterior calculus (DEC) to discretise covariant differential operators on arbitrary manifolds.
 
-The primary objects of study are the topological defects of the nematic order parameter field and their long-term dynamical behavior in confined and curved geometries.
+The primary objects of study are the topological defects of the nematic order parameter field and their long-term dynamical behaviour in confined and curved geometries.
 
 ## Physics
 
@@ -19,7 +19,7 @@ Active nematics are materials composed of self-driven elongated units (collectio
 
 The equations of motion couple Q-tensor dynamics to an incompressible flow field:
 
-```
+```text
 (d/dt + u . nabla) Q - S(W, Q) = Gamma * H
 rho (d/dt + u . nabla) u = -nabla p + eta Delta u + nabla . sigma
 nabla . u = 0
@@ -35,7 +35,7 @@ volterra is designed around three principles:
 
 **Correctness of the geometry.** The Laplacian acting on Q is the Lichnerowicz operator (the Bochner connection Laplacian plus a Riemann curvature correction). The background manifold geometry enters the equations of motion exactly, not as a perturbation. This makes volterra suitable for studying systems where curvature is itself the variable of interest.
 
-**Cache-friendly DEC.** Differential operators are built from DEC on well-centered Delaunay meshes. Well-centered meshes give diagonal Hodge stars, so the full Laplace-Beltrami operator is two sparse {0, +1, -1} matrix-vector products interleaved with diagonal scalings. Simplices are Hilbert-curve reordered for spatial locality. Field arrays use structure-of-arrays layout for SIMD vectorization.
+**Cache-friendly DEC.** Differential operators are built from DEC on well-centred Delaunay meshes. Well-centred meshes give diagonal Hodge stars, so the full Laplace-Beltrami operator is two sparse {0, +1, -1} matrix-vector products interleaved with diagonal scalings. Simplices are Hilbert-curve reordered for spatial locality. Field arrays use structure-of-arrays layout for SIMD vectorisation.
 
 **Ludwig-quality numerics.** Time integration uses at minimum fourth-order Runge-Kutta. The pressure Poisson solve enforces the incompressibility constraint exactly at each step.
 

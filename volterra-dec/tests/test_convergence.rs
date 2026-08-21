@@ -15,7 +15,7 @@
 //! - **Forward Laplace-Beltrami** (`apply_laplace_beltrami(Y_lm) -> l(l+1) Y_lm`) converges
 //!   at ~1.15 in the area-weighted L2 norm (errors 4.98e-2 -> 2.17e-2 -> 1.02e-2 over levels
 //!   2..4); restricting to the valence-6 bulk lifts it to ~1.49. The 1-to-4 icosphere is not
-//!   a well-centered Delaunay mesh, so the raw operator's DEC consistency error does not
+//!   a well-centred Delaunay mesh, so the raw operator's DEC consistency error does not
 //!   reach O(h^2). That test certifies monotone first-order-or-better, which still trips hard
 //!   on a broken stencil. (The Poisson SOLVE reaches full O(h^2) because the stiffness solve
 //!   is exact for the discrete operator; the ~1.15 is a property of the pointwise operator's
@@ -60,7 +60,7 @@ fn laplace_beltrami_second_order_spectrum() {
         errs.push(l2_rel_error(&lap, &expected, &d.dual_areas));
     }
     let order = report("laplace_beltrami_spectrum", &hs, &errs);
-    // Honest threshold: observed order is ~1.15 on the icosphere (see file header). We
+    // Measured threshold: observed order is ~1.15 on the icosphere (see file header). We
     // certify monotone, first-order-or-better convergence -- true here, and still failed
     // hard by a broken stencil (cf. the parked Poisson oracle at order ~0.08).
     assert!(order > 0.9, "Laplace-Beltrami spectral order {order:.3} should be >= 1 (> 0.9)");

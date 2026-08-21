@@ -10,7 +10,7 @@ pub trait PhysicsStep {
     fn step(&mut self, field: &mut Self::Field, t: f64) -> StepStats;
 }
 
-/// Receives snapshots; concrete sinks accumulate stats or write to disk.
+/// Receives snapshots; implementing sinks accumulate stats or write to disk.
 pub trait Observer<F> {
     /// Called at each snapshot point with the current step, time, field, and the
     /// stats of the most recent step (default `StepStats` at step 0).
@@ -31,7 +31,7 @@ pub struct RunConfig {
     /// Always emit a snapshot at the final step, even when `steps % snap_every != 0`.
     ///
     /// The library runners leave this `false` to preserve their exact historical
-    /// snapshot sequences. Output-facing drivers (the CLI, `cgpo_fd`) set it `true`
+    /// snapshot sequences. Output-facing drivers (the CLI, `fd`) set it `true`
     /// so the last simulated state is never silently dropped.
     pub snap_final: bool,
 }
