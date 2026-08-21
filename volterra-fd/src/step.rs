@@ -337,7 +337,7 @@ fn relax_pressure_with_bc(
             );
         }
 
-        // Convergence: rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)
+        // Convergence: rel_change = Σ|p_aux−p| / |1e-7 + Σp_aux|
         // p_aux = old p, p = new p.
         let (sum_diff, sum_old) = if use_parallel(lx, ly) {
             let sd: f64 = state.p_aux.par_iter()
@@ -354,7 +354,7 @@ fn relax_pressure_with_bc(
             let so: f64 = state.p_aux.iter().sum();
             (sd, so)
         };
-        rel_change = sum_diff / (1e-7 + sum_old);
+        rel_change = sum_diff / (1e-7 + sum_old).abs();
 
         p_iters += 1;
     }

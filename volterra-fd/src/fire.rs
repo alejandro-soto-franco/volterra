@@ -125,13 +125,13 @@ impl FireParams {
     /// on volterra's pre-cubic-term landscape, a different energy surface,
     /// so there is no reason it stays optimal on this one. The identical
     /// sweep procedure (`examples/sweep_fire_params_matched.rs`), pushed as
-    /// far past its own swept ranges as the matching open-Qmin sweep was
-    /// (`the matching open-Qmin sweep`), found the CPU
+    /// far past its own swept ranges as the matching open-Qmin sweep was,
+    /// found the CPU
     /// sweep's own plateau near `delta_t_inc=3.5, alpha_dec=0.99` (10 steps
     /// at the literal `1e-3` target). Every point with `alpha_dec` pushed
     /// up near open-Qmin's own `alpha_start=0.99` (`2.2` through `3.5`) sits
     /// close enough to a chaotic bifurcation in FIRE's own adaptive
-    /// timestep rule -- `alpha` barely decaying keeps the dynamics
+    /// timestep rule, since `alpha` barely decaying keeps the dynamics
     /// inertia-dominated, i.e. closer to conservative MD, far longer, and
     /// conservative MD is exponentially sensitive to rounding -- that the
     /// GPU reduction's run-to-run atomic accumulation order (not fixed on

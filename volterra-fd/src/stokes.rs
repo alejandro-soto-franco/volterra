@@ -31,7 +31,7 @@
 //!
 //! After each sweep (Python lines 305–306):
 //! ```text
-//! rel_change = sum(|p_aux - p|) / (1e-7 + sum(p_aux))
+//! rel_change = sum(|p_aux - p|) / abs(1e-7 + sum(p_aux))
 //! ```
 //! where `p_aux` is the **old** p (before the sweep) and `p` is the **new**
 //! p.  The loop continues while `rel_change > target_rel_change` AND
@@ -235,7 +235,7 @@ pub fn relax_pressure_inner_loop(
 ///    - copy `p → p_aux`
 ///    - [`relax_pressure_inner_loop`]
 ///    - BC stub (no-op for now)
-///    - `rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)` (signed denominator sum)
+///    - `rel_change = Σ|p_aux−p| / |1e-7 + Σp_aux|`
 ///    - stop when the iteration cap is reached
 ///      (`max_p_iters >= 0 && p_iters >= max_p_iters`)
 ///      OR the sweep has converged (`p_iters > 0 && rel_change <= target_rel_change`);
@@ -244,10 +244,12 @@ pub fn relax_pressure_inner_loop(
 /// # Convergence-test convention (exact Python match)
 ///
 /// ```text
-/// rel_change = sum(|p_aux - p|) / (1e-7 + sum(p_aux))
+/// rel_change = sum(|p_aux - p|) / abs(1e-7 + sum(p_aux))
 /// ```
 /// `p_aux` is the pre-sweep (old) value; `p` is the post-sweep (new) value.
-/// Note `sum(p_aux)` is a **signed** sum, not sum-of-abs.
+/// The denominator is `|1e-7 + Σp_aux|`: Python wraps the whole sum in
+/// `np.abs`, and the sum turns negative within the first few sweeps here, so
+/// dropping it makes `rel_change` negative and stops the loop at once.
 /// Iteration continues while `rel_change > target_rel_change` AND the
 /// iteration cap is not yet reached.  `max_p_iters < 0` means uncapped.
 ///
@@ -302,7 +304,7 @@ pub fn relax_pressure(
         // Inner Jacobi sweep: read p_aux, write p
         relax_pressure_inner_loop(p, p_aux, rhs, bounds);
 
-        // Convergence test: rel_change = Σ|p_aux−p| / (1e-7 + Σp_aux)
+        // Convergence test: rel_change = Σ|p_aux−p| / |1e-7 + Σp_aux|
         let (sum_diff, sum_old) = if use_parallel(lx, ly) {
             let sd: f64 = p_aux.par_iter().zip(p.par_iter()).map(|(a, b)| (a - b).abs()).sum();
             let so: f64 = p_aux.par_iter().sum();
@@ -312,7 +314,7 @@ pub fn relax_pressure(
             let so: f64 = p_aux.iter().sum();
             (sd, so)
         };
-        rel_change = sum_diff / (1e-7 + sum_old);
+        rel_change = sum_diff / (1e-7 + sum_old).abs();
 
         p_iters += 1;
     }

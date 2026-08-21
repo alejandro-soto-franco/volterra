@@ -17,6 +17,7 @@
 //! | `FD_THETA_IC`   | (unset)                                      | Path to flat theta grid (optional) |
 //! | `FD_BOUNDARY`   | nephroid                                     | `circular`, `cardioid`, `nephroid`, `trefoiloid` |
 //! | `FD_NET_CHARGE` | 1.0                                          | Boundary winding charge q          |
+//! | `FD_D`          | 0.99                                         | Cusp regularisation of the epitrochoid |
 //! | `FD_ELL_A`      | (unset)                                      | Dimensionless active length; overrides `FD_ALS`  |
 //! | `FD_ELL_C`      | (unset)                                      | Dimensionless coherence length; overrides `FD_NCL` |
 //!
@@ -36,7 +37,7 @@ use rand::{RngExt, SeedableRng};
 use serde_json::json;
 
 use volterra_fd::{
-    boundary::{cardioid_boundary, circular_boundary, nephroid_boundary, trefoiloid_boundary},
+    boundary::{circular_boundary, epitrochoid_boundary, Epitrochoid, EPITROCHOID_D},
     index::{si, vi},
     output::write_state_frame,
     sim_step::FdStep,
@@ -230,11 +231,12 @@ fn main() -> FdResult<()> {
     // build boundary first: the dimensionless-length conversion needs its area
     println!("Building {boundary_kind} boundary (lx={lx})...");
     let t_bnd = Instant::now();
+    let d = env_f64("FD_D", EPITROCHOID_D);
     let boundary = match boundary_kind.as_str() {
         "circular" => circular_boundary(lx, ly),
-        "cardioid" => cardioid_boundary(lx, ly),
-        "nephroid" => nephroid_boundary(lx, ly),
-        "trefoiloid" => trefoiloid_boundary(lx, ly),
+        "cardioid" => epitrochoid_boundary(lx, ly, Epitrochoid { q: 1.5, d }),
+        "nephroid" => epitrochoid_boundary(lx, ly, Epitrochoid { q: 2.0, d }),
+        "trefoiloid" => epitrochoid_boundary(lx, ly, Epitrochoid { q: 2.5, d }),
         other => {
             return Err(FdError::Config(format!(
                 "unknown FD_BOUNDARY={other}, expected 'circular', 'cardioid', \
