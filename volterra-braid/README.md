@@ -39,7 +39,7 @@ assert!((BraidWord::from_codes(3, &[-2, 1]).topological_entropy() - GOLDEN_H).ab
 
 Run the demo: `cargo run --release --example braid_demo -p volterra-braid`.
 
-## Analytic gates
+## Analytic references
 
 - **golden braid** (cardioid) `{sigma_2^-1 sigma_1}` on 3 strands:
   `h = 2 log phi ≈ 0.96242` (dilatation `phi^2`).
@@ -56,7 +56,7 @@ The `volterra` PyO3 extension exposes `BraidWord` plus the plain-list functions
 `braid_detect_defects` / `braid_word_from_frames` / `braid_topological_entropy`.
 The `oracle/` directory holds `braid_tracker_v2.py` (a cleaned reimplementation of
 the published CGPO tracker) and `cross_check.py` (a Rust-vs-Python differential
-gate). See `oracle/README.md`.
+check). See `oracle/README.md`.
 
 ## License
 

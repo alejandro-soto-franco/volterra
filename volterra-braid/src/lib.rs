@@ -46,7 +46,7 @@ pub use entropy::{
     paper_burau_spectral_radius, paper_burau_word, topological_entropy,
 };
 pub use synthetic::{RealizeOpts, golden_orbit, realize_braid, silver_orbit};
-pub use track::{Worldline, track};
+pub use track::{Worldline, track, track_core};
 
 /// The golden ratio `phi = (1 + sqrt 5) / 2`.
 pub const PHI: f64 = 1.618_033_988_749_895;
