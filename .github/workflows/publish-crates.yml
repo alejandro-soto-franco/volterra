@@ -1,24 +1,31 @@
-# crates.io publishing, kept OUT of release.yml.
-#
-# release.yml builds and publishes the Python wheels, and PyPI trusted
-# publishing is bound to that workflow's FILENAME. Renaming or folding it would
-# break the publisher until it is repointed by hand on pypi.org, which cannot be
-# done from this repository. So the two publishing paths stay separate.
-#
-# Order is the dependency order: core, then braid, then the two backends, then
-# the facade. `volterra-py` is excluded on purpose, since a pyo3 extension is
-# consumed as a wheel rather than as a Cargo dependency.
 name: Publish to crates.io
 
+# Fired by a release tag, or run by hand against one. Publishes every
+# publishable workspace member in dependency order, skipping any whose version
+# is already on crates.io, so a re-fire after a partial run is safe.
+#
+# This stays a separate file from `release.yml`. That workflow builds the
+# wheels, and PyPI trusted publishing is bound to its FILENAME, so folding the
+# two would break the publisher until it is repointed by hand on pypi.org.
+#
+# A release that publishes nothing is a failed release rather than a green
+# no-op, so the preflight checks and the final tally both treat "nothing
+# happened" as an error.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish, for a re-fire after a partial failure"
-        required: true
+        description: "Tag to publish, for a re-fire after a partial run"
+        required: false
         type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   publish:
@@ -30,23 +37,133 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+
+      # Dependency-ordered: a crate appears only after every workspace crate it
+      # depends on. `volterra-braid` precedes `volterra-fd` because fd holds a
+      # dev-dependency on it, which cargo resolves at publish time.
+      - name: Release order
+        id: order
+        run: |
+          set -euo pipefail
+          {
+            echo 'crates<<EOF'
+            cat <<'ORDER'
+          volterra-core
+          volterra-braid
+          volterra-dec
+          volterra-fd
+          volterra
+          ORDER
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
+      # A crate added to the workspace but forgotten here would never ship, and
+      # a crate left here after being dissolved would abort the run. Neither
+      # should be discovered during a release.
+      - name: Preflight - release list matches the workspace
+        run: |
+          set -euo pipefail
+          cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.publish == null) | .name' \
+            | sort > /tmp/workspace-publishable.txt
+          printf '%s\n' "${{ steps.order.outputs.crates }}" | sed '/^$/d' | sort > /tmp/release-list.txt
+
+          if ! diff -u /tmp/workspace-publishable.txt /tmp/release-list.txt > /tmp/list-diff.txt; then
+            echo "The release order does not match the workspace's publishable members." >&2
+            echo "A '-' line is publishable but missing here, so it would never ship." >&2
+            echo "A '+' line is listed here but not publishable, so it would abort the run." >&2
+            echo >&2
+            cat /tmp/list-diff.txt >&2
+            exit 1
+          fi
+          echo "Release order covers all $(wc -l < /tmp/release-list.txt) publishable members."
+
+      # Without this, tagging v0.5.0 while the manifests still read 0.4.0 marks
+      # every crate as already published, skips them all, and reports success
+      # having released nothing.
+      - name: Preflight - tag matches a crate version
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
+        run: |
+          set -euo pipefail
+          ref="${{ inputs.tag || github.ref }}"
+          tag="${ref#refs/tags/}"
+          tag="${tag#v}"
+          versions=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.publish == null) | "\(.name) \(.version)"')
+
+          if ! echo "$versions" | awk '{print $2}' | grep -qx "$tag"; then
+            echo "Tag v$tag matches no publishable crate version, so this would publish nothing." >&2
+            echo "Bump the manifests to $tag, or retag to match the tree:" >&2
+            echo "$versions" | sed 's/^/  /' >&2
+            exit 1
+          fi
+          echo "Tag v$tag matches at least one crate version."
+
+      # A tag can point at a commit that never went through CI on main, and
+      # cargo publish's own verification builds each crate without running its
+      # tests. `volterra-py` is excluded to match CI: it needs a Python
+      # interpreter and ships as a wheel.
+      - name: Test the workspace before publishing
+        run: cargo test --workspace --exclude volterra-py
+
+      - name: Check the registry token is present
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "CARGO_REGISTRY_TOKEN is not set, so nothing can be published." >&2
+            echo "Add it as a secret on the 'crates-io' environment:" >&2
+            echo "  Settings > Environments > crates-io > Add environment secret" >&2
+            echo "Tokens come from https://crates.io/settings/tokens with the publish-update scope." >&2
+            exit 1
+          fi
+          echo "Token present."
+
       - name: Publish in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          for crate in volterra-core volterra-braid volterra-dec volterra-fd volterra; do
-            echo "::group::$crate"
-            # An already-published version is not a failure: a re-fire after a
-            # partial run has to be able to skip what already landed.
-            if cargo publish -p "$crate"; then
-              echo "$crate published"
+
+          published=0
+          skipped=0
+          summary=""
+
+          while read -r crate; do
+            [ -n "$crate" ] || continue
+            echo "::group::publish $crate"
+            if cargo publish -p "$crate" 2>&1 | tee /tmp/publish.log; then
+              echo "$crate published."
+              published=$((published + 1))
+              summary="${summary}| \`${crate}\` | published |"$'\n'
+            elif grep -qiE "already (exists|uploaded)|crate version .* is already" /tmp/publish.log; then
+              echo "$crate is already on crates.io at this version, skipping."
+              skipped=$((skipped + 1))
+              summary="${summary}| \`${crate}\` | already on crates.io |"$'\n'
             else
-              cargo search "$crate" --limit 1
-              echo "$crate failed or was already published, check the line above"
+              echo "::endgroup::"
+              echo "$crate failed to publish for a reason other than a duplicate version." >&2
               exit 1
             fi
-            # crates.io needs a moment to index before a dependent resolves.
-            sleep 45
             echo "::endgroup::"
-          done
+          done <<< "${{ steps.order.outputs.crates }}"
+
+          {
+            echo "## crates.io release"
+            echo
+            echo "| crate | outcome |"
+            echo "|---|---|"
+            printf '%s' "$summary"
+            echo
+            echo "**$published published, $skipped already present.**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$published" -eq 0 ]; then
+            echo "Every crate was already on crates.io, so this release published nothing." >&2
+            echo "Bump the workspace version before tagging." >&2
+            exit 1
+          fi
+
+          echo "Published $published crate(s), skipped $skipped already present."

@@ -8,6 +8,10 @@ license.workspace   = true
 repository.workspace = true
 readme.workspace     = true
 
+# Shipped as a wheel from `release.yml`, never as a registry crate, so it
+# stays out of the crates.io release list.
+publish = false
+
 # cdylib is required for PyO3 extension modules.
 [lib]
 name = "volterra"
