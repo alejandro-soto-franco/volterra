@@ -647,9 +647,9 @@ impl StokesSolverDec {
         // Note that the two Dirichlet solves already impose psi = 0 and
         // omega = 0, which is no flux plus the Lions free-slip condition the
         // reference derives for this system. This zeroing therefore adds a third
-        // condition the continuum problem does not carry, and it is retained for
-        // continuity with earlier runs rather than because the physics asks for
-        // it. See the plan under `the project plan`.
+        // condition the continuum problem does not impose, and it is retained
+        // for continuity with earlier runs rather than because the physics asks
+        // for it.
         for &bv in &self.no_slip_vertices {
             vel.v[bv] = [0.0, 0.0, 0.0];
         }

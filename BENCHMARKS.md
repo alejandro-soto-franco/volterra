@@ -445,7 +445,7 @@ thirty-two threads is slower than sixteen. The kernel is bandwidth-bound, which
 is what the GPU roofline concludes for the same physics.
 
 **Every row in this table was measured on an idle box.**
-`the benchmark launcher` waits for the one-minute load average
+The benchmark launcher waits for the one-minute load average
 to hold under 3.0 across six consecutive checks before starting and re-checks
 between rows; it began this run at load 0.23. An earlier attempt at these CPU
 rows was taken while four unrelated jobs were on the machine at load 44, and

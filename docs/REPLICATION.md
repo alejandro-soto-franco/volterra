@@ -470,8 +470,7 @@ transcribed, and agrees with the Rust frame for frame.
 
 Fig. 7b and 7d classify each `(ell_a, ell_c)` on a grid, and mark the two
 snapshot parameters with a box. Reading those panels by eye is unreliable, so
-they were extracted to data (`the extraction data`, 250 points on an
-8x14, 9x10 and 8x6 grid, each dot matched against the legend swatches sampled
+they were extracted to data (250 points on an 8x14, 9x10 and 8x6 grid, each dot matched against the legend swatches sampled
 from the same render). Both marked points are braiding points in the paper's
 own classification, and both sit at the top of their region:
 
