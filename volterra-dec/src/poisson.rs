@@ -23,6 +23,12 @@ use cartan_dec::Operators;
 use nalgebra::DVector;
 use sprs::CsMat;
 
+use crate::ichol::IChol;
+
+/// A preconditioner application: the incomplete Cholesky when one was built,
+/// diagonal scaling when it was not.
+type Preconditioner<'a> = Box<dyn Fn(&[f64]) -> Vec<f64> + 'a>;
+
 /// Precomputed symmetric stiffness and preconditioner for repeated Poisson solves.
 ///
 /// Assembled once and reused for each CG solve. This is the recommended path when solving
@@ -55,6 +61,36 @@ pub struct PoissonSolver {
     dirichlet_vertices: Vec<usize>,
     /// Boolean Dirichlet mask, length `n`.
     is_dirichlet: Vec<bool>,
+    /// Zero-fill incomplete Cholesky factor of the CG operator, when one could
+    /// be built, and `None` when it could not, which falls the solve back to
+    /// `inv_diag`.
+    ///
+    /// The operator is fixed for the life of the solver, so this is one
+    /// factorisation for a whole run against two triangular solves per
+    /// iteration. On the lattice-matched nephroid the biharmonic's two Poisson
+    /// solves were 415 seconds of a 416 second run under Jacobi alone.
+    ichol: Option<IChol>,
+}
+
+/// The operator the conjugate gradient applies, as triples: the stiffness with
+/// Dirichlet rows and columns eliminated and a unit diagonal put back on them.
+/// This is what `apply_a` computes, so it is what a preconditioner has to
+/// approximate.
+fn cg_operator_triples(
+    s: &CsMat<f64>,
+    is_dirichlet: &[bool],
+    f: &mut dyn FnMut(usize, usize, f64),
+) {
+    for (&v, (r, c)) in s.iter() {
+        if !is_dirichlet[r] && !is_dirichlet[c] {
+            f(r, c, v);
+        }
+    }
+    for (i, &d) in is_dirichlet.iter().enumerate() {
+        if d {
+            f(i, i, 1.0);
+        }
+    }
 }
 
 impl PoissonSolver {
@@ -71,7 +107,8 @@ impl PoissonSolver {
         let s = full_stiffness(&ops.laplace_beltrami, &star0);
         let is_dirichlet = vec![false; n];
         let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
-        Ok(Self { n, s, inv_diag, star0, dirichlet_vertices: Vec::new(), is_dirichlet })
+        let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, f));
+        Ok(Self { n, s, inv_diag, star0, dirichlet_vertices: Vec::new(), is_dirichlet, ichol })
     }
 
     /// Build the solver with Dirichlet ψ = 0 boundary conditions.
@@ -91,6 +128,7 @@ impl PoissonSolver {
             is_dirichlet[d] = true;
         }
         let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
+        let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, f));
         Ok(Self {
             n,
             s,
@@ -98,7 +136,30 @@ impl PoissonSolver {
             star0,
             dirichlet_vertices: dirichlet_vertices.to_vec(),
             is_dirichlet,
+            ichol,
         })
+    }
+
+    /// The preconditioner to drive the conjugate gradient with: the incomplete
+    /// Cholesky when one was built, and diagonal scaling when it was not.
+    fn precond(&self) -> Preconditioner<'_> {
+        match &self.ichol {
+            Some(ic) => Box::new(move |r: &[f64]| ic.apply(r)),
+            None => Box::new(move |r: &[f64]| {
+                (0..self.n).map(|i| self.inv_diag[i] * r[i]).collect()
+            }),
+        }
+    }
+
+    /// Whether the incomplete Cholesky was built, and the shift it needed.
+    ///
+    /// Reported so a run can record which preconditioner it actually used
+    /// rather than which one it asked for.
+    pub fn preconditioner(&self) -> (bool, f64) {
+        match &self.ichol {
+            Some(ic) => (true, ic.shift),
+            None => (false, 0.0),
+        }
     }
 
     /// Apply the CG operator `A`: `S` on the interior, identity on Dirichlet rows.
@@ -123,6 +184,67 @@ impl PoissonSolver {
         y
     }
 
+    /// Apply the raw stiffness `S`, with no Dirichlet masking.
+    ///
+    /// [`Self::apply_a`] eliminates the Dirichlet columns, which is right for the
+    /// homogeneous solve and wrong for lifting a prescribed boundary value,
+    /// where the coupling `S_IB g_B` is exactly the term wanted.
+    fn apply_s_raw(&self, x: &[f64]) -> Vec<f64> {
+        let mut y = vec![0.0f64; self.n];
+        for (&v, (r, c)) in self.s.iter() {
+            y[r] += v * x[c];
+        }
+        y
+    }
+
+    /// Solve `Delta psi = rhs` with `psi = g` on the Dirichlet set.
+    ///
+    /// [`Self::solve`] fixes `psi = 0` there. Static condensation lifts a
+    /// prescribed value instead: writing `psi = psi_I + g_B` with `g_B` extended
+    /// by zero into the interior,
+    ///
+    /// ```text
+    ///   S_II psi_I = -M_I rhs_I - (S g_B)_I
+    /// ```
+    ///
+    /// which is the homogeneous system this solver already assembles, with the
+    /// coupling moved to the right-hand side. `g` is a full-length vector and
+    /// only its Dirichlet entries are read.
+    pub fn solve_with_boundary(
+        &self,
+        rhs: &DVector<f64>,
+        g: &[f64],
+        tol: f64,
+    ) -> DVector<f64> {
+        assert_eq!(rhs.len(), self.n);
+        assert_eq!(g.len(), self.n);
+        assert!(
+            !self.dirichlet_vertices.is_empty(),
+            "solve_with_boundary needs a Dirichlet set"
+        );
+        let mut lift = vec![0.0f64; self.n];
+        for &d in &self.dirichlet_vertices {
+            lift[d] = g[d];
+        }
+        let coupling = self.apply_s_raw(&lift);
+        let mut b: Vec<f64> = (0..self.n)
+            .map(|i| -self.star0[i] * rhs[i] - coupling[i])
+            .collect();
+        for &d in &self.dirichlet_vertices {
+            b[d] = 0.0;
+        }
+        let pc = self.precond();
+        let (mut x, _) =
+            pcg_solve_from_pc(|q| self.apply_a(q), &pc, &b, self.n, false, None, tol);
+        for &d in &self.dirichlet_vertices {
+            x[d] = 0.0;
+        }
+        for i in 0..self.n {
+            x[i] += lift[i];
+        }
+        DVector::from_vec(x)
+    }
+
     /// Solve for `psi` with `-apply_laplace_beltrami(psi) = rhs`, by Jacobi-preconditioned CG.
     ///
     /// `apply_laplace_beltrami` is `L = -Delta` (positive), so this returns `psi` with
@@ -140,6 +262,62 @@ impl PoissonSolver {
     ///
     /// **Dirichlet mode**: the RHS is forced to 0 at Dirichlet DOFs and the solution is 0
     /// there exactly.
+    /// Solve, starting from `x0` and stopping at `tol`, returning the iterations.
+    ///
+    /// See [`pcg_solve_from`]. The gauge fix and the Dirichlet rows are applied
+    /// exactly as in [`Self::solve`], so the two differ only in where the
+    /// iteration starts and where it stops.
+    pub fn solve_from(
+        &self,
+        rhs: &DVector<f64>,
+        x0: Option<&[f64]>,
+        tol: f64,
+    ) -> (DVector<f64>, usize) {
+        assert_eq!(rhs.len(), self.n);
+        let closed = self.dirichlet_vertices.is_empty();
+        let mut b: Vec<f64> = (0..self.n).map(|i| -self.star0[i] * rhs[i]).collect();
+        if closed {
+            let mean = b.iter().sum::<f64>() / self.n as f64;
+            for v in b.iter_mut() {
+                *v -= mean;
+            }
+        } else {
+            for &d in &self.dirichlet_vertices {
+                b[d] = 0.0;
+            }
+        }
+        let pc = self.precond();
+        let (mut x, its) = pcg_solve_from_pc(
+            |p| self.apply_a(p),
+            &pc,
+            &b,
+            self.n,
+            closed,
+            x0,
+            tol,
+        );
+        if closed {
+            let mean = x.iter().sum::<f64>() / self.n as f64;
+            for v in x.iter_mut() {
+                *v -= mean;
+            }
+        } else {
+            for &d in &self.dirichlet_vertices {
+                x[d] = 0.0;
+            }
+        }
+        (DVector::from_vec(x), its)
+    }
+
+    /// The dual-area mass diagonal the right-hand side is weighted by.
+    ///
+    /// Exposed so a force-driven solve can convert a nodal functional into the
+    /// pointwise source `solve` expects, which is what keeps the resulting
+    /// operator symmetric. See `StokesSolverDec::solve_force_warm`.
+    pub fn mass_diagonal(&self) -> &[f64] {
+        &self.star0
+    }
+
     pub fn solve(&self, rhs: &DVector<f64>) -> DVector<f64> {
         assert_eq!(rhs.len(), self.n);
         let closed = self.dirichlet_vertices.is_empty();
@@ -158,7 +336,9 @@ impl PoissonSolver {
             }
         }
 
-        let mut x = pcg_solve(|p| self.apply_a(p), &self.inv_diag, &b, self.n, closed);
+        let pc = self.precond();
+        let (mut x, _) =
+            pcg_solve_from_pc(|p| self.apply_a(p), &pc, &b, self.n, closed, None, 1e-10);
 
         if closed {
             let mean = x.iter().sum::<f64>() / self.n as f64;
@@ -194,6 +374,54 @@ pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
     n: usize,
     project_kernel: bool,
 ) -> Vec<f64> {
+    pcg_solve_from(apply, inv_diag, b, n, project_kernel, None, 1e-10).0
+}
+
+/// The same iteration started from a supplied iterate and stopped at a supplied
+/// tolerance, returning the count.
+///
+/// A time-stepping caller solves this system once per step with a right-hand
+/// side that moves by order `dt`, so the previous solution is a far better
+/// starting point than zero. Starting cold repeats the whole descent every step,
+/// which on a graded mesh is where nearly all of the run time goes.
+pub(crate) fn pcg_solve_from<F: Fn(&[f64]) -> Vec<f64>>(
+    apply: F,
+    inv_diag: &[f64],
+    b: &[f64],
+    n: usize,
+    project_kernel: bool,
+    x0: Option<&[f64]>,
+    tol: f64,
+) -> (Vec<f64>, usize) {
+    pcg_solve_from_pc(
+        apply,
+        &|r: &[f64]| (0..n).map(|i| inv_diag[i] * r[i]).collect(),
+        b,
+        n,
+        project_kernel,
+        x0,
+        tol,
+    )
+}
+
+/// The same iteration with an arbitrary symmetric positive definite
+/// preconditioner `M^{-1}`, given as `precond`.
+///
+/// The preconditioner has to be symmetric and positive definite or the search
+/// directions stop being conjugate and the method is no longer the conjugate
+/// gradient. Diagonal scaling satisfies that trivially; an incomplete Cholesky
+/// satisfies it because `(L L^T)^{-1}` is symmetric positive definite whenever
+/// `L` has a positive diagonal, which the factorisation enforces by refusing a
+/// non-positive pivot.
+pub(crate) fn pcg_solve_from_pc<F: Fn(&[f64]) -> Vec<f64>>(
+    apply: F,
+    precond: &dyn Fn(&[f64]) -> Vec<f64>,
+    b: &[f64],
+    n: usize,
+    project_kernel: bool,
+    x0: Option<&[f64]>,
+    tol: f64,
+) -> (Vec<f64>, usize) {
     let demean = |v: &mut [f64]| {
         let m = v.iter().sum::<f64>() / n as f64;
         for x in v.iter_mut() {
@@ -201,12 +429,20 @@ pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
         }
     };
 
-    let mut x = vec![0.0f64; n];
-    let mut r = b.to_vec();
+    let mut x = match x0 {
+        Some(v) if v.len() == n => v.to_vec(),
+        _ => vec![0.0f64; n],
+    };
+    let mut r = if x0.is_some() {
+        let ax = apply(&x);
+        (0..n).map(|i| b[i] - ax[i]).collect()
+    } else {
+        b.to_vec()
+    };
     if project_kernel {
         demean(&mut r);
     }
-    let mut z: Vec<f64> = (0..n).map(|i| inv_diag[i] * r[i]).collect();
+    let mut z: Vec<f64> = precond(&r);
     if project_kernel {
         demean(&mut z);
     }
@@ -214,10 +450,14 @@ pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
     let mut rz = dot(&r, &z);
 
     let bnorm = dot(b, b).sqrt().max(1e-300);
-    let tol = 1e-10;
     let max_iter = 10 * n + 100;
+    if dot(&r, &r).sqrt() <= tol * bnorm {
+        return (x, 0);
+    }
 
+    let mut used = 0usize;
     for _ in 0..max_iter {
+        used += 1;
         let ap = apply(&p);
         let denom = dot(&p, &ap);
         if denom.abs() < 1e-300 {
@@ -234,7 +474,7 @@ pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
         if dot(&r, &r).sqrt() <= tol * bnorm {
             break;
         }
-        let mut z_new: Vec<f64> = (0..n).map(|i| inv_diag[i] * r[i]).collect();
+        let mut z_new: Vec<f64> = precond(&r);
         if project_kernel {
             demean(&mut z_new);
         }
@@ -245,7 +485,7 @@ pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
         }
         rz = rz_new;
     }
-    x
+    (x, used)
 }
 
 /// One-shot convenience: factorise and solve in one call.
@@ -311,6 +551,66 @@ mod tests {
     use super::*;
     use cartan_dec::mesh::FlatMesh;
     use cartan_manifolds::euclidean::Euclidean;
+
+    /// The incomplete Cholesky has to solve the same system Jacobi does, and in
+    /// fewer iterations, or there is no reason to carry it.
+    ///
+    /// A unit square with Dirichlet edges is the shape the confined stream
+    /// function actually solves on, and the gain grows with the mesh diameter,
+    /// so a small grid understates it rather than flattering it.
+    #[test]
+    fn the_incomplete_cholesky_beats_jacobi_and_lands_in_the_same_place() {
+        let mesh = FlatMesh::unit_square_grid(24);
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+        // Dirichlet on the boundary of the grid, which is what a confined solve has.
+        let edge: Vec<usize> = (0..nv)
+            .filter(|&i| {
+                let v = mesh.vertex(i);
+                v[0].abs() < 1e-9 || v[1].abs() < 1e-9
+                    || (v[0] - 1.0).abs() < 1e-9 || (v[1] - 1.0).abs() < 1e-9
+            })
+            .collect();
+        assert!(!edge.is_empty(), "grid has a boundary");
+        let solver = PoissonSolver::with_dirichlet(&ops, &edge).unwrap();
+        let (built, shift) = solver.preconditioner();
+        assert!(built, "no incomplete Cholesky was built");
+
+        let rhs = DVector::from_fn(nv, |i, _| (i as f64 * 0.37).sin());
+        let (x_ic, its_ic) = solver.solve_from(&rhs, None, 1e-10);
+
+        // The same system, driven by the diagonal alone.
+        let closed = false;
+        let mut b: Vec<f64> = (0..nv).map(|i| -solver.star0[i] * rhs[i]).collect();
+        for &d in &edge {
+            b[d] = 0.0;
+        }
+        let (mut x_j, its_j) = pcg_solve_from(
+            |p| solver.apply_a(p),
+            &solver.inv_diag,
+            &b,
+            nv,
+            closed,
+            None,
+            1e-10,
+        );
+        for &d in &edge {
+            x_j[d] = 0.0;
+        }
+
+        // Same answer, to the tolerance both were asked for.
+        let num: f64 = (0..nv).map(|i| (x_ic[i] - x_j[i]).powi(2)).sum::<f64>().sqrt();
+        let den: f64 = (0..nv).map(|i| x_j[i] * x_j[i]).sum::<f64>().sqrt().max(1e-300);
+        assert!(num / den < 1e-6, "the two preconditioners disagree by {}", num / den);
+
+        // And fewer iterations. Two triangular solves cost about as much as the
+        // matvec, so the count has to fall by more than a factor of two before
+        // the factorisation pays for itself at all.
+        assert!(
+            (its_ic as f64) * 2.0 < its_j as f64,
+            "incomplete Cholesky took {its_ic} iterations against Jacobi's {its_j}, shift {shift}"
+        );
+    }
 
     #[test]
     fn poisson_zero_rhs() {
