@@ -6,6 +6,7 @@ edition.workspace   = true
 rust-version.workspace = true
 license.workspace   = true
 repository.workspace = true
+readme.workspace     = true
 
 # cdylib is required for PyO3 extension modules.
 [lib]
@@ -13,9 +14,9 @@ name = "volterra"
 crate-type = ["cdylib"]
 
 [dependencies]
-volterra-core   = { path = "../volterra-core",   version = "0.3.0" }
-volterra-fd = { path = "../volterra-fd", version = "0.3.0" }
-volterra-braid  = { path = "../volterra-braid",  version = "0.3.0" }
+volterra-core   = { workspace = true }
+volterra-fd = { workspace = true }
+volterra-braid  = { workspace = true }
 cartan-geo      = { workspace = true }
 pyo3            = { workspace = true, features = ["extension-module"] }
 numpy           = { workspace = true }

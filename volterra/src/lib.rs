@@ -13,10 +13,11 @@
 //!
 //! ```text
 //! volterra          -- facade crate (use this)
-//! volterra-core     -- trait definitions and error types
-//! volterra-fd       -- finite-difference physics, 2D and 3D, and its runners
-//! volterra-dec      -- discrete exterior calculus, its engine and its runners
-//! volterra-dec      -- DEC mesh, Hodge operators, covariant differential operators
+//! volterra-core     -- trait definitions, parameters and error types
+//! volterra-fd       -- finite-difference physics on a lattice, 2D and 3D
+//! volterra-dec      -- DEC mesh physics: Hodge operators, confined domains, Stokes
+//! volterra-braid    -- braid words, tracking and topological entropy
+//! volterra-py       -- Python bindings, published as a wheel rather than to crates.io
 //! ```
 //!
 //! ## Quick start

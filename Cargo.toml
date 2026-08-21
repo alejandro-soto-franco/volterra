@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -22,6 +22,14 @@ keywords = ["active-matter", "nematohydrodynamics", "riemannian", "simulation", 
 categories = ["science", "mathematics", "simulation"]
 
 [workspace.dependencies]
+# The internal crates carry their version here and nowhere else. Nine
+# hard-coded pins across four manifests is how a bump leaves one behind,
+# and `cargo publish` is where that surfaces.
+volterra-core    = { path = "volterra-core",   version = "0.4.0" }
+volterra-braid   = { path = "volterra-braid",  version = "0.4.0" }
+volterra-dec     = { path = "volterra-dec",    version = "0.4.0" }
+volterra-fd      = { path = "volterra-fd",     version = "0.4.0" }
+
 cartan-core      = "0.6.1"
 cartan-manifolds = "0.6"
 cartan-geo       = "0.6"
@@ -40,10 +48,17 @@ pyo3             = { version = "0.28", features = ["extension-module", "abi3-py3
 numpy            = "0.28"
 criterion        = "0.5"
 
-# Uncomment to use in-tree cartan changes without pushing first.
+# Uncomment and point at a local checkout to build against in-tree cartan
+# changes without pushing them first.
 # [patch.crates-io]
 # cartan-core      = { path = "../cartan/cartan-core" }
 # cartan-manifolds = { path = "../cartan/cartan-manifolds" }
 # cartan-geo       = { path = "../cartan/cartan-geo" }
 # cartan-dec       = { path = "../cartan/cartan-dec" }
 # cartan-remesh    = { path = "../cartan/cartan-remesh" }
+
+# The numerics tests solve real linear systems on real meshes, so an
+# unoptimised test build does not finish in a usable time: the confined LdG
+# suite ran for over an hour under `opt-level = 0` and was still going.
+[profile.test]
+opt-level = 2

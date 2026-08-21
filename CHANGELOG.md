@@ -6,7 +6,49 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-22
+
 ### Added
+
+- **Pressure and vorticity recovered from a stream-function Stokes solve.** The
+  biharmonic solve is for `psi` alone, so the pressure is eliminated and no run
+  has ever formed one. `StokesSolverDec::pressure_from_stress` recovers it from
+  the same assembled stress by `Delta p = div f` with `dp/dn = f.n`, which the
+  weak form imposes for itself, gauge-fixed to the area-weighted interior mean
+  so it agrees with the gauge `volterra-fd` pins its pressure in. An unweighted
+  vertex mean sits off the interior mean by a few per cent of a standard
+  deviation, because the boundary is sampled more densely than the bulk.
+  `pressure_rhs_from_force` and `vertex_force_from_stress` are the pieces.
+
+- **`vorticity_from_psi`**, which returns `Delta psi`. Differencing the
+  recovered `u` instead chains two vertex-gradient operators and converges at
+  `O(h^0.4)` on a graded mesh, the same failure the co-rotational term has.
+  Against an independent FEM curl of the velocity the two agree at a
+  correlation of 0.9925 and a slope of 1.012.
+
+- **`examples/replay_fields`**, which recovers `u`, `psi`, `p` and `omega` for a
+  finished run from its saved `Q` frames, through the solver's own Stokes path.
+  `Q` is the state and the flow is an instantaneous functional of it, so a saved
+  frame determines the velocity exactly. It rebuilds the run's mesh and refuses
+  to proceed unless the vertices reproduce, and it checks its own output against
+  the run's recorded `speed_max`, so a run made before a change to the solver
+  is reported as stale rather than replayed into fields it never had. On the production runs it reproduces the
+  solver to 2.1e-8 relative, which is f32 storage precision.
+
+- **`quintefoiloid`**, five cusps, `q = 7/2`. The geometry already derived
+  `k = 2(q-1)` generically, so only the shape name needed adding.
+
+- **Integration tests for the index law and the field recovery.**
+  `tests/index_law.rs` asserts that a cusped domain imposes `1 + k/2` and a
+  smooth one imposes `1`, for every member of the family, which is the property
+  every confined run depends on before any physics runs.
+  `tests/field_recovery.rs` checks the pressure against a force whose potential
+  is known and the vorticity against a manufactured `psi`, both of which fail at
+  a relative error of 2 if a sign is flipped.
+
+- **README for `volterra-fd`**, which had none, and a rewritten one for
+  `volterra-dec`, which still described three modules where the crate now has
+  thirty.
 
 - **Electric-field coupling on the 3D molecular field**, alongside the magnetic
   coupling that was already there. `ActiveNematicParams3D` gains `epsilon_a`,
@@ -24,55 +66,6 @@ All notable changes to volterra are documented here.
   varying* field loaded from file; `docs/SUBSUMPTION.md` now records the row as
   partial rather than a gap.
 
-### Removed
-
-- **`volterra-mars`**, which was a shim. Every one of its dimensionless groups
-  delegated a single line to a method already on `ActiveNematicParams`
-  (`pi_number`, `defect_length`, `a_eff`, `ch_coherence_length`, `phi_eq`), and
-  its two presets were `default_test()` with a grid size and an activity
-  changed. Nothing in the workspace depended on it. It carried no field coupling
-  of its own: the magnetic actuation the MARS system is built on lives in
-  `ActiveNematicParams3D` and the molecular field, and is untouched by this.
-
-  `volterra-mars` 0.3.2 stays on crates.io; a published name cannot be
-  withdrawn.
-
-### Changed
-
-- **`volterra-solver` is dissolved.** It was not a crate with a subject: 6,982
-  lines that split three ways with nothing left over. The finite-difference
-  physics, in two dimensions and three, went to `volterra-fd`; the engine layer
-  and the runners written against DEC meshes went to `volterra-dec`; and its
-  tests, examples and benches followed the code they exercise. Its dependencies
-  were redistributed with it.
-
-  Anything that imported `volterra_solver::X` now imports it from
-  `volterra_fd::X` or `volterra_dec::X`, depending on which discretisation X
-  belongs to. `volterra-solver` 0.3.2 stays on crates.io.
-
-- **`volterra-cgpo` is renamed `volterra-fd`**, and `volterra-cgpo-cuda`
-  becomes `volterra-fd-cuda`. CGPO is the acronym of one paper, and carrying
-  it in a crate name, a CLI subcommand, fifteen environment variables and six
-  type names made a general solver read as that paper's code. The new name is
-  the method, alongside `volterra-dec`, which is the discrete-exterior-calculus
-  discretisation of the same physics. Neither carries a dimension: what a
-  discretisation is does not depend on how many dimensions it is applied in,
-  and both are meant to grow into however many the engine supports. What
-  `volterra-fd` implements today is two-dimensional.
-
-  The rename reaches `volterra run cgpo` (now `volterra run fd`), the
-  `cgpo_fd` binary (now `fd`), the `CGPO_*` environment variables (now
-  `FD_*`), the `Cgpo*` types (now `Fd*`), and the default output directory
-  `./output/cgpo` (now `./output/fd`).
-
-  References to Klein et al.'s own released code keep the name, in
-  `volterra-braid/oracle` and in the benchmark tables that compare against it,
-  because that is what that code is called.
-
-  `volterra-cgpo` 0.3.2 stays on crates.io: a published name cannot be reused or
-  withdrawn. Releases continue under `volterra-fd`.
-
-### Added
 
 - **volterra-braid**: new crate for braid-group analysis of defect trajectories,
   decoupled from the PDE solver. `detect_defects` (Q grid -> defects), `track`
@@ -94,6 +87,68 @@ All notable changes to volterra are documented here.
 
 ---
 
+### Removed
+
+- **`volterra-mars`**, which was a shim. Every one of its dimensionless groups
+  delegated a single line to a method already on `ActiveNematicParams`
+  (`pi_number`, `defect_length`, `a_eff`, `ch_coherence_length`, `phi_eq`), and
+  its two presets were `default_test()` with a grid size and an activity
+  changed. Nothing in the workspace depended on it. It had no field coupling
+  of its own: the magnetic actuation the MARS system is built on lives in
+  `ActiveNematicParams3D` and the molecular field, and is untouched by this.
+
+  `volterra-mars` 0.3.2 stays on crates.io; a published name cannot be
+  withdrawn.
+
+### Changed
+
+- **`volterra-solver` is dissolved.** It was not a crate with a subject: 6,982
+  lines that split three ways with nothing left over. The finite-difference
+  physics, in two dimensions and three, went to `volterra-fd`; the engine layer
+  and the runners written against DEC meshes went to `volterra-dec`; and its
+  tests, examples and benches followed the code they exercise. Its dependencies
+  were redistributed with it.
+
+  Anything that imported `volterra_solver::X` now imports it from
+  `volterra_fd::X` or `volterra_dec::X`, depending on which discretisation X
+  belongs to. `volterra-solver` 0.3.2 stays on crates.io.
+
+- **`volterra-cgpo` is renamed `volterra-fd`**, and `volterra-cgpo-cuda`
+  becomes `volterra-fd-cuda`. CGPO is the acronym of one paper, and having
+  it in a crate name, a CLI subcommand, fifteen environment variables and six
+  type names made a general solver read as that paper's code. The new name is
+  the method, alongside `volterra-dec`, which is the discrete-exterior-calculus
+  discretisation of the same physics. Neither has a dimension: what a
+  discretisation is does not depend on how many dimensions it is applied in,
+  and both are meant to grow into however many the engine supports. What
+  `volterra-fd` implements today is two-dimensional.
+
+  The rename reaches `volterra run cgpo` (now `volterra run fd`), the
+  `cgpo_fd` binary (now `fd`), the `CGPO_*` environment variables (now
+  `FD_*`), the `Cgpo*` types (now `Fd*`), and the default output directory
+  `./output/cgpo` (now `./output/fd`).
+
+  References to Klein et al.'s own released code keep the name, in
+  `volterra-braid/oracle` and in the benchmark tables that compare against it,
+  because that is what that code is called.
+
+  `volterra-cgpo` 0.3.2 stays on crates.io: a published name cannot be reused or
+  withdrawn. Releases continue under `volterra-fd`.
+
+
+### Fixed
+
+- **CI ran a test in a crate that no longer exists.** The perf floor step still
+  named `volterra-solver`, dissolved above, so the job could not pass. It now
+  runs against `volterra-fd`.
+
+- **Three lints that `-D warnings` turned into a red build.** Two are NaN-safe
+  `!(x > 0.0)` checks where clippy's `partial_cmp` suggestion would drop the NaN
+  branch, so the intent is stated and the lint allowed rather than the logic
+  changed. The third factored a boxed closure into a `Preconditioner` alias.
+
+- **The facade listed its own crates wrongly**, naming `volterra-dec` twice and
+  omitting `volterra-braid`.
 ## [0.3.0] - 2026-04-11
 
 ### Breaking
