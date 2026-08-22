@@ -138,6 +138,109 @@ impl Epitrochoid {
         self.curvature_radius(PI / self.k())
     }
 
+    /// Tangent-line winding of the EXACT curve, and so the total defect charge
+    /// tangential anchoring imposes on an interior that resolves the wall.
+    ///
+    /// `1` below `d = 1` at every cusp count, since the tangent traces
+    /// `w(u) = exp(i u)(1 + d exp(i k u))` whose second factor has real part at
+    /// least `1 - d > 0` and therefore contributes no turning. `(k + 2)/2` at
+    /// `d = 1`, where `w = 2 cos(k u/2) exp(i (k+2) u/2)` and the `k` sign
+    /// changes of the cosine are the cusps, which a line field cannot see.
+    ///
+    /// A mesh reads this number only when it resolves the tip. See
+    /// [`Epitrochoid::aliasing_deficit`].
+    pub fn exact_winding(&self) -> f64 {
+        if self.cusps() == 0 {
+            1.0
+        } else if self.d >= 1.0 {
+            1.0 + self.k() / 2.0
+        } else {
+            1.0
+        }
+    }
+
+    /// Doubled-angle deficit one boundary step can accumulate at a blunted tip.
+    ///
+    /// The tangent line swings through `2 arcsin(d)` and back across a tip, over
+    /// a parameter width that shrinks with `1 - d`. A boundary step spanning the
+    /// swing sees a doubled-angle change of `2 (p + m) - 2(|A(m)| + |A(p)|)` for
+    /// `A` the single-valued part of `arg w`, and `imposed_charge` wraps that
+    /// into a turn. The most negative it can be is `-Lambda` with
+    ///
+    /// ```text
+    ///     Lambda(k, d) = 4 max_{m > 0} [ |A(m)| - m ],
+    ///     A(m) = arg( 1 - d exp(i k m) )
+    /// ```
+    ///
+    /// so the wrap books the wrong branch, and the tip contributes a half turn
+    /// it does not have, exactly when `Lambda > pi`. Verified against a
+    /// brute-force scan over 16 sample counts and 6 phases at 45 `(k, d)` points
+    /// in `cgpo-reproduction/symbolic-review/forms/sympy/index_law.py`.
+    ///
+    /// Infinite at a true cusp, where the swing is a half turn and the cusped
+    /// winding is what every sampling correctly reads.
+    pub fn aliasing_deficit(&self) -> f64 {
+        let k = self.k();
+        if self.cusps() == 0 {
+            return 0.0;
+        }
+        if self.d >= 1.0 {
+            return f64::INFINITY;
+        }
+        let f = |m: f64| {
+            let (sn, cs) = (k * m).sin_cos();
+            (-self.d * sn).atan2(1.0 - self.d * cs).abs() - m
+        };
+        // `|A| - m` rises to a single interior maximum and falls, so a coarse
+        // scan brackets it and a ternary search finishes it.
+        let top = PI / k;
+        let n = 4096;
+        let (mut arg, mut best) = (0.0, 0.0);
+        for i in 0..=n {
+            let m = top * i as f64 / n as f64;
+            let v = f(m);
+            if v > best {
+                best = v;
+                arg = m;
+            }
+        }
+        let step = top / n as f64;
+        let (mut lo, mut hi) = ((arg - step).max(0.0), (arg + step).min(top));
+        for _ in 0..80 {
+            let (a, b) = (lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0);
+            if f(a) < f(b) { lo = a } else { hi = b }
+        }
+        4.0 * f(0.5 * (lo + hi)).max(best)
+    }
+
+    /// Whether every boundary sampling reads the same winding, however coarse.
+    ///
+    /// True below the threshold `d_c(k)` where the deficit reaches a half turn.
+    /// Above it a boundary that steps across a tip in one go reads
+    /// `(k + 2)/2` instead of `1`, which is what every `d = 0.99` production run
+    /// does.
+    pub fn winding_is_sampling_independent(&self) -> bool {
+        self.aliasing_deficit() <= PI
+    }
+
+    /// Largest `d` at which no boundary sampling can misread the winding.
+    ///
+    /// `1/sqrt(2) <= d_c(k) <= sin(pi (k+2)/(4(k+1)))`, falling with the lobe
+    /// count towards the lower bound: 0.896316, 0.847487, 0.818864, 0.800000
+    /// and 0.786612 for `k = 1..5`.
+    pub fn alias_threshold(cusps: usize) -> f64 {
+        if cusps == 0 {
+            return 1.0;
+        }
+        let at = |d: f64| Epitrochoid { q: 1.0 + cusps as f64 / 2.0, d, r: 1.0 }.aliasing_deficit();
+        let (mut lo, mut hi) = (0.5, 1.0 - 1e-9);
+        for _ in 0..80 {
+            let mid = 0.5 * (lo + hi);
+            if at(mid) > PI { hi = mid } else { lo = mid }
+        }
+        0.5 * (lo + hi)
+    }
+
     /// Parameter values of the cusps, the minima of the radius.
     pub fn cusp_params(&self) -> Vec<f64> {
         let k = self.k();
@@ -866,8 +969,24 @@ impl ConfinedMesh2 {
     ///
     /// A TRUE cusp is not a failure to resolve. Its interior angle is `2 pi`, so
     /// it contributes `-pi` to the boundary's turning and the turning number is
-    /// `k/2 + 1`: the nephroid imposes 2, and the `k` negative half-defects that
-    /// sit at the cusps bring the interior back to `+1`, which is `(k+2, k)`.
+    /// `k/2 + 1`: the nephroid imposes 2 where the same curve rounded imposes 1.
+    ///
+    /// The interior then holds that whole number. An earlier revision of this
+    /// comment had the `k` cusps holding a `-1/2` surface defect each, bringing
+    /// the interior back to `+1`; the runs say otherwise. Final-frame census of
+    /// `defects.tsv`, in half-charge units, against each run's own recorded
+    /// `imposed_charge`:
+    ///
+    /// ```text
+    ///   nephroid   d = 0.72   imposes 1.0   complement (4, 2)   interior +1.0
+    ///   nephroid   d = 1.00   imposes 2.0   complement (4, 0)   interior +2.0
+    ///   cardioid   d = 1.00   imposes 1.5   complement (3, 0)   interior +1.5
+    ///   trefoiloid d = 1.00   imposes 2.5   complement (6, 1)   interior +2.5
+    /// ```
+    ///
+    /// so sharpening the nephroid REMOVES its two `-1/2` cores rather than
+    /// binding them to the wall, and the interior total equals the imposed
+    /// charge on every run measured.
     pub fn imposed_charge(&self, q_anchor: f64) -> (f64, f64, usize) {
         let n = self.boundary_params.len();
         let mut sum = 0.0;

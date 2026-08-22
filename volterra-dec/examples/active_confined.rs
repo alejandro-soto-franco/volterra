@@ -1,12 +1,10 @@
 //! Active nematic in a cusped cavity, on a conforming mesh.
 //!
-//! The lattice cannot carry the four- and five-cusp geometries. At `d = 0.7` its
-//! boundary is clean but the cusps are too blunt to pin the negative defects the
-//! index law asks for, and at `d >= 0.9` the cusps pin them but the anchoring the
-//! lattice imposes is no longer `q = 1`: two to four adjacent boundary cells turn
-//! the director by more than a quarter turn, the winding sum picks the wrong
-//! branch, and the imposed winding comes out at two or three times the value
-//! requested. Measured on the reference's own boundaries:
+//! The lattice cannot carry the four- and five-cusp geometries. Two to four
+//! adjacent boundary cells turn the director by more than a quarter turn, the
+//! winding sum picks the wrong branch, and the imposed winding comes out at two
+//! or three times the value requested. Measured on the reference's own
+//! boundaries:
 //!
 //! ```text
 //! quatrefoiloid d = 0.90  L = 250  imposes 3x, worst step 112.7 deg, 4 steps over
@@ -14,12 +12,17 @@
 //! cinquefoiloid d = 0.99  L = 250  imposes 3x, and the mask pinches into 2 holes
 //! ```
 //!
-//! and the five-cusp defect counts consequently hold a net charge of `+2` or `+3`
-//! in every frame, which no simply connected domain with tangential anchoring can
-//! carry. A conforming mesh imposes the requested winding at every `d` and every
-//! anchoring, because the boundary is sampled against the local curvature radius
-//! rather than against a fixed cell, so the director step between neighbours stays
-//! small where the wall turns fastest.
+//! A conforming mesh samples the boundary against the local curvature radius
+//! rather than against a fixed cell, so the director step between neighbours
+//! stays small where the wall turns fastest, and it follows the tip down to a
+//! radius of a few times `1e-2` where the lattice loses it above `1`.
+//!
+//! Below that the mesh reads the cusped winding too, and correctly: a tip of
+//! radius `1e-3` is not a feature any affordable discretisation represents, so
+//! at `d = 0.99` the wall this integrates IS cusped and imposes `(k+2)/2`. The
+//! run's own `imposed_charge` is the number to read, never `d`. Derivation and
+//! the threshold in `d` are in `tests/index_law.rs` and in
+//! `cgpo-reproduction/symbolic-review/forms/sympy/index_law.py`.
 //!
 //! This drives the full wet system on that mesh: Stokes for the velocity from the
 //! active stress, then the Beris-Edwards equation the reference integrates,
@@ -122,10 +125,12 @@ fn main() {
     // The sharp treatment at d = 1: one vertex at the exact cusp, with the two
     // boundary edges meeting there an element long. A re-entrant cusp has
     // interior angle `2 pi` and contributes `-pi` to the boundary's turning, so
-    // the nephroid imposes 2 rather than 1, the k cusps each hold a `-1/2`
-    // surface defect, and the interior is left at `+1`. That is the index law.
-    // Rounding the cusp instead drops the turning number to 1 and takes the k
-    // negative defects with it.
+    // the nephroid imposes 2 rather than 1, and the interior holds that whole
+    // number. Rounding the cusp AND resolving it drops the turning number to 1,
+    // which the nephroid pays for by gaining two `-1/2` cores: its complement is
+    // `(4, 0)` at `d = 1` and `(4, 2)` at `d = 0.72`. Resolving is the second
+    // half of that and it is not free, so read the imposed winding printed
+    // below rather than `d`. See `tests/index_law.rs`.
     let cusp_edge = env_f64("ACT_CUSPEDGE", if d >= 1.0 { h_bulk } else { 0.0 });
     // With a fillet the element size near the cusp is a choice, not a
     // consequence: there is no curvature radius on the curve to refine towards,
