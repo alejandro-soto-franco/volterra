@@ -199,6 +199,7 @@ pub fn update_step_inner(
         params.lambda,
         params.zeta,
         params.k_elastic,
+        params.stress,
         bnd,
     );
 
@@ -221,6 +222,22 @@ pub fn update_step_inner(
         params.gamma,
         bnd,
     );
+
+    // 5b. Enhanced nematic locking, if switched on: one extra term on dQ/dt,
+    // leaving H and therefore the whole Navier-Stokes side untouched
+    // (arXiv:2506.20996 Eq. 30). `None` skips it, so the standard model steps
+    // exactly as it did before this existed.
+    if let Some(locking) = params.locking {
+        crate::locking::add_fracture_switch(
+            &mut state.dq,
+            &state.q,
+            &state.h,
+            params.gamma,
+            params.s0,
+            locking.sigma,
+            bnd,
+        );
+    }
 
     // 6. u update
     get_u_update(

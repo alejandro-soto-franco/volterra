@@ -312,6 +312,7 @@ pub fn calculate_pi(
     lambda: f64,
     zeta: f64,
     k: f64,
+    stress: crate::StressModel,
     bounds: &Boundary,
 ) {
     let lx = bounds.lx;
@@ -332,11 +333,15 @@ pub fn calculate_pi(
         }
     }
 
-    // Step 2: add Ericksen stress (interior cells)
-    get_ericksen_stress(q, k, pi_s, bounds);
+    // Steps 2 and 3 are the part of the Beris-Edwards stress that Giomi and
+    // Mitchell et al. do not write. `StressModel` selects between them.
+    if stress == crate::StressModel::Full {
+        // Step 2: add Ericksen stress (interior cells)
+        get_ericksen_stress(q, k, pi_s, bounds);
 
-    // Step 3: add 2 Tr[QH] Q (all cells)
-    get_trqh_term(q, h, pi_s, lx, ly);
+        // Step 3: add 2 Tr[QH] Q (all cells)
+        get_trqh_term(q, h, pi_s, lx, ly);
+    }
 
     // Step 4: Π_A = 2*(Q0*H1 − H0*Q1)
     if use_parallel(lx, ly) {

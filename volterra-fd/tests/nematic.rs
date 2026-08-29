@@ -136,7 +136,10 @@ fn calculate_pi_vs_python() {
     let mut pi_s = vec![0.0_f64; N * 2];
     let mut pi_a = vec![0.0_f64; N];
 
-    calculate_pi(&mut pi_s, &mut pi_a, &h, &q_flat, LAMBDA, ZETA, K, &bounds);
+    calculate_pi(
+        &mut pi_s, &mut pi_a, &h, &q_flat, LAMBDA, ZETA, K,
+        volterra_fd::StressModel::Full, &bounds,
+    );
 
     let diff_pi_s = max_abs_diff(&pi_s, &pi_s_ref);
     let diff_pi_a = max_abs_diff(&pi_a, &pi_a_ref);

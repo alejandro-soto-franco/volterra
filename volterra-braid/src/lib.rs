@@ -32,6 +32,7 @@ pub mod defect;
 pub mod disclination;
 pub mod entropy;
 pub mod synthetic;
+pub mod torus;
 pub mod track;
 
 pub use braidword::{BraidWord, Generator, extract_braidword};
@@ -46,6 +47,11 @@ pub use entropy::{
     paper_burau_spectral_radius, paper_burau_word, topological_entropy,
 };
 pub use synthetic::{RealizeOpts, golden_orbit, realize_braid, silver_orbit};
+pub use torus::{
+    DefectFrame,
+    Encounter, MaximalMixing, TorusWorldlines, h_tepo_ceilidh, h_tepo_maximal_mixing,
+    ideal_figure_2a, min_image, track_on_torus,
+};
 pub use track::{Worldline, track, track_core};
 
 /// The golden ratio `phi = (1 + sqrt 5) / 2`.

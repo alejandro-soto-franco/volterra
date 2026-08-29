@@ -26,6 +26,21 @@ __pycache__/
 !volterra-dec/examples/replay_fields.rs
 volterra-dec/examples/dbg_*.rs
 
+# The periodic-domain driver and its analysis are the entry point
+# docs/REPLICATION_MITCHELL.md names, so they are tracked on the same grounds.
+# The remaining volterra-fd examples stay ignored: each is scratch for one
+# comparison.
+!volterra-fd/examples/
+volterra-fd/examples/*
+!volterra-fd/examples/periodic_active_nematic.rs
+!volterra-fd/examples/analyse_periodic.py
+!volterra-fd/examples/plot_periodic.py
+!volterra-fd/examples/panels_periodic_video.py
+!volterra-fd/examples/braid_report.rs
+!volterra-fd/examples/plot_braid.py
+!volterra-fd/examples/plot_fig5.py
+!volterra-fd/examples/plot_paper_figures.py
+
 # Generated CGPO reference runner (regenerate via patch_flow_solver.py) + IC dumps
 volterra-braid/oracle/concurrence/flow_solver_run.py
 theta_ic_*.txt

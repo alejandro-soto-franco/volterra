@@ -555,3 +555,41 @@ pub fn circular_boundary(lx: usize, ly: usize) -> Boundary {
         inner_normals,
     }
 }
+
+/// Build a fully periodic `lx x ly` domain: a flat torus with no wall.
+///
+/// Every cell is interior and neither boundary ring has a member, so the four
+/// boundary-condition passes in [`crate::step::update_step_inner`] each visit
+/// nothing and the domain closes on itself through the modular neighbour
+/// indexing every stencil in [`crate::ops`] already uses. Nothing else in the
+/// solver changes.
+///
+/// This is the domain of Mitchell, Sabbir, Geumhan, Smith, Klein and Beller,
+/// "Maximally mixing active nematics", Phys. Rev. E 109, 014606 (2024), whose
+/// result is that a square with periodic boundaries, confined tightly enough,
+/// settles into a periodic four-defect orbit; and of Mitchell, Sabbir, Klein
+/// and Beller, "Modelling active nematics via the nematic locking principle",
+/// Soft Matter (2025), arXiv:2506.20996, whose simulations run on a 200x200
+/// periodic domain.
+///
+/// # Pressure gauge
+///
+/// The pressure Poisson problem on a torus has the constant functions in its
+/// null space, so `p` is fixed only up to an additive constant and the
+/// relative-change convergence test in [`crate::stokes::relax_pressure`]
+/// divides by a sum that is near zero once the mean is removed. Drive a
+/// periodic run with a finite `max_p_iters` and subtract the mean with
+/// [`crate::stokes::subtract_p_avg`]; only `grad p` enters the velocity
+/// update, so the gauge is free.
+pub fn periodic_boundary(lx: usize, ly: usize) -> Boundary {
+    let n = lx * ly;
+    Boundary {
+        lx,
+        ly,
+        inside: vec![true; n],
+        is_outer: vec![false; n],
+        is_inner: vec![false; n],
+        outer_normals: vec![[0.0, 0.0]; n],
+        inner_normals: vec![[0.0, 0.0]; n],
+    }
+}

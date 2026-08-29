@@ -6,6 +6,126 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **A periodic domain.** `volterra_fd::boundary::periodic_boundary` returns a
+  flat torus: every cell interior, neither boundary ring populated, so all four
+  boundary-condition passes in `update_step_inner` visit nothing and the domain
+  closes through the modular neighbour indexing every stencil in `ops` already
+  used. Nothing else in the solver changes. This is the domain of both papers
+  below.
+
+- **Enhanced nematic locking** (`volterra_fd::locking`), after Mitchell,
+  Sabbir, Klein and Beller, "Modelling active nematics via the nematic locking
+  principle", Soft Matter (2025), arXiv:2506.20996. In 2D the molecular field is
+  spanned by `Q` and `U = JQ`; the `Q` part changes only `S` and the `U` part
+  rotates the director at the fracturing rate `omega_F = Tr(HU)/(gamma S^2)`,
+  which is the only term that breaks locking. `add_fracture_switch` multiplies
+  that term's mobility by `exp(-S^2/(2 sigma^2))`, so fracturing turns on only
+  where `S` has fallen. `H` itself is untouched, so the Navier-Stokes side sees
+  the same molecular field and the same stress, and the whole modification is
+  one term added after `get_q_update`.
+
+  Switched on through `Params::locking`, which every constructor leaves as
+  `None`; the field is `#[serde(default)]`, so a config written before it
+  existed still reads back as the standard model, and the golden concurrence
+  tests are unaffected. `rotation_rates` returns `omega_A` and `omega_F` per
+  cell for the reference's own diagnostic.
+
+  The reference's `sigma = 0.2` is quoted in its own `C = -2A`, `S_eq = 1`
+  convention, while this crate and `flow-solver.py` use `C = -A`, `S_eq = sqrt 2`.
+  `Locking::sigma` is therefore given in units of the equilibrium `S`.
+
+- **`Params::from_dimensionless` and `Dimensionless`**, the five groups Mitchell
+  et al. state their runs in: `Re = K/(rho nu^2)`, `gamma_tilde = gamma nu / K`,
+  `C_tilde = C/zeta = (ell_a/ell_n)^2`, the flow-alignment parameter, and the
+  confinement ratio, plus `s_eq` because the two papers normalise the order
+  parameter differently. At `K = 256^2` and `ell_a = 3` this returns
+  arXiv:2506.20996's own stated constants digit for digit
+  (`gamma = 5*256`, `C = 256^2`, `eta = 2560`, `zeta = (256/3)^2`), which
+  `tests/test_locking.rs` asserts. `Params` also gains `active_length`,
+  `coherence_length` and `active_time`.
+
+- **Topological entropy by material-line stretching** (`volterra_fd::stretching`),
+  the measurement of Mitchell, Sabbir, Geumhan, Smith, Klein and Beller,
+  "Maximally mixing active nematics", Phys. Rev. E 109, 014606 (2024). A
+  `MaterialLine` is advected with frozen-field RK4 and bilinear velocity
+  sampling, refined by midpoint insertion so no segment exceeds a tolerance, and
+  measured with minimum-image segment lengths on the torus. `fit` returns the
+  slope of `log(length)` against time, which is `h`; the paper's dimensionless
+  form is `h t_a`. Refinement stops at a point cap and the curve then freezes,
+  which is where a fit must end. The point count grows like `exp(h t)`, which
+  is why the reference moves to an ensemble algorithm for its own sweep.
+
+  Validated against a uniform-strain field, where a segment stretches as
+  `exp(a t)` exactly and the fit recovers `a` to `1e-3`.
+
+- **`examples/periodic_active_nematic.rs`**, one runner for both papers, and
+  `examples/analyse_periodic.py`, which reports the period, the steady defect
+  count, the entropy and the rotation-rate statistics from a finished run.
+
+- **`examples/panels_periodic_video.py`**, a nine-panel film of a periodic run:
+  the director field, the `Q` isocontours and the velocity on the first row; the
+  vorticity, the accumulated RMS vorticity and a passive-tracer lattice on the
+  second; the advective and fracturing rotation rates and the defect-count trace
+  on the third. The two rates share one colour scale, taken from the advective
+  one, so enhanced locking draws the fracturing panel blank rather than
+  rescaling its own noise. The layout is fixed, so the standard and the enhanced
+  film at one `ell_a` can be put side by side.
+
+  The runner writes what the film needs at `VP_FRAME_EVERY`: `p`, the two
+  rotation-rate fields, the material-line vertices, and a lattice of passive
+  tracers set by `VP_TRACERS`. A tracer never refines and never saturates, so it
+  is four velocity samples a step for the life of a run, which is what lets
+  the mixing panel stay live where a material line has long since stopped being
+  resolved.
+
+- **Braids on a flat torus** (`volterra_braid::torus`), after Mitchell et al.
+  (2024). Worldlines are lifted to the universal cover, so a bounded orbit is a
+  closed loop and a winding defect draws an open path; encounters are found over the
+  periodic image lattice, which is where the four an orbit of the maximal mixing
+  braid come from; and `is_maximal_mixing` applies the paper's own criterion of
+  two `+1/2` defects, bounded unwound orbits, and four same-sense encounters a
+  period. `h_tepo_maximal_mixing` is `log(phi + sqrt phi)` and
+  `braid_prediction` is `log(phi + sqrt phi) / (T_tilde / 4)`.
+  `ideal_figure_2a` reconstructs the published cartoon from its geometry, and
+  the reader returns 4.00 same-sense encounters an orbit on it.
+
+- **`Params::stress`** (`StressModel::{Full, Giomi}`), the two published elastic
+  stresses. `Full` is the Beris-Edwards form of Klein et al. Eq. (11), which is
+  `flow-solver.py`'s force; `Giomi` is `-lambda H + [Q, H] - alpha Q`, the form
+  Mitchell et al. state and take from Giomi, Phys. Rev. X 5, 031003 (2015),
+  where the Ericksen stress is dropped as higher order. `#[serde(default)]` and
+  `Full` everywhere, so a run made before the field existed is reproduced bit
+  for bit. Which one a run uses changes whether defects survive at
+  `ell_a = 3`.
+
+- **`VP_Q_INIT`**, continuation from a saved `q_*.npy` frame, the protocol
+  Mitchell et al. build their Fig. 5 with. The reader accepts the header this
+  crate writes and refuses anything else, rather than reinterpreting an `f32` or
+  a Fortran-ordered array as the state.
+
+- **`examples/braid_report`**, which reads a run's braid over the longest window
+  in its developed half whose defect census never changes, and writes
+  `braid.json`. The window must come from the developed state: the longest one
+  over a whole run lands in the quench, where the census sits still and the
+  defects wind rather than orbit.
+
+- **`examples/plot_braid.py`, `plot_fig5.py` and `plot_paper_figures.py`**,
+  which reproduce Figs. 2, 5, 3 and 4 of Mitchell et al.
+
+- **`docs/PRIOR_ART.md`**, the public codes that solve these equations, what
+  each can be benchmarked on, and their licence position.
+
+### Changed
+
+- **`entropy.json` and `line_lengths.csv` are written at every observation**
+  rather than when a run ends. A material-line entropy is a fit to a history
+  that is complete the moment the line saturates, so a run stopped part way is
+  as informative about mixing as one that reaches its last step. `entropy.json`
+  now also records whether the line saturated.
+
+
 ## [0.4.0] - 2026-08-22
 
 ### Added
