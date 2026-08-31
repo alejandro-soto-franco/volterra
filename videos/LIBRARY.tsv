@@ -1,0 +1,26 @@
+# date	title	path	run	pe	tracers	period	tu	frames	res	mb	script	shows
+2026-08-31 17:30	long_pe10	output/sphere_braid_long_pe10/braid.mp4	output/sphere_braid_long_pe10	9.4045	400	14.0	3000	401	1650x880	10.8	examples/sphere_braid_video.py	Sphere braid film. The nematic texture with its four +1/2 defects and their trails, the braid diagram of 414 generators on 4 strands, and the E-tec rate of the 400-tracer ensemble over the same window. Part of the five-activity family behind the h ~ Pe^1.02 scaling.
+2026-08-31 17:29	long_pe4	output/sphere_braid_long_pe4/braid.mp4	output/sphere_braid_long_pe4	5.1952	400	26.0	3000	401	1650x880	8.7	examples/sphere_braid_video.py	Sphere braid film. The nematic texture with its four +1/2 defects and their trails, the braid diagram of 252 generators on 4 strands, and the E-tec rate of the 400-tracer ensemble over the same window. Part of the five-activity family behind the h ~ Pe^1.02 scaling.
+2026-08-31 17:28	long_pe2	output/sphere_braid_long_pe2/braid.mp4	output/sphere_braid_long_pe2	2.1314	400	66.0	3000	401	1650x880	5.9	examples/sphere_braid_video.py	Sphere braid film. The nematic texture with its four +1/2 defects and their trails, the braid diagram of 82 generators on 4 strands, and the E-tec rate of the 400-tracer ensemble over the same window. Part of the five-activity family behind the h ~ Pe^1.02 scaling.
+2026-08-31 17:27	long_pe1	output/sphere_braid_long_pe1/braid.mp4	output/sphere_braid_long_pe1	1.0169	400	142.0	3000	401	1650x880	4.1	examples/sphere_braid_video.py	Sphere braid film. The nematic texture with its four +1/2 defects and their trails, the braid diagram of 34 generators on 4 strands, and the E-tec rate of the 400-tracer ensemble over the same window. Part of the five-activity family behind the h ~ Pe^1.02 scaling.
+2026-08-31 17:26	long_pe05	output/sphere_braid_long_pe05/braid.mp4	output/sphere_braid_long_pe05	0.4861	400	318.0	3000	401	1650x880	2.9	examples/sphere_braid_video.py	Sphere braid film. The nematic texture with its four +1/2 defects and their trails, the braid diagram of 12 generators on 4 strands, and the E-tec rate of the 400-tracer ensemble over the same window. Part of the five-activity family behind the h ~ Pe^1.02 scaling.
+2026-08-31 17:25	long_pe2_4k	output/sphere_braid_long_pe2/braid_4k.mp4	output/sphere_braid_long_pe2	2.1314	400	66.0	3000	401	3840x2048	36.7	examples/sphere_braid_video.py	The Pe = 2.13 film at 3840x2048, rendered with --dpi 256 so the sphere raster and the director rods scale with the resolution. Same content as long_pe2.
+2026-08-31 02:37	sphere_braid_ref_pe0.5_ref_pe0.5	output/sphere_braid_ref_pe0.5/ref_pe0.5.mp4	output/sphere_braid_ref_pe0.5	0.8469		174.0	600	421	1650x880	1.7		
+2026-08-31 02:35	sphere_braid_ref_pe1_ref_pe1	output/sphere_braid_ref_pe1/ref_pe1.mp4	output/sphere_braid_ref_pe1	1.7387		80.0	600	421	1650x880	2.0		
+2026-04-11 18:24	pe1	output/sphere_pe1/pe1.mp4						301	1920x1080	6.7		
+2026-04-11 02:22	zhu_sphere_pe1	output/videos/zhu_sphere_pe1.mp4						301	1920x1080	24.6		
+2026-04-10 00:08	sphere_streamlines_v2	output/videos/sphere_streamlines_v2.mp4						201	1920x1080	9.3		
+2026-04-09 23:51	sphere_streamlines	output/videos/sphere_streamlines.mp4						201	1920x1080	20.7		
+2026-04-09 23:20	torus_final	output/videos/torus_final.mp4						201	1920x1080	3.9		
+2026-04-09 23:19	sphere_final	output/videos/sphere_final.mp4						201	1920x1080	8.3		
+2026-04-09 23:08	sphere_active_final	output/videos/sphere_active_final.mp4						201	1920x1080	8.3		
+2026-04-09 22:50	sphere_conn_lap	output/videos/sphere_conn_lap.mp4						201	1920x1080	5.7		
+2026-04-09 22:16	sphere_wet_v3	output/videos/sphere_wet_v3.mp4						201	1920x1080	5.7		
+2026-04-09 21:48	sphere_wet_v2	output/videos/sphere_wet_v2.mp4						201	1920x1080	9.2		
+2026-04-09 21:35	torus_wet	output/videos/torus_wet.mp4						201	1920x1080	3.8		
+2026-04-09 21:32	sphere_wet	output/videos/sphere_wet.mp4						201	1920x1080	7.4		
+2026-04-09 21:19	wet2d	output/videos/wet2d.mp4						201	876x742	7.1		
+2026-04-09 20:59	torus_hires	output/videos/torus_hires.mp4						201	1920x1080	5.3		
+2026-04-09 20:58	sphere_hires	output/videos/sphere_hires.mp4						201	1920x1080	5.7		
+2026-04-09 20:42	torus_active	output/videos/torus_active.mp4						41	1920x1080	1.6		
+2026-04-09 20:41	sphere_active	output/videos/sphere_active.mp4						41	1920x1080	1.2		

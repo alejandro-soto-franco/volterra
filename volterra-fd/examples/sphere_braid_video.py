@@ -305,6 +305,23 @@ def main():
     tmpdir.rmdir()
     print(f"wrote {out}")
 
+    # Register the film as it is made. A manifest kept by hand is a manifest
+    # that goes stale the first time someone is in a hurry.
+    lib = Path(__file__).with_name("video_library.py")
+    if lib.exists():
+        shows = (f"sphere braid film: the texture with its four +1/2 defects, "
+                 f"the braid diagram of {len(word)} generators on {n_strand} "
+                 f"strands, and the E-tec rate of the tracer ensemble over the "
+                 f"same window")
+        try:
+            subprocess.run(
+                [sys.executable, str(lib), "publish", str(out), f"--run={run}",
+                 f"--script={lib.parent.name}/{Path(__file__).name}",
+                 f"--shows={shows}"],
+                check=False, capture_output=True, timeout=900)
+        except Exception as exc:                      # never lose a film to this
+            print(f"  (not registered: {exc})")
+
 
 if __name__ == "__main__":
     sys.exit(main())
