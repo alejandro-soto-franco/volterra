@@ -10,7 +10,7 @@
 //! director single-valued far from either core, so the box faces carry no jump
 //! and neither detector is being asked about an artefact of the test field.
 //!
-//! Measured on that field at `32^3` (see `docs/REPLICATION.md`): the density
+//! Measured on that field at `32^3`: the density
 //! tensor puts both cores within a hundredth of a lattice unit of where they
 //! were placed and follows each line the full depth of the box, while the
 //! holonomy path returns one line of four vertices covering two of the

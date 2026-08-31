@@ -1,6 +1,7 @@
 # Volterra Performance Benchmarks
 
-Running document tracking performance comparisons between volterra and competing codes.
+Running record of volterra's performance, and of how it compares against the
+other public codes that solve the same equations.
 
 **Machine:** Fedora 43, Linux 6.19.10, AMD Renoir + NVIDIA RTX 5060, 32 cores, 30 GiB RAM.
 
@@ -233,8 +234,7 @@ for pure minimisation.
 
 open-Qmin's Landau-de Gennes phase energy is `a Tr(Q^2) + b Tr(Q^3) + c
 (Tr(Q^2))^2` (`src/forces/landauDeGennesLC.cpp:234`); volterra's 3D molecular
-field carried the `a` and `c` terms but not `b` (`SUBSUMPTION.md` section 1's
-"gap, additive"). Derivation, in full, lives in `mol_field_3d.rs`'s module
+field carried the `a` and `c` terms but not `b`. Derivation, in full, lives in `mol_field_3d.rs`'s module
 header; summarised here.
 
 volterra's existing bulk free energy is `(a_eff/2) Tr(Q^2) + (c_landau/2)
@@ -366,8 +366,8 @@ at the kernel level -- neither side's FIRE constants have been touched yet.
 
 **Step two: open-Qmin's FIRE constants tuned, volterra's left at the
 (stale, pre-cubic-term) `volterra_tuned` preset from the previous pass.**
-This is the check the applicant asked for explicitly: what happens when one
-side is retuned and the other is not.
+This is the check that decides it: what happens when one side is retuned and
+the other is not.
 
 | Code | Configuration | FIRE constants | Steps | Time (s) |
 |------|---------------|-----------------|-------|----------|
@@ -379,8 +379,8 @@ volterra's 0.0725 s, open-Qmin 1.13x faster.** This is real and reproducible
 (seed-checked, six-repeat spread on both sides), not a measurement artefact:
 `volterra_tuned` was swept on volterra's own pre-cubic-term default
 constants, a different energy landscape from the matched one, and there is
-no reason it stays optimal here. Reported before correcting it, per the
-applicant's own instruction to report the outcome whichever way it falls.
+no reason it stays optimal here. Reported before correcting it, so the outcome
+stands whichever way it falls.
 
 **Step three: the identical sweep procedure applied to volterra for the
 matched landscape.** `examples/sweep_fire_params_matched.rs`: the same three
@@ -875,8 +875,8 @@ predicted before any of this was run on the device.
   condition on volterra's side, checked directly (`test_random_director_field_is_disordered`,
   `test_random_director_field_has_fixed_magnitude`), not a trivially-converged
   one. At the time this caveat was written, closing the mismatch needed
-  volterra's 3D molecular field to carry the cubic bulk term it lacked
-  (`SUBSUMPTION.md` section 1, "gap, additive"); that term now exists (**The
+  volterra's 3D molecular field to carry the cubic bulk term it lacked;
+  that term now exists (**The
   cubic bulk term** above), volterra's constants are set to open-Qmin's own
   under the derived mapping, and the **Matched physics** section above is
   the comparison this document actually leads with. The scale-matched table

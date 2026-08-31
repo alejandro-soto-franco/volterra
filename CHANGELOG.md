@@ -114,9 +114,6 @@ All notable changes to volterra are documented here.
 - **`examples/plot_braid.py`, `plot_fig5.py` and `plot_paper_figures.py`**,
   which reproduce Figs. 2, 5, 3 and 4 of Mitchell et al.
 
-- **`docs/PRIOR_ART.md`**, the public codes that solve these equations, what
-  each can be benchmarked on, and their licence position.
-
 ### Changed
 
 - **`entropy.json` and `line_lengths.csv` are written at every observation**
@@ -183,8 +180,7 @@ All notable changes to volterra are documented here.
   this existed is unchanged to the last bit, which a test asserts.
 
   What remains of open-Qmin's version of this capability is a *spatially
-  varying* field loaded from file; `docs/SUBSUMPTION.md` now records the row as
-  partial rather than a gap.
+  varying* field loaded from file.
 
 
 - **volterra-braid**: new crate for braid-group analysis of defect trajectories,

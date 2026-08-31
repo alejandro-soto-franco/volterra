@@ -11,7 +11,7 @@
 //! defects sit on top of that:
 //!
 //! - `domain.laplacian_mean_curvatures` comes from `apply_laplace_beltrami`,
-//!   which is the POSITIVE operator `-Delta` (see `.wolf/buglog.json`), so the
+//!   which is the POSITIVE operator `-Delta`, so the
 //!   `lap_h` term enters with the wrong sign.
 //! - The prefactor should be `kappa/2` rather than `kappa` for
 //!   `E = (kappa/2) integral (H - H0)^2 dA`.

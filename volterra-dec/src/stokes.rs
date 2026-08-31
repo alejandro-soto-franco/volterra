@@ -459,8 +459,8 @@ impl SurfaceStokes {
         let rhs = pressure_rhs_from_force(&f, mesh, &self.coords, poisson.mass_diagonal());
         let sol = poisson.solve(&rhs);
         let mut p: Vec<f64> = sol.iter().copied().collect();
-        // AREA WEIGHTED, which is the gauge `docs/02-pressure-bug-fix.md` fixes
-        // the lattice pressure in. An unweighted vertex mean is a mean over the
+        // AREA WEIGHTED, which is the gauge the lattice pressure is fixed in.
+        // An unweighted vertex mean is a mean over the
         // sampling rather than over the domain, and the boundary is sampled
         // more densely than the bulk, so it sits off the interior mean by a few
         // per cent of a standard deviation and would put the two solvers on

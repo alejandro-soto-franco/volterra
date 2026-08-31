@@ -1,8 +1,7 @@
 //! Defect-seeded initial conditions.
 //!
 //! A director field built to have prescribed disclinations at prescribed
-//! places, rather than the random or uniform field every reference code in
-//! `docs/SUBSUMPTION.md` ships.
+//! places, rather than the random or uniform field the reference codes ship.
 //!
 //! # Why this exists
 //!

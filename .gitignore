@@ -26,10 +26,9 @@ __pycache__/
 !volterra-dec/examples/replay_fields.rs
 volterra-dec/examples/dbg_*.rs
 
-# The periodic-domain driver and its analysis are the entry point
-# docs/REPLICATION_MITCHELL.md names, so they are tracked on the same grounds.
-# The remaining volterra-fd examples stay ignored: each is scratch for one
-# comparison.
+# The drivers and the figure and film scripts a reader needs to reproduce a
+# published run. The remaining volterra-fd examples stay ignored: each is
+# scratch for one comparison.
 !volterra-fd/examples/
 volterra-fd/examples/*
 !volterra-fd/examples/periodic_active_nematic.rs
@@ -41,10 +40,10 @@ volterra-fd/examples/*
 !volterra-fd/examples/plot_fig5.py
 !volterra-fd/examples/plot_paper_figures.py
 
-# The scaling figure docs/REPLICATION_SPHERE.md names, on the same grounds.
-# sphere_panels.py and sphere_braid_video.py stay ignored: both render a run
-# for looking at rather than a result the documents cite.
+# The sphere family: the scaling fit across runs, and the film of one run.
+# sphere_panels.py stays ignored, being a still of a single frame.
 !volterra-fd/examples/sphere_scaling.py
+!volterra-fd/examples/sphere_braid_video.py
 
 # Generated CGPO reference runner (regenerate via patch_flow_solver.py) + IC dumps
 volterra-braid/oracle/concurrence/flow_solver_run.py

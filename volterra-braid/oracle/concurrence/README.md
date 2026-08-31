@@ -1,8 +1,7 @@
 # Numerical concurrence: volterra DEC solver vs CGPO flow-solver
 
-Implements the comparison specified in
-`docs/superpowers/specs/2026-05-29-numerical-concurrence-volterra-fd-design.md`,
-at the paper's known-optimal phase points (arXiv:2503.10880):
+Compares the two solvers at the paper's known-optimal phase points
+(arXiv:2503.10880):
 **cardioid → golden** `(ℓ̃a,ℓ̃c)=(0.0139,0.0903)`, 200×200; **nephroid → silver**
 `(0.0128,0.0766)`, 100×100; both 1.5×10⁶ steps.
 
