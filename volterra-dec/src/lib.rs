@@ -42,6 +42,7 @@ pub mod snapshot;
 pub mod surface_defects;
 pub mod curvature_correction;
 pub mod domain;
+pub mod implicit;
 pub mod confined;
 pub mod confined_ldg;
 pub mod nematic_params;

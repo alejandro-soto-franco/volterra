@@ -49,6 +49,17 @@ use crate::track::Worldline;
 pub type SphereFrame = (f64, Vec<([f64; 3], i32)>);
 
 /// Tracked worldlines on the unit sphere.
+/// How a pair of defects is separated when the configuration's shape is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Separation {
+    /// The angle subtended at the origin, the great-circle distance on a unit
+    /// sphere.
+    Geodesic,
+    /// The straight-line distance in the ambient space, which is invariant
+    /// under any rigid motion and faithful on any surface.
+    Chord,
+}
+
 #[derive(Debug, Clone)]
 pub struct SphereWorldlines {
     /// Observation times, one per frame.
@@ -160,6 +171,35 @@ pub fn track_on_sphere(
     frames: &[SphereFrame],
     max_disp: f64,
 ) -> Option<SphereWorldlines> {
+    track_with(frames, max_disp, Separation::Geodesic)
+}
+
+/// Track worldlines under a chosen separation.
+///
+/// [`Separation::Geodesic`] normalises every position onto the unit sphere
+/// before matching, which is right for a sphere run and destroys any other
+/// surface: a genus-2 tube would have every defect projected radially onto a
+/// sphere it does not lie on. [`Separation::Chord`] leaves positions where they
+/// are and matches on straight-line distance.
+///
+/// `max_disp` is read in the units of the separation: radians for the geodesic,
+/// length for the chord.
+pub fn track_with(
+    frames: &[SphereFrame],
+    max_disp: f64,
+    sep: Separation,
+) -> Option<SphereWorldlines> {
+    let place = |p: [f64; 3]| match sep {
+        Separation::Geodesic => norm(p),
+        Separation::Chord => p,
+    };
+    let dist = |a: [f64; 3], b: [f64; 3]| match sep {
+        Separation::Geodesic => geodesic(a, b),
+        Separation::Chord => {
+            let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+        }
+    };
     let (t0, first) = frames.first()?;
     if first.is_empty() {
         return None;
@@ -167,7 +207,7 @@ pub fn track_on_sphere(
     let n = first.len();
     let charge: Vec<i32> = first.iter().map(|d| d.1).collect();
     let mut times = vec![*t0];
-    let mut pts = vec![first.iter().map(|d| norm(d.0)).collect::<Vec<_>>()];
+    let mut pts = vec![first.iter().map(|d| place(d.0)).collect::<Vec<_>>()];
 
     for (t, frame) in frames.iter().skip(1) {
         let prev = pts.last().unwrap().clone();
@@ -177,8 +217,8 @@ pub fn track_on_sphere(
                 if charge[s] != d.1 {
                     continue;
                 }
-                let q = norm(d.0);
-                cand.push((geodesic(*p, q), s, j, q));
+                let q = place(d.0);
+                cand.push((dist(*p, q), s, j, q));
             }
         }
         cand.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -218,6 +258,23 @@ impl SphereWorldlines {
     /// Indices of the positive strands.
     pub fn positive(&self) -> Vec<usize> {
         (0..self.n_strands()).filter(|&s| self.charge[s] > 0).collect()
+    }
+
+    /// The strands of whichever charge the surface is forced to carry.
+    ///
+    /// Poincare-Hopf fixes the total charge at the Euler characteristic, so a
+    /// sphere carries four `+1/2` defects and a genus-2 surface four `-1/2`.
+    /// A measure that reads only the positive ones therefore sees nothing at
+    /// all on any surface of negative Euler characteristic. Ties fall to the
+    /// positive strands, which keeps a sphere's answer exactly as it was.
+    pub fn dominant(&self) -> Vec<usize> {
+        let pos: Vec<usize> = (0..self.n_strands()).filter(|&s| self.charge[s] > 0).collect();
+        let neg: Vec<usize> = (0..self.n_strands()).filter(|&s| self.charge[s] < 0).collect();
+        if neg.len() > pos.len() {
+            neg
+        } else {
+            pos
+        }
     }
 
     /// The direction furthest from every strand over the whole run.
@@ -405,11 +462,29 @@ impl SphereWorldlines {
     /// mirror halfway round therefore reads at half its period, which is the
     /// shape's period rather than the motion's.
     pub fn shape_signature(&self, frame: usize) -> Vec<f64> {
-        let pos = self.positive();
+        self.shape_signature_with(frame, Separation::Geodesic)
+    }
+
+    /// The shape signature under a chosen separation.
+    ///
+    /// [`Separation::Geodesic`] is the angle the pair subtends at the origin,
+    /// which is the great-circle distance when the points lie on a unit sphere
+    /// and is meaningless when they do not: two defects along one ray read as
+    /// coincident however far apart they are. A surface that is not a sphere
+    /// wants [`Separation::Chord`].
+    pub fn shape_signature_with(&self, frame: usize, sep: Separation) -> Vec<f64> {
+        let pos = self.dominant();
         let mut out = Vec::with_capacity(pos.len() * (pos.len().saturating_sub(1)) / 2);
         for a in 0..pos.len() {
             for b in a + 1..pos.len() {
-                out.push(geodesic(self.pts[frame][pos[a]], self.pts[frame][pos[b]]));
+                let (p, q) = (self.pts[frame][pos[a]], self.pts[frame][pos[b]]);
+                out.push(match sep {
+                    Separation::Geodesic => geodesic(p, q),
+                    Separation::Chord => {
+                        let d = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+                        (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                    }
+                });
             }
         }
         out.sort_by(|x, y| x.partial_cmp(y).unwrap());
@@ -428,12 +503,17 @@ impl SphereWorldlines {
     /// smooth signal starts at 1 and descends, so its own maximum at zero lag
     /// is not a period.
     pub fn shape_period(&self) -> (f64, f64) {
+        self.shape_period_with(Separation::Geodesic)
+    }
+
+    /// The shape period under a chosen separation. See [`Self::shape_period`].
+    pub fn shape_period_with(&self, sep: Separation) -> (f64, f64) {
         let n = self.n_frames();
         if n < 16 {
             return (f64::NAN, 0.0);
         }
         let dt = self.times[1] - self.times[0];
-        let sig: Vec<Vec<f64>> = (0..n).map(|k| self.shape_signature(k)).collect();
+        let sig: Vec<Vec<f64>> = (0..n).map(|k| self.shape_signature_with(k, sep)).collect();
         let m = sig[0].len();
         if m == 0 {
             return (f64::NAN, 0.0);
@@ -745,6 +825,53 @@ mod tests {
     /// A tetrahedron that breathes while it turns is periodic, and the shape
     /// measure must say so.
     ///
+    /// The shape period does not depend on the sign of the charge.
+    ///
+    /// A sphere is forced to carry four `+1/2` defects and a genus-2 surface
+    /// four `-1/2`, so a measure that reads only the positive ones sees an
+    /// empty configuration on every surface of negative Euler characteristic
+    /// and reports no period at all. The same precessing, breathing motion is
+    /// used here with the charge reversed, and must give the same answer.
+    #[test]
+    fn the_shape_period_does_not_depend_on_the_sign_of_the_charge() {
+        let n = 400usize;
+        let dt = 0.5_f64;
+        let period = 40.0_f64;
+        let mut frames: Vec<SphereFrame> = Vec::with_capacity(n);
+        let base = [
+            [1.0, 1.0, 1.0],
+            [1.0, -1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+        ];
+        for k in 0..n {
+            let t = k as f64 * dt;
+            let spin = 0.031 * t;
+            let breathe = 0.2 * (1.0 - (std::f64::consts::TAU * t / period).cos());
+            let pts: Vec<([f64; 3], i32)> = base
+                .iter()
+                .map(|b| {
+                    let v = norm(*b);
+                    let w = norm([v[0], v[1], v[2] + breathe]);
+                    let (c, s) = (spin.cos(), spin.sin());
+                    (norm([c * w[0] - s * w[1], s * w[0] + c * w[1], w[2]]), -1)
+                })
+                .collect();
+            frames.push((t, pts));
+        }
+        let w = track_on_sphere(&frames, 0.6).expect("tracking");
+        assert!(
+            !w.shape_signature(0).is_empty(),
+            "four negative defects gave an empty shape signature"
+        );
+        let (p_shape, q_shape) = w.shape_period();
+        assert!(
+            (p_shape - period).abs() < 0.15 * period,
+            "the shape period should be {period}, got {p_shape}"
+        );
+        assert!(q_shape > 0.7, "a clean repeat should score high, got {q_shape}");
+    }
+
     /// This is the case the old self-recurrence measure could not see. The
     /// configuration precesses, so no defect ever returns to its own earlier
     /// position and a strand-to-itself measure reports nothing; the shape

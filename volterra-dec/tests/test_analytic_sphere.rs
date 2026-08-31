@@ -344,6 +344,35 @@ fn the_outer_factor_has_the_rotations_in_its_kernel() {
     assert_eq!(s0.kernel_dimension(), 0, "an unshifted solve has no rotation kernel");
 }
 
+/// The Killing count is a property of the surface, not of the mesh.
+///
+/// A sphere has three rotations at every refinement, so the number the solve
+/// projects out must not move with the mesh. The count was once normalised by
+/// the response of a pseudo-random probe, and a random vector is all high
+/// frequency, so its response is set by the smallest triangle rather than by
+/// anything geometric. That read 0 here at level 1 while reading 3 at levels 2
+/// and 3, and read 3 on a genus-2 surface, which has no Killing field at all.
+#[test]
+fn the_killing_count_does_not_move_with_the_mesh() {
+    use volterra_dec::poisson::PoissonSolver;
+    use volterra_dec::stokes::{compute_dual_areas, extract_coords, gaussian_curvature};
+
+    for level in [1usize, 2, 3, 4] {
+        let domain = sphere_domain(level);
+        let coords = extract_coords(&domain.mesh);
+        let nv = coords.len();
+        let areas = compute_dual_areas(nv, &domain.mesh.simplices, &coords);
+        let k = gaussian_curvature(nv, &domain.mesh.simplices, &coords, &areas);
+        let shift: Vec<f64> = k.iter().map(|x| 2.0 * x).collect();
+        let solver = PoissonSolver::new_shifted(&domain.ops, &shift, &coords).unwrap();
+        assert_eq!(
+            solver.kernel_dimension(),
+            3,
+            "level {level} ({nv} vertices) found a different number of rotations"
+        );
+    }
+}
+
 /// The active stress does positive net work on the fluid.
 ///
 /// In steady Stokes flow the power the nematic delivers is spent entirely on

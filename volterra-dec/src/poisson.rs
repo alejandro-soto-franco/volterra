@@ -361,8 +361,28 @@ impl PoissonSolver {
     }
 
     /// The kernel directions the solve removes, for inspection in a test.
+    ///
+    /// This counts how many of three CANDIDATES survive, not the operator's
+    /// true kernel. Use [`Self::apply_operator`] with [`Self::mass`] to take
+    /// the spectrum when the actual dimension is the question.
     pub fn kernel_dimension(&self) -> usize {
         self.kernel.len()
+    }
+
+    /// Apply the operator the solve inverts, for inspection.
+    ///
+    /// The symmetric stiffness with the shift already in it, which is the
+    /// operator whose spectrum decides how many directions the solve must
+    /// remove. Exposed so a test can take that spectrum against the real
+    /// assembly rather than against a second one written to agree with it.
+    pub fn apply_operator(&self, x: &[f64]) -> Vec<f64> {
+        self.apply_a(x)
+    }
+
+    /// The dual-area mass diagonal, the inner product the operator is
+    /// symmetric in.
+    pub fn mass(&self) -> &[f64] {
+        &self.star0
     }
 
     /// The preconditioner to drive the conjugate gradient with: the incomplete
@@ -425,6 +445,23 @@ impl PoissonSolver {
         y
     }
 
+    /// Apply the operator WITHOUT its shift, for inspection.
+    ///
+    /// The plain stiffness, whose Rayleigh quotient on a smooth field gives the
+    /// `O(1)` scale that decides whether the shifted operator has annihilated
+    /// that field.
+    pub fn apply_unshifted(&self, x: &[f64]) -> Vec<f64> {
+        let mut y = vec![0.0f64; self.n];
+        for r in 0..self.n {
+            let mut acc = 0.0;
+            for k in self.row_ptr[r]..self.row_ptr[r + 1] {
+                acc += self.val[k] * x[self.col_idx[k]];
+            }
+            y[r] = acc;
+        }
+        y
+    }
+
     /// The mass inner product `x^T M y`.
     fn m_dot(&self, x: &[f64], y: &[f64]) -> f64 {
         (0..self.n).map(|i| self.star0[i] * x[i] * y[i]).sum()
@@ -444,26 +481,57 @@ impl PoissonSolver {
     /// Laplacian on a surface can annihilate: the three linear coordinates,
     /// whose stream functions are the rigid rotations.
     ///
-    /// Each is kept only when `A` sends it to something negligible beside what
-    /// `A` does to a vector of its size, which is a scale-free test needing no
-    /// tolerance tuned to the mesh. A surface with no Killing field keeps none
-    /// of them, and a flat mesh has no shift to make any of them a kernel in
-    /// the first place. The survivors are mass-orthonormalised, since the
-    /// linear coordinates are mass-orthogonal only up to the mesh's own
-    /// asymmetry.
+    /// A candidate is kept when the shifted operator leaves almost nothing of
+    /// it, measured against what the PLAIN operator does to that same field.
+    /// Comparing a field with itself is the point: `rho_plain` is the field's
+    /// own Rayleigh quotient under `-Delta`, an `O(1)` number set by the
+    /// field's frequency, so the ratio vanishes like the mesh's own order for a
+    /// Killing direction and stays `O(1)` for anything else. A surface with no
+    /// Killing field keeps none of them, and a flat mesh has no shift to make
+    /// any of them a kernel in the first place.
+    ///
+    /// The numerator is a NORM rather than a quadratic form. A Rayleigh
+    /// quotient can be small because positive and negative eigencomponents
+    /// cancel, which is a live possibility once `2K` is negative somewhere and
+    /// the operator is indefinite.
+    ///
+    /// Measured, at `|A v| / (rho_plain |v|)`: an icosphere gives 4.4e-2, 1.4e-2
+    /// and 4.9e-3 at levels 1, 2 and 3, falling with the mesh, while a genus-2
+    /// surface gives 5.4 to 36 at two resolutions. The threshold sits between,
+    /// with a factor of 2 below it and 54 above at the worst case.
+    ///
+    /// This replaces a test that normalised by the response of a pseudo-random
+    /// probe. A random vector is all high frequency, so its response is set by
+    /// the mesh's smallest triangle rather than by the geometry: that scale ran
+    /// from 3.1 on a coarse sphere to 2.2e4 on a fine genus-2 mesh, which made
+    /// the test read 0 rotations on an icosphere at level 1 and 3 on a genus-2
+    /// surface that has none.
+    ///
+    /// The survivors are mass-orthonormalised, since the linear coordinates are
+    /// mass-orthogonal only up to the mesh's own asymmetry.
     fn find_kernel(&self, coords: &[[f64; 3]]) -> Vec<Vec<f64>> {
         if self.shift.iter().all(|c| c.abs() < 1e-300) {
             return Vec::new();
         }
-        let probe: Vec<f64> = (0..self.n)
-            .map(|i| ((i.wrapping_mul(2654435761)) % 1000) as f64 / 500.0 - 1.0)
-            .collect();
-        let scale = self.m_norm(&self.apply_a(&probe)) / self.m_norm(&probe).max(1e-300);
         let mut basis: Vec<Vec<f64>> = Vec::new();
         for axis in 0..3 {
             let v: Vec<f64> = coords.iter().map(|c| c[axis]).collect();
-            let rel = self.m_norm(&self.apply_a(&v)) / (scale * self.m_norm(&v)).max(1e-300);
-            if rel > 1e-3 {
+            let mm = self.m_dot(&v, &v);
+            if mm <= 0.0 {
+                continue;
+            }
+            // The plain stiffness on this same field: `A` with the shift added
+            // back, so the Dirichlet handling is identical to the numerator's.
+            let av = self.apply_a(&v);
+            let shifted_back: Vec<f64> = (0..self.n)
+                .map(|i| av[i] + self.star0[i] * self.shift[i] * v[i])
+                .collect();
+            let rho_plain = self.m_dot(&v, &shifted_back) / mm;
+            if rho_plain.abs() < 1e-300 {
+                continue;
+            }
+            let rel = self.m_norm(&av) / (rho_plain.abs() * self.m_norm(&v)).max(1e-300);
+            if rel > 1e-1 {
                 continue;
             }
             let mut w = v;
