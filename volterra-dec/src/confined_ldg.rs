@@ -58,9 +58,9 @@ use cartan_manifolds::euclidean::Euclidean;
 
 use crate::confined::ConfinedMesh2;
 use crate::nematic_params::NematicParams;
-use crate::qfield_dec::QFieldDec;
+use crate::qfield::QField;
 use crate::semi_lagrangian::SemiLagrangian;
-use crate::stokes_dec::VelocityFieldDec;
+use crate::stokes::VelocityField;
 
 /// Which mass matrix the weak form uses.
 ///
@@ -250,13 +250,13 @@ impl LdgProblem {
     /// A random initial director, matching the reference's own initial condition:
     /// an angle uniform on `[0, pi)` at every interior vertex, with the anchoring
     /// imposed on the wall.
-    pub fn random_state(&self, seed: u64) -> QFieldDec {
+    pub fn random_state(&self, seed: u64) -> QField {
         use rand::rngs::StdRng;
         use rand::{RngExt, SeedableRng};
         let nv = self.mesh.mesh.n_vertices();
         let s0 = self.params.s0();
         let mut rng = StdRng::seed_from_u64(seed);
-        let mut q = QFieldDec::zeros(nv);
+        let mut q = QField::zeros(nv);
         for i in 0..nv {
             let th = std::f64::consts::PI * rng.random::<f64>();
             let (c, s) = (th.cos(), th.sin());
@@ -268,7 +268,7 @@ impl LdgProblem {
     }
 
     /// Overwrite the boundary vertices with their anchored values.
-    pub fn impose_anchoring(&self, q: &mut QFieldDec) {
+    pub fn impose_anchoring(&self, q: &mut QField) {
         for (k, &v) in self.mesh.boundary_vertices.iter().enumerate() {
             q.q1[v] = self.anchor[k].0;
             q.q2[v] = self.anchor[k].1;
@@ -276,7 +276,7 @@ impl LdgProblem {
     }
 
     /// Klein's molecular field, `H = K grad^2 Q - (A + C Tr(Q^2)) Q`.
-    pub fn molecular_field(&self, q: &QFieldDec) -> QFieldDec {
+    pub fn molecular_field(&self, q: &QField) -> QField {
         let nv = q.n_vertices;
         let l1 = self
             .ops
@@ -289,7 +289,7 @@ impl LdgProblem {
             self.params.a_landau,
             self.params.c_landau,
         );
-        let mut h = QFieldDec::zeros(nv);
+        let mut h = QField::zeros(nv);
         for i in 0..nv {
             let tr = 2.0 * (q.q1[i] * q.q1[i] + q.q2[i] * q.q2[i]);
             let bulk = a + c * tr;
@@ -305,12 +305,12 @@ impl LdgProblem {
     ///
     /// Split out so the elastic force can be built as its exact adjoint and the
     /// pair can be tested against each other.
-    pub fn transport_rate(&self, q: &QFieldDec, vel: &[[f64; 2]]) -> QFieldDec {
+    pub fn transport_rate(&self, q: &QField, vel: &[[f64; 2]]) -> QField {
         let nv = q.n_vertices;
         let dq = self.q_gradients(q);
         let du = self.velocity_gradients(vel);
         let s = self.corotational(q, &du);
-        let mut out = QFieldDec::zeros(nv);
+        let mut out = QField::zeros(nv);
         for i in 0..nv {
             let adv1 = vel[i][0] * dq[i][0] + vel[i][1] * dq[i][1];
             let adv2 = vel[i][0] * dq[i][2] + vel[i][1] * dq[i][3];
@@ -356,7 +356,7 @@ impl LdgProblem {
     /// gradients. Written that way the two are adjoint to rounding, at any
     /// grading, which is what `the_elastic_force_is_the_adjoint_of_transport`
     /// holds them to.
-    pub fn elastic_force(&self, q: &QFieldDec) -> Vec<[f64; 2]> {
+    pub fn elastic_force(&self, q: &QField) -> Vec<[f64; 2]> {
         let mut h = self.molecular_field(q);
         // The anchored vertices are pinned by the Dirichlet condition, so the flow
         // never transports them and the free energy never gives up their share.
@@ -375,13 +375,13 @@ impl LdgProblem {
     /// [`Self::elastic_force`] without the Dirichlet restriction, kept so the A/B
     /// can be run. This is the adjoint of the UNCONSTRAINED transport operator,
     /// which the dynamics does not apply.
-    pub fn elastic_force_unconstrained(&self, q: &QFieldDec) -> Vec<[f64; 2]> {
+    pub fn elastic_force_unconstrained(&self, q: &QField) -> Vec<[f64; 2]> {
         let h = self.molecular_field(q);
         self.elastic_force_from_h(q, &h)
     }
 
     /// [`Self::elastic_force`] with the molecular field supplied.
-    pub fn elastic_force_from_h(&self, q: &QFieldDec, h: &QFieldDec) -> Vec<[f64; 2]> {
+    pub fn elastic_force_from_h(&self, q: &QField, h: &QField) -> Vec<[f64; 2]> {
         let m = &self.mesh.mesh;
         let nv = q.n_vertices;
         let dq = self.q_gradients(q);
@@ -495,7 +495,7 @@ impl LdgProblem {
     /// Reported so the claim can be checked rather than asserted: in the passive
     /// limit this must not increase, and
     /// `the_variational_step_descends_the_free_energy` holds it to that.
-    pub fn free_energy(&self, q: &QFieldDec) -> f64 {
+    pub fn free_energy(&self, q: &QField) -> f64 {
         let dq = self.q_gradients(q);
         let (k, a, c) = (
             self.params.k_frank,
@@ -534,7 +534,7 @@ impl LdgProblem {
     ///
     /// This is the functional the scheme actually descends, so it is the one an
     /// energy law must be stated about.
-    pub fn free_energy_fem(&self, q: &QFieldDec) -> f64 {
+    pub fn free_energy_fem(&self, q: &QField) -> f64 {
         let m = &self.mesh.mesh;
         let (k, a, c) = (
             self.params.k_frank,
@@ -607,7 +607,7 @@ impl LdgProblem {
     /// per-triangle P1 gradients onto vertices by area. A per-triangle Ericksen
     /// stress would be piecewise constant and its elementwise divergence would
     /// vanish, so the projection to vertices is what makes the term act at all.
-    pub fn beris_edwards_stress(&self, q: &QFieldDec) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    pub fn beris_edwards_stress(&self, q: &QField) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         self.beris_edwards_stress_masked(q, &[])
     }
 
@@ -641,7 +641,7 @@ impl LdgProblem {
     /// carries that pattern for the Helfrich step.
     pub fn beris_edwards_stress_masked(
         &self,
-        q: &QFieldDec,
+        q: &QField,
         suppress_elastic: &[usize],
     ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         let nv = q.n_vertices;
@@ -673,7 +673,7 @@ impl LdgProblem {
 
     /// `sqrt(Tr(Q^2))` per vertex, which is the reference's `S` diagnostic and
     /// equals 1 in the ordered state at `A = -C`.
-    pub fn order_parameter(&self, q: &QFieldDec) -> Vec<f64> {
+    pub fn order_parameter(&self, q: &QField) -> Vec<f64> {
         (0..q.n_vertices)
             .map(|i| (2.0 * (q.q1[i] * q.q1[i] + q.q2[i] * q.q2[i])).sqrt())
             .collect()
@@ -686,7 +686,7 @@ impl LdgProblem {
     /// standard splitting: the bulk term is a local cubic with no stiffness of its
     /// own, and the elastic term is where the mesh's smallest edge would otherwise
     /// dictate the step.
-    pub fn step_passive(&self, q: &mut QFieldDec, dt: f64, cg_tol: f64) -> f64 {
+    pub fn step_passive(&self, q: &mut QField, dt: f64, cg_tol: f64) -> f64 {
         let (k, a, c, g) = (
             self.params.k_frank,
             self.params.a_landau,
@@ -864,7 +864,7 @@ impl LdgProblem {
     }
 
     /// Relax to equilibrium, returning the step count and the final change.
-    pub fn relax(&self, q: &mut QFieldDec, dt: f64, max_steps: usize, tol: f64) -> (usize, f64) {
+    pub fn relax(&self, q: &mut QField, dt: f64, max_steps: usize, tol: f64) -> (usize, f64) {
         let mut last = f64::INFINITY;
         for s in 0..max_steps {
             last = self.step_passive(q, dt, 1e-10);
@@ -881,7 +881,7 @@ impl LdgProblem {
     /// mesh analogue of the lattice's plaquette winding and is exact per triangle:
     /// each increment is wrapped into a half turn, and the total can only be a
     /// multiple of `2 pi`.
-    pub fn defect_charges(&self, q: &QFieldDec) -> Vec<(usize, i32, [f64; 2])> {
+    pub fn defect_charges(&self, q: &QField) -> Vec<(usize, i32, [f64; 2])> {
         let m = &self.mesh.mesh;
         let mut out = Vec::new();
         let wrap =
@@ -915,7 +915,7 @@ impl LdgProblem {
     /// triangles of the same sign into one core.
     pub fn defect_summary(
         &self,
-        q: &QFieldDec,
+        q: &QField,
         merge: f64,
     ) -> (usize, usize, f64, Vec<(f64, f64, i32)>) {
         let raw = self.defect_charges(q);
@@ -1013,7 +1013,7 @@ impl LdgProblem {
     }
 
     /// Per-vertex gradient of `Q`, as `[dx q1, dy q1, dx q2, dy q2]`.
-    pub fn q_gradients(&self, q: &QFieldDec) -> Vec<[f64; 4]> {
+    pub fn q_gradients(&self, q: &QField) -> Vec<[f64; 4]> {
         let m = &self.mesh.mesh;
         let nv = m.n_vertices();
         let mut acc = vec![[0.0_f64; 4]; nv];
@@ -1229,10 +1229,10 @@ impl LdgProblem {
     /// reference's derivation in prose omits and its code carries: it is what
     /// keeps `Q` traceless under the flow coupling, and dropping it lets the
     /// amplitude drift wherever the strain is large, which is exactly at a core.
-    pub fn corotational(&self, q: &QFieldDec, du: &[[f64; 4]]) -> QFieldDec {
+    pub fn corotational(&self, q: &QField, du: &[[f64; 4]]) -> QField {
         let nv = q.n_vertices;
         let lam = self.params.lambda;
-        let mut s = QFieldDec::zeros(nv);
+        let mut s = QField::zeros(nv);
         for i in 0..nv {
             let (dxux, dxuy, dyux, dyuy) = (du[i][0], du[i][1], du[i][2], du[i][3]);
             let _ = dyuy;
@@ -1282,7 +1282,7 @@ impl LdgProblem {
     /// ceiling and return an unconverged field while still looking like progress.
     pub fn step_active(
         &self,
-        q: &mut QFieldDec,
+        q: &mut QField,
         vel: &[[f64; 2]],
         dt: f64,
         cg_tol: f64,
@@ -1301,7 +1301,7 @@ impl LdgProblem {
     /// for the advective term and for the backward trace.
     pub fn step_active_with_du(
         &self,
-        q: &mut QFieldDec,
+        q: &mut QField,
         vel: &[[f64; 2]],
         du: &[[f64; 4]],
         dt: f64,
@@ -1323,7 +1323,7 @@ impl LdgProblem {
         // bulk term act on the field at the arrival point.
         let base = match sl {
             Some(op) => {
-                let mut v3 = VelocityFieldDec::zeros(nv);
+                let mut v3 = VelocityField::zeros(nv);
                 for i in 0..nv {
                     v3.v[i] = [vel[i][0], vel[i][1], 0.0];
                 }
@@ -1532,7 +1532,7 @@ mod tests {
             for _ in 0..40 {
                 p.step_passive(&mut q, 1e-3, 1e-8);
             }
-            let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+            let stokes = crate::stokes::SurfaceStokes::new_confined(
                 &p.ops,
                 &p.mesh.mesh,
                 &p.mesh.boundary_vertices,
@@ -1629,7 +1629,7 @@ mod tests {
         for _ in 0..40 {
             p.step_passive(&mut q, 1e-3, 1e-8);
         }
-        let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+        let stokes = crate::stokes::SurfaceStokes::new_confined(
             &p.ops,
             &p.mesh.mesh,
             &p.mesh.boundary_vertices,
@@ -1739,7 +1739,7 @@ mod tests {
 
             // The same directional derivative of the FEM form of the same energy,
             // `sum_T A_T |grad q|_T^2` rather than `sum_i w_i |grad q|_avg,i^2`.
-            let fem = |qq: &QFieldDec| -> f64 {
+            let fem = |qq: &QField| -> f64 {
                 let m = &p.mesh.mesh;
                 let (k, a, c) = (
                     p.params.k_frank,
@@ -1832,7 +1832,7 @@ mod tests {
             for _ in 0..40 {
                 p.step_passive(&mut q, 1e-3, 1e-8);
             }
-            let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+            let stokes = crate::stokes::SurfaceStokes::new_confined(
                 &p.ops,
                 &p.mesh.mesh,
                 &p.mesh.boundary_vertices,
@@ -1881,7 +1881,7 @@ mod tests {
             for _ in 0..40 {
                 p.step_passive(&mut q, 1e-3, 1e-8);
             }
-            let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+            let stokes = crate::stokes::SurfaceStokes::new_confined(
                 &p.ops,
                 &p.mesh.mesh,
                 &p.mesh.boundary_vertices,
@@ -1944,7 +1944,7 @@ mod tests {
             for _ in 0..40 {
                 p.step_passive(&mut q, 1e-3, 1e-8);
             }
-            let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+            let stokes = crate::stokes::SurfaceStokes::new_confined(
                 &p.ops,
                 &p.mesh.mesh,
                 &p.mesh.boundary_vertices,
@@ -1995,7 +1995,7 @@ mod tests {
             for _ in 0..40 {
                 p.step_passive(&mut q, 1e-3, 1e-8);
             }
-            let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+            let stokes = crate::stokes::SurfaceStokes::new_confined(
                 &p.ops,
                 &p.mesh.mesh,
                 &p.mesh.boundary_vertices,
@@ -2074,7 +2074,7 @@ mod tests {
             for _ in 0..40 {
                 p.step_passive(&mut q, 1e-3, 1e-8);
             }
-            let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+            let stokes = crate::stokes::SurfaceStokes::new_confined(
                 &p.ops,
                 &p.mesh.mesh,
                 &p.mesh.boundary_vertices,
@@ -2166,7 +2166,7 @@ mod tests {
             p.step_passive(&mut q, 1e-3, 1e-8);
         }
 
-        let stokes = crate::stokes_dec::StokesSolverDec::new_confined(
+        let stokes = crate::stokes::SurfaceStokes::new_confined(
             &p.ops,
             &p.mesh.mesh,
             &p.mesh.boundary_vertices,
@@ -2454,7 +2454,7 @@ mod tests {
             let du_psi = p.velocity_gradients_from_psi(&psi);
             // The chained form: recover u from psi with the P1 vertex gradient,
             // then differentiate it again with the same operator.
-            let gq = p.q_gradients(&QFieldDec {
+            let gq = p.q_gradients(&QField {
                 q1: psi.clone(),
                 q2: vec![0.0; nv],
                 n_vertices: nv,
@@ -2646,7 +2646,7 @@ mod tests {
             m.simplices.clone(),
         );
         let q0 = p.random_state(23);
-        let vel = VelocityFieldDec::zeros(nv);
+        let vel = VelocityField::zeros(nv);
         let out = sl.transport(&q0, &vel, 1e-3);
         let mut worst = 0.0_f64;
         let mut at = 0usize;
@@ -2712,7 +2712,7 @@ mod tests {
         // regime the two have to agree in.
         let q0 = {
             let s0 = p.params.s0();
-            let mut f = QFieldDec::zeros(nv);
+            let mut f = QField::zeros(nv);
             for (i, v) in m.vertices.iter().enumerate() {
                 let th = 0.01 * (v.x - cx) + 0.007 * (v.y - cy);
                 let (c, sn) = (th.cos(), th.sin());
@@ -2842,7 +2842,7 @@ mod tests {
         let p = problem(2.0, 0.7, 1.0, 6.0);
         let nv = p.mesh.mesh.n_vertices();
         let s0 = p.params.s0();
-        let q = QFieldDec::uniform(nv, s0 * (1.0 - 0.5), 0.0);
+        let q = QField::uniform(nv, s0 * (1.0 - 0.5), 0.0);
         let h = p.molecular_field(&q);
         // Interior vertices only: the wall is anchored to a different direction and
         // is expected to carry a field.

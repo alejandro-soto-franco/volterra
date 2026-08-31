@@ -5,8 +5,8 @@
 //! Q = [[q1, q2], [q2, -q1]] (tracelessness: Q_yy = -Q_xx).
 //!
 //! For interfacing with cartan-dec's Lichnerowicz Laplacian (which expects
-//! [Q_xx, Q_xy, Q_yy] layout), use [`QFieldDec::to_lichnerowicz_layout`] and
-//! [`QFieldDec::from_lichnerowicz_layout`].
+//! [Q_xx, Q_xy, Q_yy] layout), use [`QField::to_lichnerowicz_layout`] and
+//! [`QField::from_lichnerowicz_layout`].
 
 use nalgebra::DVector;
 use rand::rngs::SmallRng;
@@ -20,7 +20,7 @@ use rand::{RngExt, SeedableRng};
 /// The scalar order parameter is S = 2 sqrt(q1^2 + q2^2), and Tr(Q^2) =
 /// 2(q1^2 + q2^2).
 #[derive(Debug, Clone)]
-pub struct QFieldDec {
+pub struct QField {
     /// Q_xx component at each vertex.
     pub q1: Vec<f64>,
     /// Q_xy component at each vertex.
@@ -29,7 +29,7 @@ pub struct QFieldDec {
     pub n_vertices: usize,
 }
 
-impl QFieldDec {
+impl QField {
     /// All-zero Q-field on a mesh with `nv` vertices.
     pub fn zeros(nv: usize) -> Self {
         Self {
@@ -147,13 +147,13 @@ impl QFieldDec {
     }
 }
 
-/// Generic integrator support: `QFieldDec` is a field vector-space element.
+/// Generic integrator support: `QField` is a field vector-space element.
 ///
-/// Implemented in terms of the existing [`QFieldDec::add`] and
-/// [`QFieldDec::scale`] so that `volterra_core::sim::integrate::rk4` reproduces
+/// Implemented in terms of the existing [`QField::add`] and
+/// [`QField::scale`] so that `volterra_core::sim::integrate::rk4` reproduces
 /// the legacy hand-rolled DEC `rk4_step` op tree (`self + other * factor` with
 /// the identical per-element multiply/add order) bit-for-bit.
-impl volterra_core::sim::integrate::FieldVec for QFieldDec {
+impl volterra_core::sim::integrate::FieldVec for QField {
     fn add_scaled(&self, other: &Self, factor: f64) -> Self {
         self.add(&other.scale(factor))
     }
@@ -161,16 +161,16 @@ impl volterra_core::sim::integrate::FieldVec for QFieldDec {
 
 #[cfg(test)]
 mod fieldvec_tests {
-    use super::QFieldDec;
+    use super::QField;
     use volterra_core::sim::integrate::rk4;
 
     /// The legacy hand-rolled DEC RK4 op tree (lifted verbatim from
     /// `volterra-solver/src/runner_dec.rs::rk4_step`), generic over the rhs.
-    fn legacy_rk4_step<R: Fn(&QFieldDec) -> QFieldDec>(
-        q: &QFieldDec,
+    fn legacy_rk4_step<R: Fn(&QField) -> QField>(
+        q: &QField,
         dt: f64,
         rhs: &R,
-    ) -> QFieldDec {
+    ) -> QField {
         let k1 = rhs(q);
         let q2 = q.add(&k1.scale(0.5 * dt));
         let k2 = rhs(&q2);
@@ -185,7 +185,7 @@ mod fieldvec_tests {
     #[test]
     fn rk4_matches_legacy_rk4_step_bit_for_bit() {
         // A small handcrafted field with non-trivial values.
-        let q = QFieldDec {
+        let q = QField {
             q1: vec![0.137, -0.92, 1.55, 0.0041, -3.7],
             q2: vec![-0.5, 0.333, -1.2, 2.65, 0.6],
             n_vertices: 5,
@@ -194,7 +194,7 @@ mod fieldvec_tests {
         // A representative linear rhs standing in for beris_edwards_rhs_dec; the
         // FieldVec == legacy-rk4_step equivalence is a property of the op tree,
         // independent of the specific (deterministic) rhs.
-        let rhs = |qq: &QFieldDec| qq.scale(-0.83);
+        let rhs = |qq: &QField| qq.scale(-0.83);
 
         let generic = rk4(&q, dt, rhs);
         let legacy = legacy_rk4_step(&q, dt, &rhs);

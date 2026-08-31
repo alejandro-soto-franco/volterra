@@ -2,18 +2,18 @@ use cartan_dec::mesh::FlatMesh;
 use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::ActiveNematicParams;
-use volterra_dec::{molecular_field_dec, QFieldDec};
+use volterra_dec::{molecular_field_dec, QField};
 
 #[test]
 fn zeros_has_zero_order() {
-    let q = QFieldDec::zeros(10);
+    let q = QField::zeros(10);
     assert_eq!(q.n_vertices, 10);
     assert!(q.mean_order_param() == 0.0);
 }
 
 #[test]
 fn uniform_order_parameter() {
-    let q = QFieldDec::uniform(10, 0.3, 0.0);
+    let q = QField::uniform(10, 0.3, 0.0);
     let s = q.mean_order_param();
     // S = 2 * |q1| = 0.6
     assert!((s - 0.6).abs() < 1e-12, "expected 0.6, got {s}");
@@ -21,10 +21,10 @@ fn uniform_order_parameter() {
 
 #[test]
 fn lichnerowicz_layout_roundtrip() {
-    let q = QFieldDec::random_perturbation(20, 0.1, 42);
+    let q = QField::random_perturbation(20, 0.1, 42);
     let v = q.to_lichnerowicz_layout();
     assert_eq!(v.len(), 60); // 3 * 20
-    let q2 = QFieldDec::from_lichnerowicz_layout(&v);
+    let q2 = QField::from_lichnerowicz_layout(&v);
 
     let diff: f64 = q
         .q1
@@ -38,7 +38,7 @@ fn lichnerowicz_layout_roundtrip() {
 
 #[test]
 fn lichnerowicz_layout_traceless() {
-    let q = QFieldDec::random_perturbation(10, 0.5, 99);
+    let q = QField::random_perturbation(10, 0.5, 99);
     let v = q.to_lichnerowicz_layout();
     let nv = q.n_vertices;
     // Q_xx + Q_yy should be zero (traceless)
@@ -55,8 +55,8 @@ fn lichnerowicz_layout_traceless() {
 
 #[test]
 fn add_and_scale() {
-    let a = QFieldDec::uniform(5, 1.0, 0.0);
-    let b = QFieldDec::uniform(5, 0.0, 1.0);
+    let a = QField::uniform(5, 1.0, 0.0);
+    let b = QField::uniform(5, 0.0, 1.0);
     let c = a.add(&b.scale(2.0));
     assert!((c.q1[0] - 1.0).abs() < 1e-14);
     assert!((c.q2[0] - 2.0).abs() < 1e-14);
@@ -64,7 +64,7 @@ fn add_and_scale() {
 
 #[test]
 fn trace_q_squared_value() {
-    let q = QFieldDec::uniform(5, 0.3, 0.4);
+    let q = QField::uniform(5, 0.3, 0.4);
     let tr = q.trace_q_squared();
     let expected = 2.0 * (0.3_f64.powi(2) + 0.4_f64.powi(2));
     assert!(
@@ -82,7 +82,7 @@ fn molecular_field_zero_at_zero_q() {
     let manifold = Euclidean::<2>;
     let ops = Operators::from_mesh(&mesh, &manifold);
     let params = ActiveNematicParams::default_test();
-    let q = QFieldDec::zeros(mesh.n_vertices());
+    let q = QField::zeros(mesh.n_vertices());
 
     let h = molecular_field_dec(&q, &params, &ops, None);
     let h_norm: f64 = h.q1.iter().chain(&h.q2).map(|x| x.abs()).sum();
@@ -101,7 +101,7 @@ fn molecular_field_uniform_q_no_laplacian() {
     let _c = params.c_landau;
 
     let q0 = 0.001;
-    let q = QFieldDec::uniform(mesh.n_vertices(), q0, 0.0);
+    let q = QField::uniform(mesh.n_vertices(), q0, 0.0);
     let h = molecular_field_dec(&q, &params, &ops, None);
 
     // At small Q, cubic term is negligible:

@@ -20,7 +20,7 @@ use cartan_dec::Mesh;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::QFieldDec;
+use volterra_dec::QField;
 use volterra_dec::EvolvingDomain;
 
 fn main() {
@@ -77,7 +77,7 @@ fn main() {
     let gamma_r = 1.0;
 
     // Initial Q: random perturbation.
-    let mut q = QFieldDec::random_perturbation(nv, 0.5, 42);
+    let mut q = QField::random_perturbation(nv, 0.5, 42);
 
     let meta = serde_json::json!({
         "geometry": "deforming_sphere",

@@ -135,9 +135,13 @@ pub fn track_on_torus(
     let mut pts = vec![first.iter().map(|d| d.0).collect::<Vec<_>>()];
 
     for (t, frame) in frames.iter().skip(1) {
-        if frame.len() != n {
-            break;
-        }
+        // A frame with more defects than the cast is kept: the extras are
+        // short-lived pairs that nucleate and annihilate beside a persistent
+        // orbit, and the greedy matching below simply leaves them unassigned.
+        // Requiring an exactly constant census instead cuts a real orbit into
+        // fragments a few frames long, which is long enough to mismeasure a
+        // radius of gyration and too short to see a period. A frame that leaves
+        // any strand unmatched still ends the track.
         let prev = pts.last().unwrap().clone();
         let mut taken = vec![false; n];
         let mut next = vec![[f64::NAN; 2]; n];
@@ -162,7 +166,9 @@ pub fn track_on_torus(
             }
         }
         cand.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        let mut used = vec![false; n];
+        // Sized by the frame rather than by the cast: a frame may have more defects
+        // than there are strands.
+        let mut used = vec![false; frame.len()];
         let mut count = 0;
         for (d, s, j, lifted) in cand {
             if taken[s] || used[j] || d > max_disp {
@@ -250,7 +256,28 @@ impl TorusWorldlines {
     /// `close` is in lattice units; `0.5 * lx` admits every pass that matters on
     /// a square torus, since two defects further apart than that are closer to
     /// some other image.
+    /// Passes between the `+1/2` strands, with no debouncing.
+    ///
+    /// Prefer [`Self::encounters_apart`] on measured data: defect positions are
+    /// quantised to the detection grid, so a single approach registers as a run
+    /// of local minima on consecutive frames and the rate reads several times
+    /// its true value.
     pub fn encounters(&self, close: f64) -> Vec<Encounter> {
+        self.encounters_apart(close, 0.0)
+    }
+
+    /// Passes between the `+1/2` strands, no two closer in time than
+    /// `refractory`.
+    ///
+    /// A pass is a local minimum of the minimum-image separation. On measured
+    /// data those arrive in runs: the separation is quantised, so it plateaus
+    /// around its minimum and every frame of the plateau reads as one. On a
+    /// four-defect orbit of period 9.35 that turned ten passes into a cluster
+    /// of six on consecutive frames. Keeping only the deepest minimum in each
+    /// `refractory` window recovers the rate; a window of an eighth of the
+    /// orbit period is short against the quarter-period spacing the braid of
+    /// Fig. 2(a) has and long against the plateau.
+    pub fn encounters_apart(&self, close: f64, refractory: f64) -> Vec<Encounter> {
         let pos = self.positive();
         let mut out = Vec::new();
         for (ia, &a) in pos.iter().enumerate() {
@@ -274,22 +301,38 @@ impl TorusWorldlines {
                     })
                     .collect();
                 let d: Vec<f64> = sep.iter().map(|(v, _)| v[0].hypot(v[1])).collect();
+                let mut here: Vec<Encounter> = Vec::new();
                 for k in 1..d.len().saturating_sub(1) {
-                    if d[k] <= d[k - 1] && d[k] < d[k + 1] && d[k] < close {
-                        // Turning of the separation vector across the minimum.
-                        let (u, _) = (sep[k - 1].0, 0);
-                        let (w, _) = (sep[k + 1].0, 0);
+                    // Strict on one side so a plateau contributes its leading
+                    // frame once rather than every frame.
+                    if d[k] < d[k - 1] && d[k] <= d[k + 1] && d[k] < close {
+                        // Turning of the separation vector across the minimum,
+                        // read a few frames either side so the sense survives
+                        // the quantisation of the positions.
+                        let lo = k.saturating_sub(3);
+                        let hi = (k + 3).min(d.len() - 1);
+                        let u = sep[lo].0;
+                        let w = sep[hi].0;
                         let cross = u[0] * w[1] - u[1] * w[0];
-                        out.push(Encounter {
+                        let e = Encounter {
                             frame: k,
                             t: self.times[k],
                             strands: (a, b),
                             image: sep[k].1,
                             distance: d[k],
                             sense: if cross >= 0.0 { 1 } else { -1 },
-                        });
+                        };
+                        match here.last_mut() {
+                            Some(prev) if e.t - prev.t < refractory => {
+                                if e.distance < prev.distance {
+                                    *prev = e;
+                                }
+                            }
+                            _ => here.push(e),
+                        }
                     }
                 }
+                out.extend(here);
             }
         }
         out.sort_by_key(|e| e.frame);
@@ -300,8 +343,89 @@ impl TorusWorldlines {
     ///
     /// Two `+1/2` defects, both orbits bounded, `4` encounters in one period and
     /// every one of the same sense. `period` is in the same units as `times`.
+    /// Recurrence period of a strand: the lag at which it returns to where it
+    /// was.
+    ///
+    /// Measured from the worldline rather than from the RMS velocity, because
+    /// the two differ by the number of passes. The braid of Fig. 2(a) makes
+    /// four passes an orbit and the velocity peaks at each of them, so the
+    /// dominant period of `u_rms` is `T/4`; reading it as `T` divides
+    /// `T_tilde` by four and multiplies the braid prediction by four.
+    ///
+    /// Returns `(T, quality)`, where the quality is one minus the mean
+    /// separation at the returning lag over the mean separation across all
+    /// lags. A closed orbit returns a quality near one.
+    pub fn recurrence_period(&self, strand: usize) -> (f64, f64) {
+        let n = self.n_frames();
+        if n < 16 || strand >= self.n_strands() {
+            return (f64::NAN, 0.0);
+        }
+        let dt = self.times[1] - self.times[0];
+        let wrapped: Vec<[f64; 2]> = (0..n)
+            .map(|k| {
+                [
+                    self.pts[k][strand][0].rem_euclid(self.lx),
+                    self.pts[k][strand][1].rem_euclid(self.ly),
+                ]
+            })
+            .collect();
+        let max_lag = n / 2;
+        let mut sep = vec![f64::NAN; max_lag];
+        for (lag, out) in sep.iter_mut().enumerate().skip(1) {
+            let mut acc = 0.0;
+            for k in 0..n - lag {
+                let (v, _) = min_image(wrapped[k], wrapped[k + lag], self.lx, self.ly);
+                acc += v[0].hypot(v[1]);
+            }
+            *out = acc / (n - lag) as f64;
+        }
+        let mean: f64 = sep[1..].iter().sum::<f64>() / (max_lag - 1) as f64;
+        // Past the initial rise away from lag zero, take the DEEPEST return
+        // rather than the first one. A ring traversed at constant rate has a
+        // shallow dip at half a revolution, where the strand sits antipodally
+        // and the minimum image is short without being zero; only the full
+        // revolution brings the separation to nothing. The earliest lag within
+        // a fifth of the deepest is then the fundamental rather than one of its
+        // multiples.
+        let mut i = 1;
+        while i + 1 < max_lag && sep[i + 1] > sep[i] {
+            i += 1;
+        }
+        if i + 1 >= max_lag {
+            return (f64::NAN, 0.0);
+        }
+        let deepest = sep[i..].iter().cloned().fold(f64::INFINITY, f64::min);
+        let cut = deepest + 0.2 * (mean - deepest).max(0.0);
+        for j in i..max_lag - 1 {
+            if sep[j] <= cut && sep[j] <= sep[j - 1] && sep[j] <= sep[j + 1] {
+                return (j as f64 * dt, 1.0 - sep[j] / mean.max(1e-12));
+            }
+        }
+        (f64::NAN, 0.0)
+    }
+
+    /// The recurrence period of the `+1/2` strands, averaged, with the weakest
+    /// strand's quality.
+    pub fn orbit_period(&self) -> (f64, f64) {
+        let pos = self.positive();
+        let mut ts = Vec::new();
+        let mut q = 1.0_f64;
+        for &s in &pos {
+            let (t, quality) = self.recurrence_period(s);
+            if t.is_finite() {
+                ts.push(t);
+            }
+            q = q.min(quality);
+        }
+        if ts.is_empty() {
+            return (f64::NAN, 0.0);
+        }
+        (ts.iter().sum::<f64>() / ts.len() as f64, q)
+    }
+
     pub fn is_maximal_mixing(&self, period: f64, close: f64) -> MaximalMixing {
-        let enc = self.encounters(close);
+        // An eighth of the orbit: see `encounters_apart`.
+        let enc = self.encounters_apart(close, period / 8.0);
         // The rate comes from the spacing of the encounters, never from the
         // count over the window. A window that opens or closes on an encounter
         // loses it, and over four periods that reads 3.75 an orbit rather than
@@ -314,20 +438,49 @@ impl TorusWorldlines {
             f64::NAN
         };
         let net: i32 = enc.iter().map(|e| e.sense).sum();
-        let one_sense = !enc.is_empty() && net.unsigned_abs() as usize == enc.len();
+        // "Defects always pass each other in the same sense" is a statement
+        // about the braid, and the alternative it rules out is the Ceilidh
+        // dance, which alternates and sits near half. Demanding every single
+        // pass agree fails on one transient at the edge of a window; a
+        // supermajority separates the two cases with room either side, and
+        // `sense_fraction` reports where a run actually fell.
+        // The majority's share, `(n + |net|) / 2n`, not `|net| / n`: the latter
+        // is the margin, and reads 15 of 17 where 16 of the 17 agree.
+        let sense_fraction = if enc.is_empty() {
+            0.0
+        } else {
+            0.5 * (1.0 + net.unsigned_abs() as f64 / enc.len() as f64)
+        };
+        let one_sense = sense_fraction >= 0.9;
         let gyr = self.gyration();
+        // Mitchell et al.'s own orbit is a circle of radius `L/2` about a `-1/2`
+        // defect, and a circle of radius `R` traversed uniformly has radius of
+        // gyration exactly `R`. A bound at `0.5 L` therefore sits on the target
+        // rather than around it, and rounding decides the verdict. The bound
+        // here only has to separate an orbit that stays put from one that
+        // drifts across the plane, which `no_winding` already does most of.
         let bounded = self
             .positive()
             .iter()
-            .all(|&s| gyr[s] < 0.5 * self.lx.max(self.ly));
+            .all(|&s| gyr[s] < 0.75 * self.lx.max(self.ly));
+        // Winding per orbit, not per window. The question is whether a strand
+        // goes round the torus instead of round its own ring, and that is a
+        // property of one revolution. Counting over the whole window instead
+        // makes the test tighten as the run lengthens: a state periodic up to a
+        // slow translation of the whole pattern accumulates winding without
+        // ever circumnavigating within a period, and a long enough window will
+        // reject it however slight the drift.
         let winds = self.winding();
-        let no_winding = self
-            .positive()
-            .iter()
-            .all(|&s| winds[s][0].abs() < 0.5 && winds[s][1].abs() < 0.5);
+        let span = self.times.last().copied().unwrap_or(0.0) - self.times[0];
+        let revolutions = if period > 0.0 && span > 0.0 { span / period } else { 1.0 };
+        let no_winding = self.positive().iter().all(|&s| {
+            (winds[s][0].abs() / revolutions) < 0.25
+                && (winds[s][1].abs() / revolutions) < 0.25
+        });
         MaximalMixing {
             n_positive: self.positive().len(),
             encounters: enc.len(),
+            sense_fraction,
             per_period,
             one_sense,
             sense: net.signum(),
@@ -369,6 +522,8 @@ pub struct MaximalMixing {
     pub bounded: bool,
     /// Every condition met.
     pub verdict: bool,
+    /// Fraction of passes turning the majority way; one when every pass agrees.
+    pub sense_fraction: f64,
 }
 
 /// The ideal motion of Fig. 2a, as trajectories.
@@ -379,9 +534,9 @@ pub struct MaximalMixing {
 /// ellipses meet exactly at `(0, L/2)` and `(L/2, 0)`, which are the rods' own
 /// sites, so each rod passes through both sites once a revolution; counting the
 /// periodic images of the other ellipse as well, a rod meets the other rod's
-/// track at four points a revolution. That is the "four such encounters during
-/// each orbit" of the paper, and each of them exchanges the two rods on the
-/// torus, since every image of a site is the same point there.
+/// track at four points a revolution, which is the "four such encounters during
+/// each orbit" of the paper, every one of them an exchange of the two rods on
+/// the torus, since every image of a site is the same point there.
 ///
 /// `phase` offsets the second rod, `periods` is how many revolutions to
 /// generate. This exists to test the reader, not to model anything: a run's
@@ -457,16 +612,48 @@ mod tests {
         assert_eq!(w.n_frames(), 4001);
         assert_eq!(w.positive().len(), 2);
 
-        let m = w.is_maximal_mixing(1.0, 0.5 * lx);
+        // The ideal rods swap at a closest approach of `0.293 L`: rod B is
+        // `(L/2, L/2) - A`, so the separation is `(L/2, L/2) - 2A` and its
+        // minimum over the ring is `L - |(L/2, L/2)|`. A pass threshold has to
+        // sit above that and below the box half-width, which is what
+        // `braid_report` defaults to, and both values here are in that range.
+        for close in [0.5 * lx, 0.4 * lx] {
+            let m = w.is_maximal_mixing(1.0, close);
+            assert!(
+                (m.per_period - 4.0).abs() < 0.25,
+                "close {close}: encounters per orbit {} (total {})",
+                m.per_period,
+                m.encounters
+            );
+            assert!(m.one_sense, "close {close}: senses were mixed: {m:?}");
+            assert!(m.bounded, "close {close}: orbits were not bounded: {m:?}");
+            assert!(m.verdict, "close {close}: {m:?}");
+        }
+
+        // The orbit period read off the worldline is the full revolution, and
+        // `ideal_figure_2a` was asked for four of them over 4001 frames of unit
+        // spacing, so one revolution is a quarter of the span. The RMS velocity
+        // of a real run peaks at each of the four passes instead, which is the
+        // factor this measurement exists to avoid.
+        let (period, quality) = w.orbit_period();
         assert!(
-            (m.per_period - 4.0).abs() < 0.25,
-            "encounters per orbit {} (total {})",
-            m.per_period,
-            m.encounters
+            (period - 1.0).abs() < 0.02,
+            "orbit period {period} is not one revolution (quality {quality})"
         );
-        assert!(m.one_sense, "senses were mixed: {m:?}");
-        assert!(m.bounded, "orbits were not bounded: {m:?}");
-        assert!(m.verdict, "{m:?}");
+        assert!(quality > 0.8, "recurrence quality {quality} is too weak");
+
+        // The radius of gyration of this orbit is the ring radius itself,
+        // `L/2`, which is why `is_maximal_mixing` bounds gyration above that
+        // and not at it.
+        let gyr = w.gyration();
+        for &sp in w.positive().iter() {
+            assert!(
+                (gyr[sp] - 0.5 * lx).abs() < 0.02 * lx,
+                "strand {sp} gyration {} is not the ring radius {}",
+                gyr[sp],
+                0.5 * lx
+            );
+        }
     }
 
     /// A pair that stays apart is not braiding, whatever else it does.

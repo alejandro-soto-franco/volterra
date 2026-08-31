@@ -20,13 +20,19 @@ import sys
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
+# The PDF backend loses the minus sign from every negative number while
+# `text.usetex` is on. It subsets the Type 1 Computer Modern fonts itself and
+# the CMSY minus does not survive the subset, so a tick at -100 sets as 100 and
+# a label of $-1/2$ as a gap. The PGF backend runs LaTeX over the figure
+# instead and keeps it. The Agg path was never affected, so a PNG of the same
+# figure looks right and hides the fault.
+matplotlib.use("pgf")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 
 plt.rcParams.update({
-    "text.usetex": True, "font.family": "serif", "axes.grid": False,
+    "text.usetex": True, "pgf.texsystem": "pdflatex", "font.family": "serif", "axes.grid": False,
     "text.color": "#000000", "axes.labelcolor": "#000000", "xtick.color": "#000000",
     "ytick.color": "#000000", "axes.edgecolor": "#000000",
     "axes.labelsize": 13, "xtick.labelsize": 11, "ytick.labelsize": 11,

@@ -21,7 +21,7 @@ use cartan_core::fiber::{Section, U1Spin2, VecSection};
 use cartan_core::{Manifold, Rotor2};
 use cartan_dec::Mesh;
 
-use crate::QFieldDec;
+use crate::QField;
 
 /// Spin-2 connection Laplacian, backed by the shared rotor transport layer.
 pub struct ConnectionLaplacian {
@@ -126,7 +126,7 @@ impl ConnectionLaplacian {
     }
 
     /// Apply the connection Laplacian to a Q-tensor field via the rotor layer.
-    pub fn apply(&self, q: &QFieldDec) -> QFieldDec {
+    pub fn apply(&self, q: &QField) -> QField {
         let sec = qfield_to_section(q);
         let out = self.cov.apply_rotor::<U1Spin2, 2, _>(&sec, &self.conn);
         section_to_qfield(&out, self.n_vertices)
@@ -151,18 +151,18 @@ impl ConnectionLaplacian {
 /// so the elastic smoothing term enters with a minus sign: -K * lap(Q) damps
 /// spatial variations.
 pub fn molecular_field_conn(
-    q: &QFieldDec,
+    q: &QField,
     k_frank: f64,
     a_eff: f64,
     c_landau: f64,
     conn_lap: &ConnectionLaplacian,
-) -> QFieldDec {
+) -> QField {
     let nv = q.n_vertices;
     let lap = conn_lap.apply(q);
     let tr_q2 = q.trace_q_squared();
     let bulk_linear = -a_eff;
 
-    let mut h = QFieldDec::zeros(nv);
+    let mut h = QField::zeros(nv);
     for (i, &tr) in tr_q2.iter().enumerate() {
         let bulk = bulk_linear - 2.0 * c_landau * tr;
         h.q1[i] = -k_frank * lap.q1[i] + bulk * q.q1[i];
@@ -171,13 +171,13 @@ pub fn molecular_field_conn(
     h
 }
 
-/// View a structure-of-arrays `QFieldDec` as an array-of-structs section.
-fn qfield_to_section(q: &QFieldDec) -> VecSection<U1Spin2> {
+/// View a structure-of-arrays `QField` as an array-of-structs section.
+fn qfield_to_section(q: &QField) -> VecSection<U1Spin2> {
     VecSection::from_vec((0..q.n_vertices).map(|i| [q.q1[i], q.q2[i]]).collect())
 }
 
-/// Repack a `U1Spin2` section into a structure-of-arrays `QFieldDec`.
-fn section_to_qfield(sec: &VecSection<U1Spin2>, nv: usize) -> QFieldDec {
+/// Repack a `U1Spin2` section into a structure-of-arrays `QField`.
+fn section_to_qfield(sec: &VecSection<U1Spin2>, nv: usize) -> QField {
     let mut q1 = vec![0.0_f64; nv];
     let mut q2 = vec![0.0_f64; nv];
     for i in 0..nv {
@@ -185,7 +185,7 @@ fn section_to_qfield(sec: &VecSection<U1Spin2>, nv: usize) -> QFieldDec {
         q1[i] = e[0];
         q2[i] = e[1];
     }
-    QFieldDec { q1, q2, n_vertices: nv }
+    QField { q1, q2, n_vertices: nv }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,7 +249,7 @@ mod tests {
     }
 
     // Frozen copy of the pre-rotor per-edge Laplacian, kept as an oracle.
-    fn legacy_apply(cl: &ConnectionLaplacian, q: &QFieldDec) -> QFieldDec {
+    fn legacy_apply(cl: &ConnectionLaplacian, q: &QField) -> QField {
         let nv = cl.n_vertices;
         let mut lap_q1 = vec![0.0_f64; nv];
         let mut lap_q2 = vec![0.0_f64; nv];
@@ -275,7 +275,7 @@ mod tests {
                 lap_q2[i] *= inv_a;
             }
         }
-        QFieldDec { q1: lap_q1, q2: lap_q2, n_vertices: nv }
+        QField { q1: lap_q1, q2: lap_q2, n_vertices: nv }
     }
 
     #[test]
@@ -287,7 +287,7 @@ mod tests {
         let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
         let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
-        let q = QFieldDec::random_perturbation(mesh.n_vertices(), 0.1, 7);
+        let q = QField::random_perturbation(mesh.n_vertices(), 0.1, 7);
         let got = cl.apply(&q);
         let want = legacy_apply(&cl, &q);
         let mut maxd = 0.0_f64;
@@ -318,7 +318,7 @@ mod tests {
         let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
         let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
-        let q = QFieldDec::zeros(162);
+        let q = QField::zeros(162);
         let lap = cl.apply(&q);
         let norm: f64 = lap.q1.iter().chain(&lap.q2).map(|x| x.abs()).sum();
         assert!(norm < 1e-12, "lap of zero Q should be zero, got {norm}");
@@ -343,7 +343,7 @@ mod tests {
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
 
         // Random Q field.
-        let q = QFieldDec::random_perturbation(nv, 0.1, 42);
+        let q = QField::random_perturbation(nv, 0.1, 42);
 
         // Connection Laplacian.
         let lap_conn = cl.apply(&q);
@@ -385,7 +385,7 @@ mod tests {
         let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
         let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
-        let q = QFieldDec::random_perturbation(mesh.n_vertices(), 0.1, 11);
+        let q = QField::random_perturbation(mesh.n_vertices(), 0.1, 11);
         let got = cl.apply(&q);
         let want = legacy_apply(&cl, &q);
         let mut maxd = 0.0_f64;
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn qfield_section_roundtrip() {
-        let q = QFieldDec {
+        let q = QField {
             q1: vec![0.1, 0.2, 0.3],
             q2: vec![-0.4, 0.5, -0.6],
             n_vertices: 3,

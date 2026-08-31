@@ -11,8 +11,8 @@ use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_co
 use volterra_dec::mesh_gen::torus_mesh;
 #[allow(unused_imports)]
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
-use volterra_dec::QFieldDec;
+use volterra_dec::stokes::{SurfaceStokes, advect_q};
+use volterra_dec::QField;
 use volterra_dec::DecDomain;
 
 fn main() {
@@ -71,10 +71,10 @@ fn main() {
     params.lambda = 0.7;
 
     println!("Factorising Stokes solver...");
-    let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh)
+    let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh)
         .expect("Stokes solver factorisation failed");
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.2, 42);
+    let mut q = QField::random_perturbation(nv, 0.2, 42);
 
     let meta = serde_json::json!({
         "geometry": "torus",
@@ -111,7 +111,7 @@ fn main() {
         if step < n_steps {
             let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
 
-            let rhs = |qq: &QFieldDec| -> QFieldDec {
+            let rhs = |qq: &QField| -> QField {
                 let h = molecular_field_conn(
                     qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
                 );

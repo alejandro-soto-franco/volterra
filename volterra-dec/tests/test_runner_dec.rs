@@ -4,7 +4,7 @@ use cartan_dec::mesh::FlatMesh;
 use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::ActiveNematicParams;
-use volterra_dec::QFieldDec;
+use volterra_dec::QField;
 use volterra_dec::run_dry_active_nematic_dec;
 
 #[test]
@@ -27,7 +27,7 @@ fn dec_dry_nematic_order_grows() {
     params.dt = 0.005;
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
+    let q0 = QField::random_perturbation(nv, 0.01, 42);
     let s_before = q0.mean_order_param();
 
     assert!(
@@ -56,7 +56,7 @@ fn dec_uniform_q_laplacian_vanishes() {
     let ops = Operators::from_mesh(&mesh, &manifold);
 
     let nv = mesh.n_vertices();
-    let q = QFieldDec::uniform(nv, 0.3, 0.1);
+    let q = QField::uniform(nv, 0.3, 0.1);
     let q_layout = q.to_lichnerowicz_layout();
     let lap = ops.apply_lichnerowicz_laplacian(&q_layout, None);
 
@@ -83,7 +83,7 @@ fn dec_zero_activity_relaxes_to_equilibrium() {
     params.dt = 0.001;
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.3, 99);
+    let q0 = QField::random_perturbation(nv, 0.3, 99);
 
     let (q_fin, _stats) = run_dry_active_nematic_dec(&q0, &params, &ops, None, 500, 500);
 
@@ -102,7 +102,7 @@ fn dec_molecular_field_zero_q() {
     let manifold = Euclidean::<2>;
     let ops = Operators::from_mesh(&mesh, &manifold);
     let params = ActiveNematicParams::default_test();
-    let q = QFieldDec::zeros(mesh.n_vertices());
+    let q = QField::zeros(mesh.n_vertices());
 
     let h = volterra_dec::molecular_field_dec(&q, &params, &ops, None);
     let h_norm: f64 = h.q1.iter().chain(&h.q2).map(|x| x.abs()).sum();

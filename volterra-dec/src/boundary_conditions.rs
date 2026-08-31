@@ -13,7 +13,7 @@
 //! For the Stokes solver: psi = 0 at boundary vertices.
 
 use crate::epitrochoid::ConfinedMesh;
-use crate::QFieldDec;
+use crate::QField;
 
 /// Apply strong planar anchoring at boundary vertices.
 ///
@@ -25,7 +25,7 @@ use crate::QFieldDec;
 ///   q2 = s0 * n_x * n_y     = s0/2 * sin(2*theta)
 ///
 /// where theta = atan2(n_y, n_x).
-pub fn apply_strong_anchoring(q: &mut QFieldDec, confined: &ConfinedMesh, s0: f64) {
+pub fn apply_strong_anchoring(q: &mut QField, confined: &ConfinedMesh, s0: f64) {
     for (idx, &bv) in confined.boundary_vertices.iter().enumerate() {
         let [nx, ny] = confined.anchoring_directions[idx];
         // Q_xx = s0 * (n_x^2 - 1/2), Q_xy = s0 * n_x * n_y
@@ -38,7 +38,7 @@ pub fn apply_strong_anchoring(q: &mut QFieldDec, confined: &ConfinedMesh, s0: f6
 ///
 /// This is called after the RK4 step to reset boundary vertices to
 /// their prescribed values (overwriting any drift from the time integration).
-pub fn enforce_anchoring(q: &mut QFieldDec, confined: &ConfinedMesh, s0: f64) {
+pub fn enforce_anchoring(q: &mut QField, confined: &ConfinedMesh, s0: f64) {
     apply_strong_anchoring(q, confined, s0);
 }
 
@@ -51,7 +51,7 @@ mod tests {
     fn anchoring_sets_boundary_q() {
         let cm = disk_mesh(5.0, 1.5, 32, 1.0);
         let nv = cm.mesh.n_vertices();
-        let mut q = QFieldDec::zeros(nv);
+        let mut q = QField::zeros(nv);
         let s0 = 1.0;
 
         apply_strong_anchoring(&mut q, &cm, s0);
@@ -70,7 +70,7 @@ mod tests {
     fn anchoring_preserves_interior() {
         let cm = disk_mesh(5.0, 1.5, 32, 1.0);
         let nv = cm.mesh.n_vertices();
-        let mut q = QFieldDec::uniform(nv, 0.1, 0.2);
+        let mut q = QField::uniform(nv, 0.1, 0.2);
 
         apply_strong_anchoring(&mut q, &cm, 1.0);
 

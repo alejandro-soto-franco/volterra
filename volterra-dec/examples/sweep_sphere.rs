@@ -9,8 +9,8 @@ use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
-use volterra_dec::stokes_dec::{StokesSolverDec, advect_q};
-use volterra_dec::QFieldDec;
+use volterra_dec::stokes::{SurfaceStokes, advect_q};
+use volterra_dec::QField;
 use volterra_dec::DecDomain;
 
 fn main() {
@@ -26,7 +26,7 @@ fn main() {
     let star0: Vec<f64> = (0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect();
     let star1: Vec<f64> = (0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect();
     let conn_lap = ConnectionLaplacian::new(&domain.mesh, &coords, &star0, &star1);
-    let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh).unwrap();
+    let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh).unwrap();
 
     println!("S^2 activity sweep (refinement={refinement}, {nv} vertices, {n_steps} steps)");
     println!("{:<8} {:<8} {:<8} {:<10} {:<10} {:<10} {:<8} {:<8}",
@@ -59,7 +59,7 @@ fn main() {
         params.c_landau = 2.0;
         params.lambda = 0.7;
 
-        let mut q = QFieldDec::random_perturbation(nv, 0.2, 42);
+        let mut q = QField::random_perturbation(nv, 0.2, 42);
         let mut s_history = Vec::new();
 
         let t0 = Instant::now();
@@ -70,7 +70,7 @@ fn main() {
             let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
 
             // RK4 with connection Laplacian + advection.
-            let rhs = |qq: &QFieldDec| -> QFieldDec {
+            let rhs = |qq: &QField| -> QField {
                 let h = molecular_field_conn(qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap);
                 let mut dq = h.scale(params.gamma_r);
                 let adv = advect_q(qq, &vel, &domain.mesh.boundaries, &domain.mesh.vertex_boundaries, &coords);

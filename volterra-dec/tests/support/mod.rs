@@ -26,7 +26,7 @@ pub fn sphere_domain(level: usize) -> DecDomain<Sphere<3>> {
 
 /// Vertex coordinates as `[x, y, z]` triples (unit-length on the icosphere).
 pub fn coords_of<M: cartan_core::Manifold>(domain: &DecDomain<M>) -> Vec<[f64; 3]> {
-    volterra_dec::stokes_dec::extract_coords(&domain.mesh)
+    volterra_dec::stokes::extract_coords(&domain.mesh)
 }
 
 /// The Laplace-Beltrami eigenvalue magnitude `l(l+1)` for degree `l`.

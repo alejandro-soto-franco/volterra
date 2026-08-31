@@ -54,7 +54,7 @@ fn main() {
         .expect("engine construction failed");
     println!("  dt = {:.6} (auto CFL)", engine.dt());
 
-    let mut q = volterra_dec::QFieldDec::random_perturbation(nv, 0.3, 42);
+    let mut q = volterra_dec::QField::random_perturbation(nv, 0.3, 42);
 
     // Write metadata.
     let meta = serde_json::json!({

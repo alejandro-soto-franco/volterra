@@ -18,7 +18,7 @@ use cartan_dec::hodge::HodgeStar;
 use crate::nematic_field_2d::NematicField2D;
 use crate::stokes_trait::StokesSolver;
 use crate::semi_lagrangian::SemiLagrangian;
-use crate::stokes_dec::VelocityFieldDec;
+use crate::stokes::VelocityField;
 
 
 /// Nondimensionalised parameters for the active nematic engine.
@@ -271,8 +271,8 @@ impl ActiveNematicEngine {
         velocity: &[[f64; 3]],
         dt: f64,
     ) -> (Vec<f64>, Vec<f64>) {
-        let qfield = field.to_qfield_dec();
-        let vel = VelocityFieldDec {
+        let qfield = field.to_qfield();
+        let vel = VelocityField {
             v: velocity.to_vec(),
             n_vertices: self.n_vertices,
         };

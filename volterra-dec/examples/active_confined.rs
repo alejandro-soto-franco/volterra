@@ -52,7 +52,7 @@ use volterra_dec::confined::{Epitrochoid, MeshOpts, confined_mesh};
 use volterra_dec::confined_ldg::LdgProblem;
 use volterra_dec::semi_lagrangian::SemiLagrangian;
 use volterra_dec::nematic_params::NematicParams;
-use volterra_dec::stokes_dec::{StokesSolverDec, VelocityFieldDec};
+use volterra_dec::stokes::{SurfaceStokes, VelocityField};
 
 fn env_f64(k: &str, d: f64) -> f64 {
     std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
@@ -214,9 +214,9 @@ fn main() {
     // separates that from the physics.
     let slip_wall = std::env::var("ACT_WALL").map(|v| v == "slip").unwrap_or(false);
     let stokes = if slip_wall {
-        StokesSolverDec::new_confined(&p.ops, &p.mesh.mesh, &noslip)
+        SurfaceStokes::new_confined(&p.ops, &p.mesh.mesh, &noslip)
     } else {
-        StokesSolverDec::new_confined_clamped(&p.ops, &p.mesh.mesh, &noslip)
+        SurfaceStokes::new_confined_clamped(&p.ops, &p.mesh.mesh, &noslip)
     }
     .expect("confined Stokes factorisation");
     println!(
@@ -226,7 +226,7 @@ fn main() {
         noslip.len()
     );
 
-    // `StokesSolverDec::solve` reads only `zeta_eff` and `eta` off this struct;
+    // `SurfaceStokes::solve` reads only `zeta_eff` and `eta` off this struct;
     // the molecular field comes from `LdgProblem`, which carries Klein's own
     // `H = K grad^2 Q - (A + C Tr(Q^2)) Q`, so the rotor convention's `a_eff`
     // never enters. Activity therefore reaches the physics through the stress
@@ -485,7 +485,7 @@ fn main() {
         .unwrap();
     }
     let checkpoint_every = env_usize("ACT_CHECKPOINT", 50);
-    let write_state = |q: &volterra_dec::qfield_dec::QFieldDec, step: usize| {
+    let write_state = |q: &volterra_dec::qfield::QField, step: usize| {
         let mut f = format!("# step {step}\n# q1 q2\n");
         for i in 0..q.n_vertices {
             f.push_str(&format!("{:.9}\t{:.9}\n", q.q1[i], q.q2[i]));
@@ -505,7 +505,7 @@ fn main() {
     if q_frames {
         std::fs::create_dir_all(&q_dir).expect("qframes dir");
     }
-    let write_q_frame = |q: &volterra_dec::qfield_dec::QFieldDec, frame: usize| {
+    let write_q_frame = |q: &volterra_dec::qfield::QField, frame: usize| {
         if !q_frames {
             return;
         }
@@ -526,7 +526,7 @@ fn main() {
     if vel_frames {
         std::fs::create_dir_all(&v_dir).expect("vframes dir");
     }
-    let write_vel_frame = |vel: &VelocityFieldDec, frame: usize| {
+    let write_vel_frame = |vel: &VelocityField, frame: usize| {
         if !vel_frames {
             return;
         }
@@ -642,7 +642,7 @@ fn main() {
         // Q solve is already implicit in the Frank term, so what was missing was
         // only the coupling back through the flow. `ACT_PICARD=1` recovers the
         // sequential scheme.
-        let mut vel_out: Option<VelocityFieldDec> = None;
+        let mut vel_out: Option<VelocityField> = None;
         let mut psi_out: Vec<f64> = Vec::new();
         let mut pits_out = 0usize;
         let mut q_next = q.clone();

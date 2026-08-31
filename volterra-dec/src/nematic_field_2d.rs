@@ -7,7 +7,7 @@
 use num_complex::Complex;
 use cartan_dec::line_bundle::Section;
 
-use crate::QFieldDec;
+use crate::QField;
 
 /// Complex nematic field on a 2-manifold.
 ///
@@ -68,9 +68,9 @@ impl NematicField2D {
     }
 
     /// Convert to the old (q1, q2) real-component representation.
-    pub fn to_qfield_dec(&self) -> QFieldDec {
+    pub fn to_qfield(&self) -> QField {
         let (q1, q2) = self.section.to_real_components();
-        QFieldDec {
+        QField {
             q1,
             q2,
             n_vertices: self.section.n_vertices(),
@@ -78,7 +78,7 @@ impl NematicField2D {
     }
 
     /// Construct from the old (q1, q2) real-component representation.
-    pub fn from_qfield_dec(q: &QFieldDec) -> Self {
+    pub fn from_qfield(q: &QField) -> Self {
         Self {
             section: Section::<2>::from_real_components(&q.q1, &q.q2),
         }

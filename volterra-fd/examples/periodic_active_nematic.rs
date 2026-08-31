@@ -30,7 +30,8 @@
 //! | `VP_SAVE_EVERY` | `2000` | Steps between recorded observations |
 //! | `VP_FRAME_EVERY` | `0` | Steps between `.npy` field frames; `0` writes none |
 //! | `VP_SEED` | `1` | Random director seed |
-//! | `VP_IC` | `random` | `random` directors, `seeded` four-defect, or `fig2a` at the paper's own placement |
+//! | `VP_IC` | `random` | `random` directors, `uniform` for a nearly uniform field, `symrandom` for a random field invariant under the half-diagonal shift, `seeded` four-defect, or `fig2a` at the paper's own placement |
+//! | `VP_UNIFORM_AMP` | `0.05` | Fluctuation of a `uniform` field, in units of pi |
 //! | `VP_THETA0` | `0` | Far-field director angle of a seeded field, in units of pi |
 //! | `VP_Q_INIT` | unset | Path to a `q_*.npy` frame to start from, for a continuation |
 //! | `VP_STRESS` | `full` | `full` Beris-Edwards, or `giomi` for `-lambda H + [Q, H]` alone |
@@ -85,6 +86,61 @@ fn random_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, rng: &mut StdRn
             let (s, c) = theta.sin_cos();
             q[(x * ly + y) * 2] = s0 * (c * c - 0.5);
             q[(x * ly + y) * 2 + 1] = s0 * (c * s);
+        }
+    }
+}
+
+/// A nearly uniform director field: one angle everywhere plus a small
+/// fluctuation.
+///
+/// The second initial condition of Mitchell et al.'s Fig. 5, whose red curve
+/// "is the entropy resulting from a nearly uniform initial director field" and
+/// finds none of the periodic orbit the black curve does. The amplitude is in
+/// units of pi, so `1.0` is the plain random field and the paper's case is a
+/// few per cent.
+fn uniform_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, amp: f64,
+                    rng: &mut StdRng) {
+    use std::f64::consts::PI;
+    let base = PI * rng.random::<f64>();
+    for x in 0..lx {
+        for y in 0..ly {
+            let theta = base + amp * PI * (rng.random::<f64>() - 0.5);
+            let (sn, cs) = theta.sin_cos();
+            q[(x * ly + y) * 2] = s0 * (cs * cs - 0.5);
+            q[(x * ly + y) * 2 + 1] = s0 * (cs * sn);
+        }
+    }
+}
+
+/// A random director field invariant under the half-diagonal translation
+/// `(x, y) -> (x + lx/2, y + ly/2)`.
+///
+/// Mitchell et al.'s Fig. 2(a) state has exactly this symmetry: its two `-1/2`
+/// defects sit at `(0, 0)` and `(L/2, L/2)` and its two `+1/2` defects at
+/// `(0, L/2)` and `(L/2, 0)`, so each species is one orbit of the translation.
+/// Every operator in the scheme is translation-equivariant on the periodic
+/// lattice and the shift is a whole number of cells, so a field that starts
+/// with the symmetry keeps it exactly, and the run is confined to the symmetry
+/// class the target orbit lives in. A plain random field is not in that class
+/// and reaches the defect-free state instead.
+///
+/// The construction takes the half `x < lx/2` at random and defines the other
+/// half as its image, which is invariant because `y + ly/2` and `y - ly/2`
+/// agree modulo `ly`.
+fn symmetric_random_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, rng: &mut StdRng) {
+    use std::f64::consts::PI;
+    assert!(lx % 2 == 0 && ly % 2 == 0, "the half-diagonal shift needs an even side");
+    let (hx, hy) = (lx / 2, ly / 2);
+    for x in 0..hx {
+        for y in 0..ly {
+            let theta: f64 = PI * rng.random::<f64>();
+            let (s, c) = theta.sin_cos();
+            let (qxx, qxy) = (s0 * (c * c - 0.5), s0 * (c * s));
+            q[(x * ly + y) * 2] = qxx;
+            q[(x * ly + y) * 2 + 1] = qxy;
+            let yy = (y + hy) % ly;
+            q[((x + hx) * ly + yy) * 2] = qxx;
+            q[((x + hx) * ly + yy) * 2 + 1] = qxy;
         }
     }
 }
@@ -152,6 +208,7 @@ fn main() -> std::io::Result<()> {
     // self-propels along its own axis, so the far-field angle sets which way
     // each of the four starts moving and therefore which state the run reaches.
     let theta0: f64 = env_or::<f64>("VP_THETA0", 0.0) * std::f64::consts::PI;
+    let uniform_amp: f64 = env_or("VP_UNIFORM_AMP", 0.05);
     let out = PathBuf::from(std::env::var("VP_OUT").unwrap_or_else(|_| "runs/periodic".into()));
 
     let ly = lx;
@@ -225,6 +282,14 @@ fn main() -> std::io::Result<()> {
             state.q = seeded_q(&defects, lx, ly, params.s0, theta0)
                 .expect("the four-defect arrangement has zero total charge");
             println!("  seeded {} defects, theta_0 = {:.4} rad", defects.len(), theta0);
+        }
+        "uniform" => {
+            uniform_director(&mut state.q, params.s0, lx, ly, uniform_amp, &mut rng);
+            println!("  nearly uniform directors, fluctuation {uniform_amp} pi");
+        }
+        "symrandom" => {
+            symmetric_random_director(&mut state.q, params.s0, lx, ly, &mut rng);
+            println!("  random directors, symmetric under the half-diagonal shift");
         }
         _ => random_director(&mut state.q, params.s0, lx, ly, &mut rng),
     }

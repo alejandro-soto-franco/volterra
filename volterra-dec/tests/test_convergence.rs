@@ -11,7 +11,7 @@
 //!
 //! - **Poisson solve** (`solve(l(l+1) Y) -> Y`) and **curved Stokes MMS** (a manufactured
 //!   stream function recovered through the full two-Poisson chain) converge at O(h^2). These
-//!   exercise the SPD-stiffness CG solve in `poisson.rs` / `curved_stokes.rs`.
+//!   exercise the SPD-stiffness CG solve in `poisson.rs` / `stokes.rs`.
 //! - **Forward Laplace-Beltrami** (`apply_laplace_beltrami(Y_lm) -> l(l+1) Y_lm`) converges
 //!   at ~1.15 in the area-weighted L2 norm (errors 4.98e-2 -> 2.17e-2 -> 1.02e-2 over levels
 //!   2..4); restricting to the valence-6 bulk lifts it to ~1.49. The 1-to-4 icosphere is not
@@ -26,7 +26,7 @@
 mod support;
 use support::*;
 
-use volterra_dec::curved_stokes::CurvedStokesSolver;
+use volterra_dec::stokes::SurfaceStokes;
 use volterra_dec::poisson::PoissonSolver;
 
 /// Refinement levels swept by every convergence test (162, 642, 2562 vertices).
@@ -99,16 +99,19 @@ fn poisson_solve_second_order() {
 
 #[test]
 #[ignore = "slow refinement sweep; run with --ignored --release"]
-fn curved_stokes_mms_second_order() {
+fn surface_stokes_mms_second_order() {
     // Manufactured solution for the full two-Poisson stream-function chain.
     //
-    // With psi = Y_lm and unit-sphere K = 1, under the solver's sign convention (standard
-    // solve returns Delta psi = rhs), feeding source = -mu (mu - 1) / Er * Y_lm returns
-    // psi = Y_lm (mu = l(l+1)). Converges at O(h^2).
+    // The chain solves `(Delta + 2K) Delta psi = Er * source`, so with
+    // `psi = Y_lm` on the unit sphere, where `Delta Y = -mu Y` and `K = 1`,
+    // the source that returns it is `mu (mu - 2) / Er * Y_lm`.
+    //
+    // `l = 1` is excluded because `mu (mu - 2)` vanishes there: those are the
+    // rigid rotations, the operator's kernel, and no source returns them.
     let (l, m) = (2usize, 0usize);
     let mu = sph_eigenvalue(l);
     let er = 1.0;
-    let src_coeff = -mu * (mu - 1.0) / er;
+    let src_coeff = mu * (mu - 2.0) / er;
 
     let mut hs = Vec::new();
     let mut errs = Vec::new();
@@ -117,13 +120,12 @@ fn curved_stokes_mms_second_order() {
         let coords = coords_of(&d);
         let y = sph_harmonic(&coords, l, m);
         let source = &y * src_coeff;
-        let solver = CurvedStokesSolver::new(&d.ops, &d.mesh, &vec![1.0; d.n_vertices()])
-            .expect("curved Stokes solver");
-        let (psi, _vel) = solver.solve(&source, er);
+        let solver = SurfaceStokes::new(&d.ops, &d.mesh).expect("surface Stokes solver");
+        let psi = solver.stream_from_vorticity(&source, er);
         hs.push(mean_edge_length(&d));
         errs.push(l2_rel_error(&zero_mean(&psi), &zero_mean(&y), &d.dual_areas));
     }
-    let order = report("curved_stokes_mms", &hs, &errs);
-    assert!(order > 1.5, "curved Stokes MMS order {order:.3} should be ~2 (> 1.5)");
+    let order = report("surface_stokes_mms", &hs, &errs);
+    assert!(order > 1.5, "surface Stokes MMS order {order:.3} should be ~2 (> 1.5)");
     assert!(*errs.last().unwrap() < 1e-2, "finest error: {:.3e}", errs.last().unwrap());
 }

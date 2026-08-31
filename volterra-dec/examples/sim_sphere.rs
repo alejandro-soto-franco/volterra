@@ -15,8 +15,8 @@ use volterra_core::ActiveNematicParams;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::{write_snapshot, write_velocity_snapshot};
-use volterra_dec::stokes_dec::{StokesSolverDec, advect_q_covariant};
-use volterra_dec::QFieldDec;
+use volterra_dec::stokes::{SurfaceStokes, advect_q_covariant};
+use volterra_dec::QField;
 use volterra_dec::DecDomain;
 
 fn main() {
@@ -85,13 +85,13 @@ fn main() {
 
     // Pre-factorise the Stokes solver.
     println!("Factorising Stokes solver...");
-    let stokes = StokesSolverDec::new(&domain.ops, &domain.mesh)
+    let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh)
         .expect("Stokes solver factorisation failed");
 
     // Extract per-edge connection phases for covariant advection.
     let edge_phases = conn_lap.edge_phases();
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.3, 42);
+    let mut q = QField::random_perturbation(nv, 0.3, 42);
 
     // Write metadata.
     let meta = serde_json::json!({
@@ -137,7 +137,7 @@ fn main() {
 
             // 2. RK4 step on Q: molecular field + proper directional advection.
             let coords = &stokes_coords;
-            let rhs = |qq: &QFieldDec| -> QFieldDec {
+            let rhs = |qq: &QField| -> QField {
                 let h = molecular_field_conn(
                     qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
                 );

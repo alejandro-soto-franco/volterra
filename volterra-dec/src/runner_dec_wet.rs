@@ -13,8 +13,8 @@ use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
 use volterra_core::sim::{RunConfig, SimulationRunner};
 use volterra_core::ActiveNematicParams;
-use crate::stokes_dec::StokesSolverDec;
-use crate::QFieldDec;
+use crate::stokes::SurfaceStokes;
+use crate::QField;
 
 use crate::runner_dec::{DecSink, SnapStatsDec};
 use crate::sim_impls::dec::DecWet;
@@ -48,16 +48,16 @@ fn extract_coords_runner<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
 /// moved into the physics; the loop itself never fails.
 #[allow(clippy::too_many_arguments)] // physics driver: many fields and parameters
 fn run_wet_inner<M: Manifold>(
-    q_init: &QFieldDec,
+    q_init: &QField,
     params: &ActiveNematicParams,
     ops: &Operators<M, 3, 2>,
     mesh: &Mesh<M, 3, 2>,
-    stokes: StokesSolverDec,
+    stokes: SurfaceStokes,
     coords: Vec<[f64; 3]>,
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
     n_steps: usize,
     snap_every: usize,
-) -> (QFieldDec, Vec<SnapStatsDec>) {
+) -> (QField, Vec<SnapStatsDec>) {
     let mut physics = DecWet {
         params: params.clone(),
         stokes,
@@ -89,15 +89,15 @@ fn run_wet_inner<M: Manifold>(
 /// factorisation for the Stokes solver fails.
 #[allow(clippy::too_many_arguments)]
 pub fn run_wet_active_nematic_dec<M: Manifold>(
-    q_init: &QFieldDec,
+    q_init: &QField,
     params: &ActiveNematicParams,
     ops: &Operators<M, 3, 2>,
     mesh: &Mesh<M, 3, 2>,
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
     n_steps: usize,
     snap_every: usize,
-) -> Result<(QFieldDec, Vec<SnapStatsDec>), String> {
-    let stokes = StokesSolverDec::new(ops, mesh)?;
+) -> Result<(QField, Vec<SnapStatsDec>), String> {
+    let stokes = SurfaceStokes::new(ops, mesh)?;
     let coords = extract_coords_runner(mesh);
     Ok(run_wet_inner(
         q_init,
@@ -128,7 +128,7 @@ pub fn run_wet_active_nematic_dec<M: Manifold>(
 /// `Ok((q_final, stats))` on success, or an error if the Poisson factorisation fails.
 #[allow(clippy::too_many_arguments)]
 pub fn run_wet_active_nematic_dec_confined<M: Manifold>(
-    q_init: &QFieldDec,
+    q_init: &QField,
     params: &ActiveNematicParams,
     ops: &Operators<M, 3, 2>,
     mesh: &Mesh<M, 3, 2>,
@@ -136,8 +136,8 @@ pub fn run_wet_active_nematic_dec_confined<M: Manifold>(
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
     n_steps: usize,
     snap_every: usize,
-) -> Result<(QFieldDec, Vec<SnapStatsDec>), String> {
-    let stokes = StokesSolverDec::new_confined(ops, mesh, boundary_vertices)?;
+) -> Result<(QField, Vec<SnapStatsDec>), String> {
+    let stokes = SurfaceStokes::new_confined(ops, mesh, boundary_vertices)?;
     let coords = extract_coords_runner(mesh);
     Ok(run_wet_inner(
         q_init,

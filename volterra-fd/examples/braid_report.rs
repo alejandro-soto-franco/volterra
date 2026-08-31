@@ -28,7 +28,9 @@
 //! half. A run whose census never holds for eight frames after that has no braid
 //! to read and the report says so.
 //!
-//!     braid_report [--from=0.5] <run-dir> [<run-dir> ...]
+//!     braid_report [--from=0.5] [--close=0.5] <run-dir> [<run-dir> ...]
+//!
+//! `--close` is the pass threshold as a fraction of the box side.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -65,18 +67,44 @@ fn read_defects(run: &Path) -> std::io::Result<Vec<Frame>> {
     Ok(frames)
 }
 
-/// The longest stretch of frames whose defect census never changes.
+/// The longest stretch of frames that keeps the run's usual cast of defects.
+///
+/// The cast is the modal census over the frames offered. A stretch keeps it
+/// while every charge is present at least that many times, so a frame with a
+/// short-lived extra pair stays in and a frame that has lost a member of the
+/// cast ends the stretch. The stretch also starts on a frame whose census is
+/// exactly the cast, so the tracker is seeded without a transient in it.
+///
+/// Demanding an exactly constant census instead splits a developed orbit
+/// wherever the detector flickers. On a run of four defects across 35 time
+/// units, with 78 per cent of frames at exactly two and two, that rule returned
+/// a window of 54 frames spanning 1.3 time units.
 fn steady_window(frames: &[Frame]) -> (usize, usize) {
     let census = |f: &Frame| {
         let p = f.1.iter().filter(|d| d.1 > 0).count();
         (p, f.1.len() - p)
     };
+    let mut tally: std::collections::HashMap<(usize, usize), usize> =
+        std::collections::HashMap::new();
+    for f in frames {
+        *tally.entry(census(f)).or_default() += 1;
+    }
+    let Some((&cast, _)) = tally.iter().max_by_key(|&(k, v)| (*v, k.0 + k.1)) else {
+        return (0, 0);
+    };
+    let keeps = |f: &Frame| {
+        let c = census(f);
+        c.0 >= cast.0 && c.1 >= cast.1
+    };
     let (mut bi, mut bj) = (0usize, 0usize);
     let mut i = 0;
     while i < frames.len() {
-        let c = census(&frames[i]);
+        if census(&frames[i]) != cast {
+            i += 1;
+            continue;
+        }
         let mut j = i;
-        while j + 1 < frames.len() && census(&frames[j + 1]) == c {
+        while j + 1 < frames.len() && keeps(&frames[j + 1]) {
             j += 1;
         }
         if j - i >= bj - bi {
@@ -136,7 +164,7 @@ fn read_rms(run: &Path) -> std::io::Result<(Vec<f64>, Vec<f64>)> {
     Ok((t, u))
 }
 
-fn report(run: &Path, from: f64) -> std::io::Result<()> {
+fn report(run: &Path, from: f64, close_frac: f64) -> std::io::Result<()> {
     let cfg: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(run.join("config.json"))?)?;
     let lx = cfg["params"]["lx"].as_f64().unwrap_or(100.0);
@@ -163,6 +191,13 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
     }
     let n_plus = window[0].1.iter().filter(|d| d.1 > 0).count();
     let n_minus = window[0].1.len() - n_plus;
+    let exact = window
+        .iter()
+        .filter(|f| {
+            let p = f.1.iter().filter(|d| d.1 > 0).count();
+            p == n_plus && f.1.len() - p == n_minus
+        })
+        .count();
     println!(
         "    {lx:.0}x{ly:.0} torus, locking {}, steady window t in [{:.3}, {:.3}] \
          ({} frames) with {n_plus} +1/2 and {n_minus} -1/2",
@@ -170,6 +205,11 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
         window[0].0,
         window[window.len() - 1].0,
         window.len()
+    );
+    println!(
+        "    census      : {:.1} per cent of the window is exactly that cast, \
+         the rest carries a transient pair",
+        100.0 * exact as f64 / window.len() as f64
     );
 
     // A defect may not move further between frames than a defect can: the frame
@@ -201,23 +241,39 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
         (f64::NAN, 0.0)
     };
 
-    let m = w.is_maximal_mixing(period, 0.5 * lx);
-    let enc = w.encounters(0.5 * lx);
+    // A pass is a local minimum of the separation below this. The braid of
+    // Fig. 2(a) swaps at `0.293 L`, so the threshold sits above that; a
+    // threshold at the box half-width also admits the shallow minima between
+    // passes and reads nine an orbit where the braid has four.
+    let close = close_frac * lx;
+    // The orbit period is the strands' own recurrence, not the dominant period
+    // of the RMS velocity: the velocity peaks at every pass, so on the braid of
+    // Fig. 2(a) it cycles four times an orbit. Reading it as the orbit period
+    // divides `T_tilde` by four and multiplies the braid prediction by four.
+    let (orbit_t, orbit_q) = w.orbit_period();
+    let t_orbit = if orbit_t.is_finite() && orbit_q > 0.3 { orbit_t } else { period };
+    let m = w.is_maximal_mixing(t_orbit, close);
+    let enc = w.encounters_apart(close, t_orbit / 8.0);
     let gyr = w.gyration();
     let wind = w.winding();
 
     println!(
-        "    period      : T = {period:.4} (autocorrelation {peak:.4}), \
-         T_tilde = {:.1}",
-        period / t_a
+        "    period      : orbit T = {t_orbit:.4} from the worldlines \
+         (recurrence {orbit_q:.3}), T_tilde = {:.1}",
+        t_orbit / t_a
+    );
+    println!(
+        "                  u_rms cycles at {period:.4} \
+         (autocorrelation {peak:.4}), {:.2} a revolution",
+        if period > 0.0 { t_orbit / period } else { f64::NAN }
     );
     println!(
         "    encounters  : {} over the window, {:.2} per period, \
-         sense {} ({})",
+         sense {} ({:.0} per cent agreeing)",
         m.encounters,
         m.per_period,
         m.sense,
-        if m.one_sense { "one sense" } else { "mixed" }
+        100.0 * m.sense_fraction
     );
     for &s in w.positive().iter() {
         println!(
@@ -239,7 +295,7 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
             "not the maximal mixing braid: the encounter rate is not four a period"
         }
     );
-    let pred = TorusWorldlines::braid_prediction(period, t_a);
+    let pred = TorusWorldlines::braid_prediction(t_orbit, t_a);
     println!(
         "    prediction  : h_tilde_max = log(phi + sqrt phi) / (T_tilde / 4) = {pred:.4e}"
     );
@@ -252,8 +308,10 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
         "run": run.file_name().unwrap().to_string_lossy(),
         "lx": lx, "ly": ly, "t_a": t_a, "locking": locking,
         "window": [window[0].0, window[window.len() - 1].0],
+        "close": close,
         "from": from,
         "n_plus": n_plus, "n_minus": n_minus,
+        "exact_census_fraction": exact as f64 / window.len() as f64,
         "charge": w.charge,
         "times": keep.iter().map(|&k| w.times[k]).collect::<Vec<_>>(),
         "worldlines": (0..w.n_strands())
@@ -263,9 +321,12 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
             "t": e.t, "strands": [e.strands.0, e.strands.1],
             "image": e.image, "distance": e.distance, "sense": e.sense,
         })).collect::<Vec<_>>(),
-        "period": period, "period_peak": peak, "t_tilde": period / t_a,
+        "period": t_orbit, "period_peak": peak,
+        "orbit_recurrence": orbit_q,
+        "u_rms_period": period, "t_tilde": t_orbit / t_a,
         "encounters_per_period": m.per_period,
-        "one_sense": m.one_sense, "sense": m.sense, "bounded": m.bounded,
+        "one_sense": m.one_sense, "sense": m.sense,
+        "sense_fraction": m.sense_fraction, "bounded": m.bounded,
         "verdict": m.verdict,
         "h_tepo": h_tepo_maximal_mixing(),
         "h_tilde_max": pred,
@@ -278,20 +339,23 @@ fn report(run: &Path, from: f64) -> std::io::Result<()> {
 fn main() -> std::io::Result<()> {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let mut from = 0.5;
+    let mut close_frac = 0.5;
     let mut args: Vec<PathBuf> = Vec::new();
     for a in raw {
         if let Some(v) = a.strip_prefix("--from=") {
             from = v.parse().unwrap_or(0.5);
+        } else if let Some(v) = a.strip_prefix("--close=") {
+            close_frac = v.parse().unwrap_or(0.5);
         } else {
             args.push(PathBuf::from(a));
         }
     }
     if args.is_empty() {
-        eprintln!("braid_report [--from=0.5] <run-dir> [<run-dir> ...]");
+        eprintln!("braid_report [--from=0.5] [--close=0.5] <run-dir> [<run-dir> ...]");
         std::process::exit(2);
     }
     for run in &args {
-        if let Err(e) = report(run, from) {
+        if let Err(e) = report(run, from, close_frac) {
             println!("\n=== {}\n    {e}", run.display());
         }
     }

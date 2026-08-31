@@ -23,7 +23,7 @@ use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
 use volterra_core::ActiveNematicParams;
 use crate::connection_laplacian::{molecular_field_conn, ConnectionLaplacian};
 use crate::mesh_gen::icosphere;
-use crate::QFieldDec;
+use crate::QField;
 
 use crate::sim_impls::dec::DecDry;
 
@@ -63,8 +63,8 @@ pub(crate) struct DecSink {
     pub out: Vec<SnapStatsDec>,
 }
 
-impl Observer<QFieldDec> for DecSink {
-    fn observe(&mut self, _step: usize, t: f64, q: &QFieldDec, _stats: &StepStats) {
+impl Observer<QField> for DecSink {
+    fn observe(&mut self, _step: usize, t: f64, q: &QField, _stats: &StepStats) {
         self.out.push(SnapStatsDec {
             time: t,
             mean_s: q.mean_order_param(),
@@ -93,13 +93,13 @@ impl Observer<QFieldDec> for DecSink {
 ///
 /// `(q_final, stats)`: final Q-field and one [`SnapStatsDec`] per snapshot.
 pub fn run_dry_active_nematic_dec<M: Manifold>(
-    q_init: &QFieldDec,
+    q_init: &QField,
     params: &ActiveNematicParams,
     ops: &Operators<M, 3, 2>,
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
     n_steps: usize,
     snap_every: usize,
-) -> (QFieldDec, Vec<SnapStatsDec>) {
+) -> (QField, Vec<SnapStatsDec>) {
     let mut physics = DecDry {
         params: params.clone(),
         ops,
@@ -145,7 +145,7 @@ pub fn run_dry_active_nematic_dec_smoke(refinement: usize, steps: usize) -> Vec<
     // Small dt for CFL stability on the sphere (h ~ 1/sqrt(nv), so dt ~ h^2).
     params.dt = 1e-3;
 
-    let mut q = QFieldDec::random_perturbation(nv, 0.1, 42);
+    let mut q = QField::random_perturbation(nv, 0.1, 42);
 
     for _ in 0..steps {
         // RK4 using molecular_field_conn as the RHS.

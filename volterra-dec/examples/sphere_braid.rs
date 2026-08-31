@@ -1,19 +1,25 @@
-//! Active nematic on S^2 at Zhu et al. (2024) Peclet numbers.
+//! Active nematic on a sphere, with the defects tracked so the braid can be read.
 //!
-//! Runs the Beris-Edwards + Stokes DEC solver on a unit sphere with
-//! parameters mapped from Zhu, Saintillan, Chern's nondimensionalisation.
+//! Runs Beris-Edwards with a Stokes flow on an icosphere and writes, at every
+//! snapshot, the position and charge of every defect. Four `+1/2` defects is
+//! what a sphere owes by Poincare-Hopf when the field is half-charged
+//! throughout, and at low activity they sit at the corners of a tetrahedron,
+//! which is the configuration a braid is read from.
 //!
-//! Pe controls the activity-to-relaxation ratio:
-//!   Pe = 1:     4 tetrahedral +1/2 defects, gentle oscillation
-//!   Pe = 10:    4 defects, stronger oscillation
-//!   Pe = 100:   chaotic 4-defect dynamics
-//!   Pe = 1000:  active turbulence onset
-//!   Pe = 10000: fully developed active turbulence
+//! The activity is set by a Peclet number, the ratio of the active stress to
+//! elastic relaxation:
 //!
-//! Usage:
-//!     cargo run --release -p volterra-solver --example sim_sphere_zhu -- --pe 100
-//!     cargo run --release -p volterra-solver --example sim_sphere_zhu -- --pe 1000 --refinement 5
-
+//! ```text
+//! Pe = zeta R^2 / K
+//! ```
+//!
+//! Everything else is held: `K = 0.01`, `eta = 1`, `gamma_r = 1`, `R = 1`,
+//! `lambda = 1`, and a Ginzburg-Landau bulk with `c = 1` and `a_eff = -1`, so
+//! the equilibrium order is `|z| = 0.5` and the core size is
+//! `sqrt(K/|a_eff|) = 0.1`, about two edges at refinement 5.
+//!
+//!     cargo run --release -p volterra-solver --example sphere_braid -- --pe 1
+//!     cargo run --release -p volterra-solver --example sphere_braid -- --pe 100 -r 5
 use std::path::Path;
 use std::time::Instant;
 
@@ -25,12 +31,14 @@ use volterra_dec::snapshot::{write_snapshot, write_velocity_snapshot};
 use volterra_dec::stokes::{SurfaceStokes, advect_q_covariant};
 use volterra_dec::QField;
 use volterra_dec::DecDomain;
+use volterra_dec::surface_defects::{detect_defects_surface, total_charge};
+use std::io::Write;
 
 /// Map Zhu's nondimensional Pe to volterra's dimensional parameters.
 ///
-/// Zhu's nondimensionalisation (arXiv:2405.06044, Eq. 34):
-///   Pe = |alpha| * r^2 / mu    (activity / elastic relaxation)
-///   eps = varepsilon / r        (defect core / domain)
+/// Nondimensionalisation:
+///   Pe  = |alpha| r^2 / mu   (activity against elastic relaxation)
+///   eps = core size / radius
 ///
 /// We fix K_frank = 0.01, eta = 1, gamma_r = 1, R = 1 (unit sphere).
 /// Then Pe = zeta * R^2 / K = zeta / K = 100 * zeta.
@@ -38,13 +46,50 @@ use volterra_dec::DecDomain;
 /// The Ginzburg-Landau bulk sets the equilibrium order:
 ///   |z|_eq = sqrt(-a_eff / (4c))
 /// We target |z|_eq ~ 0.5 (S_eq ~ 1.0) by fixing c = 1 and a_eff = -1.
-fn zhu_params(pe: f64) -> (ActiveNematicParams, f64, f64, usize) {
+/// Read a `(n_vertices, 2)` float64 `.npy` snapshot back into a Q field.
+///
+/// Accepts only the header this crate's own writer produces, so a file from
+/// anywhere else fails loudly instead of being reinterpreted.
+fn read_snapshot(path: &std::path::Path, nv: usize) -> std::io::Result<QField> {
+    use std::io::{Error, ErrorKind, Read};
+    let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut magic = [0u8; 10];
+    f.read_exact(&mut magic)?;
+    if &magic[..6] != b"\x93NUMPY" {
+        return Err(Error::new(ErrorKind::InvalidData, "not a .npy file"));
+    }
+    let hlen = u16::from_le_bytes([magic[8], magic[9]]) as usize;
+    let mut header = vec![0u8; hlen];
+    f.read_exact(&mut header)?;
+    let header = String::from_utf8_lossy(&header).to_string();
+    let want = format!("'descr': '<f8', 'fortran_order': False, 'shape': ({nv}, 2)");
+    if !header.contains(&want) {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("header is {}, wanted {want}", header.trim()),
+        ));
+    }
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    if buf.len() != nv * 2 * 8 {
+        return Err(Error::new(ErrorKind::InvalidData, "wrong payload length"));
+    }
+    let val = |i: usize| f64::from_le_bytes(buf[i * 8..i * 8 + 8].try_into().unwrap());
+    let mut q = QField::zeros(nv);
+    for v in 0..nv {
+        q.q1[v] = val(2 * v);
+        q.q2[v] = val(2 * v + 1);
+    }
+    Ok(q)
+}
+
+fn activity_params(pe: f64) -> (ActiveNematicParams, f64, f64, usize) {
     let k_frank = 0.01;
     let eta = 1.0;
     let gamma_r = 1.0;
     let c_landau = 1.0;
     let a_eff_target = -1.0;
-    let lambda = 1.0; // flow-aligning (Zhu uses lambda=1)
+    let lambda = 1.0; // flow-aligning
 
     // Pe = zeta / K => zeta = Pe * K
     let zeta = pe * k_frank;
@@ -72,7 +117,7 @@ fn zhu_params(pe: f64) -> (ActiveNematicParams, f64, f64, usize) {
         0.0002
     };
 
-    // Simulation time: T = 30 (nondimensional, matching Zhu).
+    // Simulation time, in relaxation units.
     // nondimensional time = t * |a_eff| * gamma_r (relaxation units)
     // Since gamma_r = 1 and |a_eff| = 1, physical t = T_nd.
     let t_final: f64 = 30.0;
@@ -99,6 +144,13 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut pe = 100.0_f64;
     let mut refinement = 5_usize;
+    let mut t_override: Option<f64> = None;
+    let mut tag = String::new();
+    let mut seed = 42_u64;
+    let mut q_init: Option<String> = None;
+    let mut dt_override: Option<f64> = None;
+    let mut snap_dt: Option<f64> = None;
+    let mut tol = 1e-8_f64;
 
     let mut i = 1;
     while i < args.len() {
@@ -111,6 +163,34 @@ fn main() {
                 i += 1;
                 refinement = args[i].parse().expect("invalid --refinement value");
             }
+            "--t-final" => {
+                i += 1;
+                t_override = Some(args[i].parse().expect("invalid --t-final value"));
+            }
+            "--tag" => {
+                i += 1;
+                tag = args[i].clone();
+            }
+            "--seed" => {
+                i += 1;
+                seed = args[i].parse().expect("invalid --seed value");
+            }
+            "--q-init" => {
+                i += 1;
+                q_init = Some(args[i].clone());
+            }
+            "--dt" => {
+                i += 1;
+                dt_override = Some(args[i].parse().expect("invalid --dt value"));
+            }
+            "--snap-dt" => {
+                i += 1;
+                snap_dt = Some(args[i].parse().expect("invalid --snap-dt value"));
+            }
+            "--tol" => {
+                i += 1;
+                tol = args[i].parse().expect("invalid --tol value");
+            }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);
                 std::process::exit(1);
@@ -119,14 +199,27 @@ fn main() {
         i += 1;
     }
 
-    let (params, t_final, dt, snap_every) = zhu_params(pe);
+    let (params, t_default, dt_default, snap_every_default) = activity_params(pe);
+    let dt = dt_override.unwrap_or(dt_default);
+    let snap_every = match (snap_dt, dt_override) {
+        (Some(sd), _) => ((sd / dt).round() as usize).max(1),
+        (None, Some(_)) => ((0.1_f64 / dt).round() as usize).max(1),
+        (None, None) => snap_every_default,
+    };
+    let mut params = params;
+    params.dt = dt;
+    let t_final = t_override.unwrap_or(t_default);
     let n_steps = (t_final / dt).ceil() as usize;
 
-    let out_dir = format!("output/sphere_pe{}", pe as u64);
+    let out_dir = if tag.is_empty() {
+        format!("output/sphere_braid_pe{pe}")
+    } else {
+        format!("output/sphere_braid_{tag}")
+    };
     let out = Path::new(&out_dir);
     std::fs::create_dir_all(out).expect("failed to create output directory");
 
-    println!("=== Zhu et al. (2024) S^2 Active Nematic ===");
+    println!("=== active nematic on a sphere ===");
     println!("  Pe = {pe}");
     println!("  refinement = {refinement}");
     println!("  dt = {dt}");
@@ -177,14 +270,27 @@ fn main() {
 
     // Initial condition: random perturbation around half-order.
     // |z| ~ 0.5 matches the equilibrium, with spatial noise to seed instability.
-    let mut q = QField::random_perturbation(nv, 0.5, 42);
+    // A random start finds the tetrahedron only sometimes: of five seeds
+    // relaxed with no activity, two reached it, two stopped part way and one
+    // settled into a coplanar square. Continuing from a state already relaxed
+    // into the tetrahedron enters the configuration rather than waiting for it.
+    let mut q = match &q_init {
+        Some(path) => {
+            let f = read_snapshot(std::path::Path::new(path), nv)
+                .expect("failed to read the initial Q snapshot");
+            println!("  initial Q from {path}");
+            f
+        }
+        None => QField::random_perturbation(nv, 0.5, seed),
+    };
 
     // Write metadata.
     let meta = serde_json::json!({
         "geometry": "sphere",
-        "mode": "wet_zhu",
+        "mode": "sphere_braid",
         "pe": pe,
         "refinement": refinement,
+        "seed": seed,
         "n_vertices": nv,
         "n_faces": nf,
         "n_steps": n_steps,
@@ -202,13 +308,48 @@ fn main() {
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
         .expect("failed to write meta.json");
 
+    let mut fdef = std::fs::File::create(out.join("defects.csv"))
+        .expect("failed to open defects.csv");
+    writeln!(fdef, "step,t,x,y,z,charge").unwrap();
+    let mut fstat = std::fs::File::create(out.join("stats.csv"))
+        .expect("failed to open stats.csv");
+    writeln!(fstat, "step,t,n_plus,n_minus,mean_S,total_charge,u_rms,pe_measured").unwrap();
+
     println!("Running: Pe={pe}, T={t_final}, {n_steps} steps...");
     let t0 = Instant::now();
+
+    // The Peclet number the run actually realises, as the reference defines it:
+    // the advective rate against the elastic relaxation rate at the domain
+    // scale, `u R / (gamma_r K)` with `R = 1`. The flag sets an active stress,
+    // which fixes this only once the order parameter has settled, so it is
+    // measured rather than declared.
+    let mut u_rms = 0.0_f64;
+    let mut psi_prev: Option<Vec<f64>> = None;
+    let mut cg_iters = 0usize;
 
     for step in 0..=n_steps {
         if step % snap_every == 0 {
             write_snapshot(&q, &out.join(format!("q_{step:06}.npy")))
                 .expect("failed to write snapshot");
+
+            let t_sim = step as f64 * dt;
+            let defs = detect_defects_surface(
+                &stokes_coords, &domain.mesh.simplices, &domain.mesh.boundaries,
+                &domain.mesh.simplex_boundary_ids, &edge_phases, &q,
+            );
+            for (p, c) in &defs {
+                writeln!(fdef, "{step},{t_sim:.6},{:.6},{:.6},{:.6},{c}", p[0], p[1], p[2])
+                    .unwrap();
+            }
+            let npl = defs.iter().filter(|d| d.1 > 0).count();
+            // The total is Poincare-Hopf and must be four halves on a sphere at
+            // every step. It is recorded rather than asserted so a run that
+            // breaks it is diagnosable afterwards rather than merely dead.
+            let pe_measured = u_rms / (params.gamma_r * params.k_r);
+            writeln!(
+                fstat, "{step},{t_sim:.6},{npl},{},{:.6},{},{u_rms:.6},{pe_measured:.4}",
+                defs.len() - npl, q.mean_order_param(), total_charge(&defs)
+            ).unwrap();
         }
 
         if step % (snap_every * 5) == 0 {
@@ -216,12 +357,24 @@ fn main() {
             let t_sim = step as f64 * dt;
             let elapsed = t0.elapsed().as_secs_f64();
             let rate = if elapsed > 0.0 { step as f64 / elapsed } else { 0.0 };
-            println!("  t={t_sim:6.2}/{t_final}  step {step:>7}/{n_steps}  <S>={s:.4}  wall={elapsed:.1}s  ({rate:.0} steps/s)");
+            let per_step = if step > 0 { cg_iters as f64 / step as f64 } else { 0.0 };
+            println!("  t={t_sim:6.2}/{t_final}  step {step:>7}/{n_steps}  <S>={s:.4}  wall={elapsed:.1}s  ({rate:.0} steps/s, {per_step:.0} cg/step)");
         }
 
         if step < n_steps {
-            // 1. Stokes solve.
-            let vel = stokes.solve(&q, &params, &domain.ops, &domain.mesh);
+            // 1. Stokes solve, warm-started from the previous step.
+            //
+            // The source moves by order `dt` per step, so last step's stream
+            // function is already close to this step's and the iteration is
+            // short. Started cold the solve repeats its whole descent every
+            // step, which is where the run was spending most of its time.
+            let (vel, psi_next, its) = stokes.solve_warm(
+                &q, &params, &domain.ops, &domain.mesh, psi_prev.as_deref(), tol,
+            );
+            psi_prev = Some(psi_next);
+            cg_iters += its;
+            u_rms = (vel.v.iter().map(|u| u[0] * u[0] + u[1] * u[1] + u[2] * u[2])
+                .sum::<f64>() / vel.v.len() as f64).sqrt();
 
             // Write velocity snapshot.
             if step % snap_every == 0 {

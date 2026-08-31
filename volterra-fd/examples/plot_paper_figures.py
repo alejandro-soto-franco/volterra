@@ -19,19 +19,40 @@ import sys
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
+# The PDF backend loses the minus sign from every negative number while
+# `text.usetex` is on. It subsets the Type 1 Computer Modern fonts itself and
+# the CMSY minus does not survive the subset, so a tick at -100 sets as 100 and
+# a label of $-1/2$ as a gap. The PGF backend runs LaTeX over the figure
+# instead and keeps it. The Agg path was never affected, so a PNG of the same
+# figure looks right and hides the fault.
+matplotlib.use("pgf")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
 
 plt.rcParams.update({
-    "text.usetex": True, "font.family": "serif", "axes.grid": False,
+    "text.usetex": True, "pgf.texsystem": "pdflatex", "font.family": "serif", "axes.grid": False,
     "text.color": "#000000", "axes.labelcolor": "#000000", "xtick.color": "#000000",
     "ytick.color": "#000000", "axes.edgecolor": "#000000",
     "axes.labelsize": 13, "xtick.labelsize": 10, "ytick.labelsize": 10,
 })
 BLUE = "#1f4e9c"
 RED = "#d81e05"
+
+
+def texnum(v, digits=3):
+    """`v` as LaTeX maths, with an exponent where one is warranted.
+
+    Written out rather than patched into the output of a format string: the
+    substitution this replaced closed its brace after the closing `$`, so the
+    label reached LaTeX as `10^{-3$}` and the figure failed to build.
+    """
+    if v == 0.0 or not math.isfinite(v):
+        return "0"
+    e = int(math.floor(math.log10(abs(v))))
+    if -3 <= e <= 3:
+        return f"{v:.{max(0, digits - e)}f}"
+    return f"{v / 10 ** e:.{digits}f}" + r" \times 10^{" + f"{e}" + "}"
 
 
 def load(run):
@@ -95,7 +116,20 @@ def fig3(runs, out):
         frames = sorted(int(f.stem.split("_")[1]) for f in run.glob("q_*.npy"))
         if len(frames) >= 4:
             dt = cfg["params"]["dt"]
+            # One orbit period apart, so the pair shows the same field, which is
+            # the paper's own "two snapshots taken at the same phase of the
+            # motion". A pair chosen by position in the run lands at an
+            # arbitrary phase and the two look unrelated.
             pick = [frames[len(frames) // 2], frames[(5 * len(frames)) // 6]]
+            bf = run / "braid.json"
+            if bf.exists():
+                b = json.loads(bf.read_text())
+                period = b.get("period", float("nan"))
+                if period == period and period > 0:
+                    a = frames[len(frames) // 2]
+                    want = a + round(period / dt)
+                    if want <= frames[-1]:
+                        pick = [a, min(frames, key=lambda f: abs(f - want))]
             for k, (st, rect) in enumerate(zip(pick, [(0.06, 0.06, 0.36, 0.44),
                                                       (0.56, 0.06, 0.36, 0.44)])):
                 director_inset(fig, ax, rect, run, st, cfg)
@@ -134,21 +168,28 @@ def fig4(runs, out):
                         lw=1.4, ls="--")
             ax.text(0.03, 0.95,
                     rf"$h = {ent['h']:.3f} \pm {ent['h_sem']:.3f}$" "\n"
-                    rf"$\tilde h = {ent['h_tilde']:.3e}$".replace("e-0", r"\times 10^{-")
-                    + ("}" if "e-0" in f"{ent['h_tilde']:.3e}" else ""),
+                    rf"$\tilde h = {texnum(ent['h_tilde'])}$",
                     transform=ax.transAxes, va="top", ha="left", fontsize=11)
         ax.set_xlabel("integration time $t$")
         ax.set_ylabel("contour length")
         ax.set_title(rf"$\ell_a = {ell_a(cfg):.1f}$", fontsize=14)
 
-        # The final advected curve, inset.
-        pts = sorted(run.glob("line_*.csv"))
+        # The final advected curve, inset. The digits in the glob matter:
+        # `line_*.csv` also takes `line_lengths.csv`, which sorts last, so the
+        # inset drew the length table as though it were a curve.
+        pts = sorted(run.glob("line_[0-9]*.csv"))
         if pts:
             p = np.array([[float(v) for v in l.split(",")]
                           for l in pts[-1].read_text().splitlines()[1:] if l.strip()])
             axi = ax.inset_axes((0.58, 0.08, 0.38, 0.42))
+            lxx, lyy = cfg["params"]["lx"], cfg["params"]["ly"]
             first = p[p[:, 0] == 0]
-            axi.plot(first[:, 1], first[:, 2], color=BLUE, lw=0.25)
+            # Break the polyline where it wraps, so the seam draws no chord.
+            cut = (np.abs(np.diff(first[:, 1])) > 0.5 * lxx) | \
+                  (np.abs(np.diff(first[:, 2])) > 0.5 * lyy)
+            idx = np.where(cut)[0] + 1
+            for xs, ys in zip(np.split(first[:, 1], idx), np.split(first[:, 2], idx)):
+                axi.plot(xs, ys, color=BLUE, lw=0.25)
             axi.set_xlim(0, cfg["params"]["lx"])
             axi.set_ylim(0, cfg["params"]["ly"])
             axi.set_aspect("equal")

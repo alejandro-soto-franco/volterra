@@ -20,8 +20,8 @@ use cartan_dec::Mesh;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::stokes_dec::StokesSolverDec;
-use volterra_dec::QFieldDec;
+use volterra_dec::stokes::SurfaceStokes;
+use volterra_dec::QField;
 use volterra_dec::EvolvingDomain;
 
 fn main() {
@@ -66,7 +66,7 @@ fn main() {
     let h0 = vec![0.0; nv];
 
     // Initial Q: random.
-    let mut q = QFieldDec::random_perturbation(nv, 0.5, 42);
+    let mut q = QField::random_perturbation(nv, 0.5, 42);
 
     // Write initial mesh and metadata.
     let write_mesh = |ed: &EvolvingDomain<Euclidean<3>>, path: &Path| {
@@ -138,7 +138,7 @@ fn main() {
             ed.recompute_curvatures();
 
             // 2. Stokes solve on the deformed mesh (rebuild each step).
-            let stokes = match StokesSolverDec::new(&ed.domain.ops, &ed.domain.mesh) {
+            let stokes = match SurfaceStokes::new(&ed.domain.ops, &ed.domain.mesh) {
                 Ok(s) => s,
                 Err(_) => continue, // skip if factorisation fails
             };
@@ -162,7 +162,7 @@ fn main() {
                 })
                 .collect();
 
-            let adv = volterra_dec::stokes_dec::advect_q_covariant(
+            let adv = volterra_dec::stokes::advect_q_covariant(
                 &q, &vel,
                 &ed.domain.mesh.boundaries,
                 &ed.domain.mesh.vertex_boundaries,

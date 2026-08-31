@@ -28,8 +28,8 @@ use volterra_dec::confined::{Epitrochoid, MeshOpts, confined_mesh};
 use volterra_dec::confined_ldg::LdgProblem;
 use volterra_dec::nematic_params::NematicParams;
 use volterra_dec::poisson::PoissonSolver;
-use volterra_dec::qfield_dec::QFieldDec;
-use volterra_dec::stokes_dec::{StokesSolverDec, pressure_rhs_from_force, vorticity_from_psi};
+use volterra_dec::qfield::QField;
+use volterra_dec::stokes::{SurfaceStokes, pressure_rhs_from_force, vorticity_from_psi};
 
 fn env_f64(k: &str, d: f64) -> f64 {
     std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
@@ -144,9 +144,9 @@ fn main() {
 
     let slip_wall = std::env::var("ACT_WALL").map(|v| v == "slip").unwrap_or(false);
     let stokes = if slip_wall {
-        StokesSolverDec::new_confined(&p.ops, &p.mesh.mesh, &noslip)
+        SurfaceStokes::new_confined(&p.ops, &p.mesh.mesh, &noslip)
     } else {
-        StokesSolverDec::new_confined_clamped(&p.ops, &p.mesh.mesh, &noslip)
+        SurfaceStokes::new_confined_clamped(&p.ops, &p.mesh.mesh, &noslip)
     }
     .expect("confined Stokes factorisation");
 
@@ -176,7 +176,7 @@ fn main() {
                 ]
             })
             .collect();
-        let rhs = pressure_rhs_from_force(&f, &p.mesh.mesh, &volterra_dec::stokes_dec::extract_coords(&p.mesh.mesh), &area);
+        let rhs = pressure_rhs_from_force(&f, &p.mesh.mesh, &volterra_dec::stokes::extract_coords(&p.mesh.mesh), &area);
         let sol = poisson.solve(&rhs);
         let mean_p: f64 = (0..nv).map(|i| area[i] * sol[i]).sum::<f64>() / area_total;
         let mean_e: f64 = (0..nv).map(|i| area[i] * phi[i]).sum::<f64>() / area_total;
@@ -250,7 +250,7 @@ fn main() {
     for (n, &fid) in frames.iter().enumerate() {
         let bytes = std::fs::read(qdir.join(format!("q_{fid:05}.f32"))).expect("q frame");
         assert_eq!(bytes.len(), nv * 8, "q frame {fid} is not {nv} vertex pairs");
-        let mut q = QFieldDec::zeros(nv);
+        let mut q = QField::zeros(nv);
         for i in 0..nv {
             let a = f32::from_le_bytes(bytes[8 * i..8 * i + 4].try_into().unwrap());
             let b = f32::from_le_bytes(bytes[8 * i + 4..8 * i + 8].try_into().unwrap());

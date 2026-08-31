@@ -7,8 +7,8 @@
 //! 5. Pullback: Q_new = F^{-1} Q F^{-T}
 //! 6. Polar decomposition for tumbling (lambda < 1)
 
-use crate::stokes_dec::VelocityFieldDec;
-use crate::QFieldDec;
+use crate::stokes::VelocityField;
+use crate::QField;
 
 /// Semi-Lagrangian advection operator with BVH acceleration.
 pub struct SemiLagrangian {
@@ -58,7 +58,7 @@ impl SemiLagrangian {
     /// Advect the nematic field backward along the velocity for one timestep.
     ///
     /// Uses RK4 backtracking with closest-point projection at each substep.
-    pub fn advect(&self, q: &QFieldDec, vel: &VelocityFieldDec, dt: f64) -> QFieldDec {
+    pub fn advect(&self, q: &QField, vel: &VelocityField, dt: f64) -> QField {
         self.advect_with_params(q, vel, dt, 1.0)
     }
 
@@ -85,9 +85,9 @@ impl SemiLagrangian {
     /// A departure point outside the mesh keeps the arrival value, which is the
     /// same fallback [`Self::advect_with_params`] uses. On a no-slip wall the
     /// velocity vanishes, so the trace from a boundary vertex does not leave.
-    pub fn transport(&self, q: &QFieldDec, vel: &VelocityFieldDec, dt: f64) -> QFieldDec {
+    pub fn transport(&self, q: &QField, vel: &VelocityField, dt: f64) -> QField {
         let nv = self.n_vertices;
-        let mut out = QFieldDec::zeros(nv);
+        let mut out = QField::zeros(nv);
         for v in 0..nv {
             let departure = self.rk4_backtrack(self.coords[v], &vel.v, dt);
             let (tri_idx, bary) = self.locate_point_bvh(departure);
@@ -110,13 +110,13 @@ impl SemiLagrangian {
     /// lambda = 0.0: corotational (Jaumann) derivative.
     pub fn advect_with_params(
         &self,
-        q: &QFieldDec,
-        vel: &VelocityFieldDec,
+        q: &QField,
+        vel: &VelocityField,
         dt: f64,
         lambda: f64,
-    ) -> QFieldDec {
+    ) -> QField {
         let nv = self.n_vertices;
-        let mut q_adv = QFieldDec::zeros(nv);
+        let mut q_adv = QField::zeros(nv);
 
         for v in 0..nv {
             let pos = self.coords[v];
@@ -680,8 +680,8 @@ mod tests {
         let nv = coords.len();
         let sl = SemiLagrangian::new(coords, mesh.simplices.clone());
 
-        let q = QFieldDec::random_perturbation(nv, 0.3, 42);
-        let vel = VelocityFieldDec::zeros(nv);
+        let q = QField::random_perturbation(nv, 0.3, 42);
+        let vel = VelocityField::zeros(nv);
 
         let q_adv = sl.advect(&q, &vel, 0.001);
 

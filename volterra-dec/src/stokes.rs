@@ -12,11 +12,21 @@ use volterra_core::ActiveNematicParams;
 use std::cell::RefCell;
 
 use crate::poisson::PoissonSolver;
-use crate::QFieldDec;
+use crate::QField;
 
 /// Precomputed Stokes solver with cached vertex coordinates and Poisson factorisation.
-pub struct StokesSolverDec {
+pub struct SurfaceStokes {
     poisson: PoissonSolver,
+    /// The biharmonic's OUTER solve, `-(Delta + 2K)`.
+    ///
+    /// Steady Stokes on a surface is `Delta (Delta + 2K) psi = curl f`, not the
+    /// flat `Delta^2 psi = curl f`. The curvature shift sits on the outer
+    /// factor, which is also where the Killing kernel is: on a sphere
+    /// `(Delta + 2K)` annihilates the rigid rotations, so the solve returns a
+    /// stream function with no rigid spin in it. On a flat mesh the angle
+    /// defect vanishes, the shift is zero, and this is the same operator as
+    /// `poisson`.
+    outer: PoissonSolver,
     /// Last iterate of the biharmonic's INNER solve, one slot per warm entry
     /// point so each is seeded by its own previous answer rather than another's.
     ///
@@ -89,13 +99,13 @@ struct ClampedCorrection {
 
 /// Velocity field on a DEC mesh: 3D tangent vector per vertex.
 #[derive(Debug, Clone)]
-pub struct VelocityFieldDec {
+pub struct VelocityField {
     /// Velocity components at each vertex (3D tangent vector).
     pub v: Vec<[f64; 3]>,
     pub n_vertices: usize,
 }
 
-impl VelocityFieldDec {
+impl VelocityField {
     pub fn zeros(nv: usize) -> Self {
         Self {
             v: vec![[0.0; 3]; nv],
@@ -136,7 +146,7 @@ pub fn extract_coords<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
 }
 
 /// Compute barycentric dual cell areas from triangles.
-fn compute_dual_areas(nv: usize, simplices: &[[usize; 3]], coords: &[[f64; 3]]) -> Vec<f64> {
+pub fn compute_dual_areas(nv: usize, simplices: &[[usize; 3]], coords: &[[f64; 3]]) -> Vec<f64> {
     let mut areas = vec![0.0_f64; nv];
     for &[i0, i1, i2] in simplices {
         let e01 = sub3(coords[i1], coords[i0]);
@@ -151,7 +161,7 @@ fn compute_dual_areas(nv: usize, simplices: &[[usize; 3]], coords: &[[f64; 3]]) 
     areas
 }
 
-impl StokesSolverDec {
+impl SurfaceStokes {
     /// Build the Stokes solver, caching vertex coordinates, dual areas, and tangent frames.
     ///
     /// Uses the closed-manifold Poisson solver (pin vertex 0 + zero-mean projection).
@@ -161,12 +171,15 @@ impl StokesSolverDec {
         let poisson = PoissonSolver::new(ops)?;
         let coords = extract_coords(mesh);
         let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
+        let curvature = gaussian_curvature(n_vertices, &mesh.simplices, &coords, &dual_areas);
+        let shift: Vec<f64> = curvature.iter().map(|k| 2.0 * k).collect();
+        let outer = PoissonSolver::new_shifted(ops, &shift, &coords)?;
         let s1 = ops.hodge.star1();
         let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
         let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
         let e1_frames = compute_tangent_frames_stokes(&normals);
         Ok(Self {
-            poisson, n_vertices, coords, dual_areas, star1, normals, e1_frames,
+            poisson, outer, n_vertices, coords, dual_areas, star1, normals, e1_frames,
             no_slip_vertices: Vec::new(), clamped: None, inner_cache: Default::default(),
         })
     }
@@ -200,8 +213,12 @@ impl StokesSolverDec {
         let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
         let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
         let e1_frames = compute_tangent_frames_stokes(&normals);
+        // A confined domain is planar here, so the angle defect vanishes and
+        // the outer factor is the same Dirichlet operator as the inner one.
+        let outer = PoissonSolver::with_dirichlet(ops, boundary_vertices)?;
         Ok(Self {
             poisson,
+            outer,
             inner_cache: Default::default(),
             n_vertices,
             coords,
@@ -235,18 +252,18 @@ impl StokesSolverDec {
     /// its whole descent every step and dominates the run.
     pub fn solve_warm<M: Manifold>(
         &self,
-        q: &QFieldDec,
+        q: &QField,
         params: &ActiveNematicParams,
         _ops: &Operators<M, 3, 2>,
         mesh: &Mesh<M, 3, 2>,
         psi0: Option<&[f64]>,
         tol: f64,
-    ) -> (VelocityFieldDec, Vec<f64>, usize) {
+    ) -> (VelocityField, Vec<f64>, usize) {
         let nv = self.n_vertices;
         let zeta = params.zeta_eff;
         let eta = params.eta;
         if zeta.abs() < 1e-30 || eta.abs() < 1e-30 {
-            return (VelocityFieldDec::zeros(nv), vec![0.0; nv], 0);
+            return (VelocityField::zeros(nv), vec![0.0; nv], 0);
         }
         let omega = compute_vorticity_source(
             q, zeta, eta, mesh, &self.coords, &self.dual_areas,
@@ -256,7 +273,7 @@ impl StokesSolverDec {
         // why one is wrong. The inner solve starts cold, since the caller's
         // cached iterate is a stream function and not a vorticity.
         let (inner, its_inner) = self.solve_inner(0, &omega, tol);
-        let (psi_ss, its_outer) = self.poisson.solve_from(&inner, psi0, tol);
+        let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = psi_ss.iter().copied().collect();
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
@@ -273,17 +290,17 @@ impl StokesSolverDec {
     /// Solve Stokes for the active velocity field.
     pub fn solve<M: Manifold>(
         &self,
-        q: &QFieldDec,
+        q: &QField,
         params: &ActiveNematicParams,
         _ops: &Operators<M, 3, 2>,
         mesh: &Mesh<M, 3, 2>,
-    ) -> VelocityFieldDec {
+    ) -> VelocityField {
         let nv = self.n_vertices;
         let zeta = params.zeta_eff;
         let eta = params.eta;
 
         if zeta.abs() < 1e-30 || eta.abs() < 1e-30 {
-            return VelocityFieldDec::zeros(nv);
+            return VelocityField::zeros(nv);
         }
 
         // Compute vorticity source from active stress (covariant divergence).
@@ -335,16 +352,16 @@ impl StokesSolverDec {
         mesh: &Mesh<M, 3, 2>,
         psi0: Option<&[f64]>,
         tol: f64,
-    ) -> (VelocityFieldDec, Vec<f64>, usize) {
+    ) -> (VelocityField, Vec<f64>, usize) {
         if eta.abs() < 1e-30 {
-            return (VelocityFieldDec::zeros(self.n_vertices), vec![0.0; self.n_vertices], 0);
+            return (VelocityField::zeros(self.n_vertices), vec![0.0; self.n_vertices], 0);
         }
         let omega = compute_vorticity_source_from_stress(
             sym1, sym2, anti, eta, mesh, &self.coords, &self.dual_areas,
             &self.normals, &self.e1_frames,
         );
         let (inner, its_inner) = self.solve_inner(1, &omega, tol);
-        let (psi_ss, its_outer) = self.poisson.solve_from(&inner, psi0, tol);
+        let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = psi_ss.iter().copied().collect();
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
@@ -386,10 +403,10 @@ impl StokesSolverDec {
         mesh: &Mesh<M, 3, 2>,
         psi0: Option<&[f64]>,
         tol: f64,
-    ) -> (VelocityFieldDec, Vec<f64>, usize) {
+    ) -> (VelocityField, Vec<f64>, usize) {
         let nv = self.n_vertices;
         if eta.abs() < 1e-30 {
-            return (VelocityFieldDec::zeros(nv), vec![0.0; nv], 0);
+            return (VelocityField::zeros(nv), vec![0.0; nv], 0);
         }
         let mut f3: Vec<[f64; 3]> = force.iter().map(|v| [v[0], v[1], 0.0]).collect();
         for &bv in &self.no_slip_vertices {
@@ -402,7 +419,7 @@ impl StokesSolverDec {
             rhs[i] = if mass[i].abs() > 1e-30 { b[i] / mass[i] } else { 0.0 };
         }
         let (inner, its_inner) = self.solve_inner(2, &rhs, tol);
-        let (psi_raw, its_outer) = self.poisson.solve_from(&inner, psi0, tol);
+        let (psi_raw, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = (psi_raw / eta).iter().copied().collect();
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
@@ -628,12 +645,23 @@ impl StokesSolverDec {
         &self.e1_frames
     }
 
+    /// The stream function of a vorticity source, with no mesh needed.
+    ///
+    /// Solves `Delta (Delta + 2K) psi = er * source`, the surface biharmonic,
+    /// as the two sequential Poisson solves it factors into. This is the entry
+    /// point for a caller that has already formed its own vorticity, and it is
+    /// what the trait backend uses.
+    pub fn stream_from_vorticity(&self, source: &DVector<f64>, er: f64) -> DVector<f64> {
+        let scaled = source * er;
+        self.outer.solve(&self.poisson.solve(&scaled))
+    }
+
     pub fn stream_and_velocity<M: Manifold>(
         &self,
         source: &DVector<f64>,
         mesh: &Mesh<M, 3, 2>,
-    ) -> (VelocityFieldDec, Vec<f64>) {
-        let mut psi_v: Vec<f64> = self.poisson.solve(&self.poisson.solve(source))
+    ) -> (VelocityField, Vec<f64>) {
+        let mut psi_v: Vec<f64> = self.outer.solve(&self.poisson.solve(source))
             .iter().copied().collect();
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
@@ -670,7 +698,7 @@ impl StokesSolverDec {
 /// fails away from the equator on a sphere).
 #[allow(clippy::too_many_arguments)]
 pub fn compute_vorticity_source<M: Manifold>(
-    q: &QFieldDec,
+    q: &QField,
     zeta: f64,
     eta: f64,
     mesh: &Mesh<M, 3, 2>,
@@ -1213,12 +1241,12 @@ fn velocity_from_psi<M: Manifold>(
     coords: &[[f64; 3]],
     _dual_areas: &[f64],
     _star1: &[f64],
-) -> VelocityFieldDec {
+) -> VelocityField {
     let (inv, nrm) = gradient_frames(nv, mesh, coords);
     let psiv: Vec<f64> = psi.iter().copied().collect();
     let g = vertex_gradients(nv, &psiv, mesh, coords, &inv);
     let vel: Vec<[f64; 3]> = (0..nv).map(|v| cross3(nrm[v], g[v])).collect();
-    VelocityFieldDec { v: vel, n_vertices: nv }
+    VelocityField { v: vel, n_vertices: nv }
 }
 
 /// Advect Q along velocity: computes (u · grad Q) at each vertex.
@@ -1227,12 +1255,12 @@ fn velocity_from_psi<M: Manifold>(
 /// the advective flux is (u · edge_tangent) * (Q_v1 - Q_v0) / |e|^2,
 /// distributed to both vertices.
 pub fn advect_q(
-    q: &QFieldDec,
-    vel: &VelocityFieldDec,
+    q: &QField,
+    vel: &VelocityField,
     mesh_boundaries: &[[usize; 2]],
     vertex_boundaries: &[Vec<usize>],
     coords: &[[f64; 3]],
-) -> QFieldDec {
+) -> QField {
     let nv = q.n_vertices;
     let _ = vertex_boundaries;
 
@@ -1293,7 +1321,7 @@ pub fn advect_q(
         adv_q2[v] = u[0] * g2[0] + u[1] * g2[1];
     }
 
-    QFieldDec { q1: adv_q1, q2: adv_q2, n_vertices: nv }
+    QField { q1: adv_q1, q2: adv_q2, n_vertices: nv }
 }
 
 /// Covariant advection: computes (u . grad Q) with parallel transport.
@@ -1305,13 +1333,13 @@ pub fn advect_q(
 /// `edge_phases[e]` is the spin-2 connection phase for `mesh_boundaries[e]`,
 /// obtained from [`crate::connection_laplacian::ConnectionLaplacian::edge_phases`].
 pub fn advect_q_covariant(
-    q: &QFieldDec,
-    vel: &VelocityFieldDec,
+    q: &QField,
+    vel: &VelocityField,
     mesh_boundaries: &[[usize; 2]],
     vertex_boundaries: &[Vec<usize>],
     coords: &[[f64; 3]],
     edge_phases: &[f64],
-) -> QFieldDec {
+) -> QField {
     let nv = q.n_vertices;
     let _ = vertex_boundaries;
 
@@ -1383,7 +1411,7 @@ pub fn advect_q_covariant(
         adv_q2[v] = u[0] * g2[0] + u[1] * g2[1];
     }
 
-    QFieldDec { q1: adv_q1, q2: adv_q2, n_vertices: nv }
+    QField { q1: adv_q1, q2: adv_q2, n_vertices: nv }
 }
 
 fn average_edge_normal<M: Manifold>(
@@ -1466,9 +1494,9 @@ mod tests {
         params.zeta_eff = 0.0;
 
         let nv = mesh.n_vertices();
-        let q = QFieldDec::random_perturbation(nv, 0.5, 42);
+        let q = QField::random_perturbation(nv, 0.5, 42);
 
-        let solver = StokesSolverDec::new(&ops, &mesh).unwrap();
+        let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
         let v = solver.solve(&q, &params, &ops, &mesh);
 
         let v_norm: f64 = v.v.iter().map(|[x, y, z]| x.abs() + y.abs() + z.abs()).sum();
@@ -1484,9 +1512,9 @@ mod tests {
         params.eta = 1.0;
 
         let nv = mesh.n_vertices();
-        let q = QFieldDec::random_perturbation(nv, 0.3, 42);
+        let q = QField::random_perturbation(nv, 0.3, 42);
 
-        let solver = StokesSolverDec::new(&ops, &mesh).unwrap();
+        let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
         let v = solver.solve(&q, &params, &ops, &mesh);
 
         let v_norm: f64 = v.v.iter()
@@ -1500,7 +1528,7 @@ mod tests {
     fn stokes_solver_constructs() {
         let mesh = FlatMesh::unit_square_grid(8);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new(&ops, &mesh);
+        let solver = SurfaceStokes::new(&ops, &mesh);
         assert!(solver.is_ok());
     }
 
@@ -1592,7 +1620,7 @@ mod tests {
         }
 
         let source = DVector::from_element(nv, -4.0);
-        let measure = |solver: &StokesSolverDec| {
+        let measure = |solver: &SurfaceStokes| {
             let (_v, psi) = solver.stream_and_velocity(&source, mesh);
             let g = debug_vertex_gradient(&psi, mesh);
             let mut worst = 0.0_f64;
@@ -1606,7 +1634,7 @@ mod tests {
             (worst, scale)
         };
 
-        let cl = StokesSolverDec::new_confined_clamped(&ops, mesh, bv).unwrap();
+        let cl = SurfaceStokes::new_confined_clamped(&ops, mesh, bv).unwrap();
         assert!(cl.is_clamped());
         let sv = cl.clamped_spectrum().unwrap();
         let rank = sv.iter().filter(|&&x| x > 1e-10 * sv[0]).count();
@@ -1623,7 +1651,7 @@ mod tests {
             bv.len()
         );
 
-        let free = StokesSolverDec::new_confined(&ops, mesh, bv).unwrap();
+        let free = SurfaceStokes::new_confined(&ops, mesh, bv).unwrap();
         let (free_dn, free_scale) = measure(&free);
         assert!(
             free_dn > 0.1 * free_scale,
@@ -1689,7 +1717,7 @@ mod tests {
     #[allow(clippy::type_complexity)]
     fn sign_fixture() -> (
         crate::confined::ConfinedMesh2,
-        StokesSolverDec,
+        SurfaceStokes,
         Vec<f64>,
         Vec<f64>,
         Vec<[f64; 2]>,
@@ -1701,7 +1729,7 @@ mod tests {
             MeshOpts { h_bulk: 2.0, h_min: 2.0, ..Default::default() },
         );
         let ops = Operators::from_mesh(&cm.mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &cm.mesh, &cm.boundary_vertices).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &cm.mesh, &cm.boundary_vertices).unwrap();
         let nv = cm.mesh.n_vertices();
         let xy: Vec<[f64; 2]> =
             (0..nv).map(|i| [cm.mesh.vertices[i].x, cm.mesh.vertices[i].y]).collect();
@@ -1720,7 +1748,7 @@ mod tests {
     ///
     /// This is the sign check that needs no derivation. The map from a nodal
     /// force to the velocity it drives is symmetric positive semi-definite, since
-    /// [`StokesSolverDec::solve_force_warm`] builds its source as the exact
+    /// [`SurfaceStokes::solve_force_warm`] builds its source as the exact
     /// transpose of the velocity recovery, so `<f, u> = <f, K f> >= 0` for every
     /// `f`. The fluid dissipates what the force delivers; a flipped sign makes the
     /// flow run backwards and the power negative for every `f`, which is a
@@ -1773,7 +1801,7 @@ mod tests {
         // which way the generator wound its triangles.
         let cd = crate::epitrochoid::disk_mesh(1.0, 1.0, 240, 0.04);
         let od = Operators::from_mesh(&cd.mesh, &Euclidean::<2>);
-        let sd = StokesSolverDec::new_confined(&od, &cd.mesh, &cd.boundary_vertices).unwrap();
+        let sd = SurfaceStokes::new_confined(&od, &cd.mesh, &cd.boundary_vertices).unwrap();
         assert!(
             sd.normals()[0][2] * solver.normals()[0][2] < 0.0,
             "the two fixtures no longer disagree on orientation, so this test has stopped \
@@ -1793,7 +1821,7 @@ mod tests {
 
     fn stress_and_force_agree_on<M: Manifold>(
         mesh: &Mesh<M, 3, 2>,
-        solver: &StokesSolverDec,
+        solver: &SurfaceStokes,
         s1: &[f64],
         s2: &[f64],
         f: &[[f64; 2]],
@@ -1852,10 +1880,10 @@ mod tests {
         let cm = crate::epitrochoid::disk_mesh(rad, 1.0, 240, 0.04);
         let mesh = cm.mesh;
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &cm.boundary_vertices).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &cm.boundary_vertices).unwrap();
         let coords = extract_coords(&mesh);
         let nv = mesh.n_vertices();
-        let mut q = QFieldDec::uniform(nv, 0.0, 0.0);
+        let mut q = QField::uniform(nv, 0.0, 0.0);
         for i in 0..nv {
             q.q1[i] = (k * coords[i][0]).cos() * (k * coords[i][1]).cos();
         }
@@ -1926,7 +1954,7 @@ mod tests {
         let rad = 1.0_f64;
         let (mesh, bverts) = disc(rad, 240, 0.04);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
         let nv = mesh.n_vertices();
 
         // Delta^2 psi = -4 has the closed-form solution above.
@@ -2008,12 +2036,12 @@ mod tests {
             for &b in &bverts {
                 on_wall[b] = true;
             }
-            let q = QFieldDec {
+            let q = QField {
                 q1: (0..nv).map(|i| (k * coords[i][0]).cos()).collect(),
                 q2: (0..nv).map(|i| (k * coords[i][1]).sin()).collect(),
                 n_vertices: nv,
             };
-            let vel = VelocityFieldDec { v: vec![[u_x, u_y, 0.0]; nv], n_vertices: nv };
+            let vel = VelocityField { v: vec![[u_x, u_y, 0.0]; nv], n_vertices: nv };
             let mut vb: Vec<Vec<usize>> = vec![Vec::new(); nv];
             for e in 0..mesh.n_boundaries() {
                 let [v0, v1] = mesh.boundaries[e];
@@ -2055,7 +2083,7 @@ mod tests {
         let rad = 1.0_f64;
         let (mesh, bverts) = disc(rad, 240, 0.04);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
         let source = DVector::from_element(mesh.n_vertices(), -4.0);
         let (vel, _psi) = solver.stream_and_velocity(&source, &mesh);
 
@@ -2099,7 +2127,7 @@ mod tests {
         let rad = 1.0_f64;
         let (mesh, bverts) = disc(rad, 240, 0.04);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined_clamped(&ops, &mesh, &bverts).unwrap();
+        let solver = SurfaceStokes::new_confined_clamped(&ops, &mesh, &bverts).unwrap();
         assert!(solver.is_clamped());
         let source = DVector::from_element(mesh.n_vertices(), -4.0);
         let (vel, psi) = solver.stream_and_velocity(&source, &mesh);
@@ -2135,7 +2163,7 @@ mod tests {
 
         // And the free-slip solver on the same mesh must NOT reproduce it, so the
         // property is stated rather than merely satisfied.
-        let free = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
+        let free = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
         let (fvel, _) = free.stream_and_velocity(&source, &mesh);
         let fmax = (0..mesh.n_vertices())
             .filter(|&i| {
@@ -2180,8 +2208,8 @@ mod tests {
 
         let ops1 = Operators::from_mesh(&mesh1, &Euclidean::<2>);
         let ops2 = Operators::from_mesh(&mesh2, &Euclidean::<2>);
-        let s1 = StokesSolverDec::new_confined(&ops1, &mesh1, &bverts).unwrap();
-        let s2 = StokesSolverDec::new_confined(&ops2, &mesh2, &bverts).unwrap();
+        let s1 = SurfaceStokes::new_confined(&ops1, &mesh1, &bverts).unwrap();
+        let s2 = SurfaceStokes::new_confined(&ops2, &mesh2, &bverts).unwrap();
 
         let mut params = ActiveNematicParams::default_test();
         params.zeta_eff = 2.0;
@@ -2189,9 +2217,9 @@ mod tests {
 
         // The same Q values at corresponding vertices, so Q is the same function
         // of the normalised coordinate on both meshes.
-        let q = QFieldDec::random_perturbation(mesh1.n_vertices(), 0.3, 42);
+        let q = QField::random_perturbation(mesh1.n_vertices(), 0.3, 42);
 
-        let rms = |v: &VelocityFieldDec| -> f64 {
+        let rms = |v: &VelocityField| -> f64 {
             (v.v.iter().map(|[x, y, z]| x * x + y * y + z * z).sum::<f64>()
                 / v.n_vertices as f64)
                 .sqrt()
@@ -2214,8 +2242,8 @@ mod tests {
     fn stokes_velocity_is_linear_in_activity_and_inverse_in_viscosity() {
         let (mesh, bverts) = disc(1.0, 160, 0.06);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
-        let q = QFieldDec::random_perturbation(mesh.n_vertices(), 0.3, 7);
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
+        let q = QField::random_perturbation(mesh.n_vertices(), 0.3, 7);
 
         let rms = |zeta: f64, eta: f64| -> f64 {
             let mut p = ActiveNematicParams::default_test();
@@ -2242,11 +2270,11 @@ mod tests {
     fn stokes_warm_and_direct_solves_agree() {
         let (mesh, bverts) = disc(1.0, 160, 0.06);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
         let mut params = ActiveNematicParams::default_test();
         params.zeta_eff = 2.0;
         params.eta = 1.5;
-        let q = QFieldDec::random_perturbation(mesh.n_vertices(), 0.3, 11);
+        let q = QField::random_perturbation(mesh.n_vertices(), 0.3, 11);
 
         let direct = solver.solve(&q, &params, &ops, &mesh);
         let (warm, _psi, _its) = solver.solve_warm(&q, &params, &ops, &mesh, None, 1e-12);
@@ -2273,7 +2301,7 @@ mod tests {
     fn the_antisymmetric_stress_reaches_the_vorticity_source() {
         let (mesh, bverts) = disc(1.0, 160, 0.06);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
         let nv = mesh.n_vertices();
 
         // A spatially varying antisymmetric part and nothing else. A constant one
@@ -2287,7 +2315,7 @@ mod tests {
         let (without, _psi2, _its2) =
             solver.solve_stress_warm(&zero, &zero, &zero, 1.0, &mesh, None, 1e-10);
 
-        let rms = |v: &VelocityFieldDec| -> f64 {
+        let rms = |v: &VelocityField| -> f64 {
             (v.v.iter().map(|[x, y, z]| x * x + y * y + z * z).sum::<f64>() / nv as f64).sqrt()
         };
         assert!(rms(&without) < 1e-12, "a zero stress should give no flow");
@@ -2308,7 +2336,7 @@ mod tests {
     fn the_force_driven_stokes_operator_is_symmetric_and_positive() {
         let (mesh, bverts) = disc(1.0, 200, 0.05);
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let solver = StokesSolverDec::new_confined(&ops, &mesh, &bverts).unwrap();
+        let solver = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
         let nv = mesh.n_vertices();
         let eta = 2.5;
 
@@ -2326,7 +2354,7 @@ mod tests {
                 })
                 .collect()
         };
-        let dot = |f: &[[f64; 2]], u: &VelocityFieldDec| -> f64 {
+        let dot = |f: &[[f64; 2]], u: &VelocityField| -> f64 {
             (0..nv).map(|i| f[i][0] * u.v[i][0] + f[i][1] * u.v[i][1]).sum()
         };
 
@@ -2362,9 +2390,9 @@ mod tests {
         params.eta = 1.0;
 
         let nv = mesh.n_vertices();
-        let q = QFieldDec::random_perturbation(nv, 0.3, 42);
+        let q = QField::random_perturbation(nv, 0.3, 42);
 
-        let solver = StokesSolverDec::new(&ops, &mesh).unwrap();
+        let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
         let v = solver.solve(&q, &params, &ops, &mesh);
 
         let v_rms: f64 = (v.v.iter()
@@ -2376,4 +2404,61 @@ mod tests {
             "nonzero activity on sphere should give nonzero velocity, got v_rms = {v_rms:.3e}"
         );
     }
+}
+
+
+/// Discrete Gaussian curvature at each vertex, by angle defect.
+///
+/// `K_i = (2 pi - sum of the incident triangle angles at i) / A_i`, with `A_i`
+/// the dual area. This is the standard discretisation and it satisfies the
+/// discrete Gauss-Bonnet theorem exactly: `sum_i K_i A_i = 2 pi chi`, which is
+/// `4 pi` on a sphere whatever the triangulation.
+///
+/// Vertices on a boundary have no full angle to complete, so their defect is
+/// taken as zero rather than as `2 pi` minus a partial fan.
+pub fn gaussian_curvature(
+    n_vertices: usize,
+    simplices: &[[usize; 3]],
+    coords: &[[f64; 3]],
+    dual_areas: &[f64],
+) -> Vec<f64> {
+    let mut angle_sum = vec![0.0_f64; n_vertices];
+    let mut valence = vec![0usize; n_vertices];
+    let mut edge_faces: std::collections::HashMap<(usize, usize), usize> =
+        std::collections::HashMap::new();
+    for tri in simplices {
+        for k in 0..3 {
+            let i = tri[k];
+            let a = tri[(k + 1) % 3];
+            let b = tri[(k + 2) % 3];
+            let u = sub3(coords[a], coords[i]);
+            let v = sub3(coords[b], coords[i]);
+            let nu = norm3(u);
+            let nv = norm3(v);
+            if nu > 1e-30 && nv > 1e-30 {
+                let c = (dot3(u, v) / (nu * nv)).clamp(-1.0, 1.0);
+                angle_sum[i] += c.acos();
+            }
+            valence[i] += 1;
+            let e = if a < b { (a, b) } else { (b, a) };
+            *edge_faces.entry(e).or_insert(0) += 1;
+        }
+    }
+    // A vertex is on a boundary when one of its edges has a single incident face.
+    let mut on_boundary = vec![false; n_vertices];
+    for (&(a, b), &count) in &edge_faces {
+        if count < 2 {
+            on_boundary[a] = true;
+            on_boundary[b] = true;
+        }
+    }
+    (0..n_vertices)
+        .map(|i| {
+            if on_boundary[i] || dual_areas[i] <= 0.0 {
+                0.0
+            } else {
+                (std::f64::consts::TAU - angle_sum[i]) / dual_areas[i]
+            }
+        })
+        .collect()
 }

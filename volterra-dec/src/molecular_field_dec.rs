@@ -19,7 +19,7 @@ use cartan_core::Manifold;
 use cartan_dec::Operators;
 use volterra_core::ActiveNematicParams;
 
-use crate::QFieldDec;
+use crate::QField;
 
 /// Compute the molecular field H at each vertex on a DEC mesh.
 ///
@@ -28,11 +28,11 @@ use crate::QFieldDec;
 /// For a surface of constant Gaussian curvature K, pass
 /// `Some(&constant_curvature_2d(K))` from [`crate::curvature_correction`].
 pub fn molecular_field_dec<M: Manifold>(
-    q: &QFieldDec,
+    q: &QField,
     params: &ActiveNematicParams,
     ops: &Operators<M, 3, 2>,
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
-) -> QFieldDec {
+) -> QField {
     let nv = q.n_vertices;
     let k_frank = params.k_r;
     let a_eff = params.a_eff(); // a_landau - zeta_eff/2
@@ -41,7 +41,7 @@ pub fn molecular_field_dec<M: Manifold>(
     // Elastic term: -K_frank * Delta_L Q (DEC Laplacian is positive-semidefinite).
     let q_layout = q.to_lichnerowicz_layout();
     let lap_q = ops.apply_lichnerowicz_laplacian(&q_layout, curvature_correction);
-    let lap_field = QFieldDec::from_lichnerowicz_layout(&lap_q);
+    let lap_field = QField::from_lichnerowicz_layout(&lap_q);
 
     // Bulk LdG terms.
     // H = -K * lap(Q) - a_eff * Q - 2c * Tr(Q^2) * Q
@@ -49,7 +49,7 @@ pub fn molecular_field_dec<M: Manifold>(
     let tr_q2 = q.trace_q_squared();
 
     let bulk_linear = -a_eff;
-    let mut h = QFieldDec::zeros(nv);
+    let mut h = QField::zeros(nv);
     for (i, &tr) in tr_q2.iter().enumerate() {
         let bulk = bulk_linear - 2.0 * c * tr;
         h.q1[i] = -k_frank * lap_field.q1[i] + bulk * q.q1[i];

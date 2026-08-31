@@ -357,7 +357,7 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
     use cartan_manifolds::{euclidean::Euclidean, sphere::Sphere};
     use volterra_core::ActiveNematicParams;
     use volterra_dec::mesh_gen::{icosphere, torus_mesh};
-    use volterra_dec::{DecDomain, QFieldDec};
+    use volterra_dec::{DecDomain, QField};
     use volterra_dec::{run_dry_active_nematic_dec, run_wet_active_nematic_dec};
 
     let mut params = ActiveNematicParams::default_test();
@@ -386,7 +386,7 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
         let domain = DecDomain::new(mesh, manifold)
             .map_err(|e| -> DynErr { format!("DEC domain assembly: {e:?}").into() })?;
         let nv = domain.mesh.n_vertices();
-        let q0 = QFieldDec::random_perturbation(nv, 0.01, seed);
+        let q0 = QField::random_perturbation(nv, 0.01, seed);
         let ops: &Operators<M, 3, 2> = &domain.ops;
         match mode {
             "dry" => {

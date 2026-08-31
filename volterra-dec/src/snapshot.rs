@@ -6,13 +6,13 @@
 use std::io::Write;
 use std::path::Path;
 
-use crate::QFieldDec;
+use crate::QField;
 
-/// Write a QFieldDec snapshot as a `.npy` file.
+/// Write a QField snapshot as a `.npy` file.
 ///
 /// The output array has shape (n_vertices, 2) with columns [q1, q2],
 /// stored as float64 in C-contiguous (row-major) order.
-pub fn write_snapshot(q: &QFieldDec, path: &Path) -> std::io::Result<()> {
+pub fn write_snapshot(q: &QField, path: &Path) -> std::io::Result<()> {
     let nv = q.n_vertices;
     let shape_str = format!("({}, 2)", nv);
 
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrip() {
-        let q = QFieldDec::uniform(10, 0.3, 0.4);
+        let q = QField::uniform(10, 0.3, 0.4);
         let dir = std::env::temp_dir().join("volterra_snap_test");
         std::fs::create_dir_all(&dir).ok();
         let path = dir.join("test_q.npy");

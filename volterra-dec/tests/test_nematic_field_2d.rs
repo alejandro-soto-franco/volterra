@@ -17,11 +17,11 @@ fn test_nematic_field_2d_scalar_order() {
 #[test]
 fn test_nematic_field_2d_qfield_roundtrip() {
     let original = NematicField2D::uniform(5, 0.3, 0.4);
-    let qfield = original.to_qfield_dec();
+    let qfield = original.to_qfield();
     assert!((qfield.q1[0] - 0.3).abs() < 1e-14);
     assert!((qfield.q2[0] - 0.4).abs() < 1e-14);
 
-    let recovered = NematicField2D::from_qfield_dec(&qfield);
+    let recovered = NematicField2D::from_qfield(&qfield);
     let (q1, q2) = recovered.section.to_real_components();
     assert!((q1[0] - 0.3).abs() < 1e-14);
     assert!((q2[0] - 0.4).abs() < 1e-14);

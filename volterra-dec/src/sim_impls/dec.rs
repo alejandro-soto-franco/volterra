@@ -21,8 +21,8 @@ use volterra_core::sim::integrate::rk4;
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::PhysicsStep;
 use volterra_core::ActiveNematicParams;
-use crate::stokes_dec::{advect_q, StokesSolverDec};
-use crate::{molecular_field_dec, QFieldDec};
+use crate::stokes::{advect_q, SurfaceStokes};
+use crate::{molecular_field_dec, QField};
 
 /// Dry active nematic on a 2D DEC mesh: RK4 of `dQ/dt = gamma_r * H` (no flow).
 ///
@@ -39,9 +39,9 @@ pub struct DecDry<'a, M: Manifold> {
 }
 
 impl<M: Manifold> PhysicsStep for DecDry<'_, M> {
-    type Field = QFieldDec;
+    type Field = QField;
 
-    fn step(&mut self, q: &mut QFieldDec, _t: f64) -> StepStats {
+    fn step(&mut self, q: &mut QField, _t: f64) -> StepStats {
         let params = &self.params;
         let ops = self.ops;
         let cc = self.cc;
@@ -64,14 +64,14 @@ impl<M: Manifold> PhysicsStep for DecDry<'_, M> {
 /// 2. RK4-advance Q with RHS `gamma_r * H - advect(Q, vel)`, the velocity held
 ///    fixed across the four RK4 stages.
 ///
-/// The [`StokesSolverDec`] is constructed by the wrapper (closed or confined)
+/// The [`SurfaceStokes`] is constructed by the wrapper (closed or confined)
 /// and owned here; `ops`/`mesh` are borrowed and `coords` is the owned vertex
 /// coordinate table the legacy runner built once via `extract_coords_runner`.
 pub struct DecWet<'a, M: Manifold> {
     /// Physics parameters.
     pub params: ActiveNematicParams,
     /// The Stokes solver (closed via `new`, or confined via `new_confined`).
-    pub stokes: StokesSolverDec,
+    pub stokes: SurfaceStokes,
     /// Precomputed DEC operators.
     pub ops: &'a Operators<M, 3, 2>,
     /// The mesh (needed for the Stokes solve and advection boundary data).
@@ -83,9 +83,9 @@ pub struct DecWet<'a, M: Manifold> {
 }
 
 impl<M: Manifold> PhysicsStep for DecWet<'_, M> {
-    type Field = QFieldDec;
+    type Field = QField;
 
-    fn step(&mut self, q: &mut QFieldDec, _t: f64) -> StepStats {
+    fn step(&mut self, q: &mut QField, _t: f64) -> StepStats {
         let params = &self.params;
         let ops = self.ops;
         let mesh = self.mesh;

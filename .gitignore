@@ -41,6 +41,11 @@ volterra-fd/examples/*
 !volterra-fd/examples/plot_fig5.py
 !volterra-fd/examples/plot_paper_figures.py
 
+# The scaling figure docs/REPLICATION_SPHERE.md names, on the same grounds.
+# sphere_panels.py and sphere_braid_video.py stay ignored: both render a run
+# for looking at rather than a result the documents cite.
+!volterra-fd/examples/sphere_scaling.py
+
 # Generated CGPO reference runner (regenerate via patch_flow_solver.py) + IC dumps
 volterra-braid/oracle/concurrence/flow_solver_run.py
 theta_ic_*.txt

@@ -12,7 +12,7 @@
 
 use volterra_dec::confined::{Epitrochoid, MeshOpts, confined_mesh};
 use volterra_dec::poisson::PoissonSolver;
-use volterra_dec::stokes_dec::{extract_coords, pressure_rhs_from_force, vorticity_from_psi};
+use volterra_dec::stokes::{extract_coords, pressure_rhs_from_force, vorticity_from_psi};
 use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
 

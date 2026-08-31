@@ -31,6 +31,7 @@ pub mod braidword;
 pub mod defect;
 pub mod disclination;
 pub mod entropy;
+pub mod sphere;
 pub mod synthetic;
 pub mod torus;
 pub mod track;
@@ -45,6 +46,10 @@ pub use disclination::{
 pub use entropy::{
     burau_spectral_radius_minus1, is_exact_regime, paper_burau_matrix,
     paper_burau_spectral_radius, paper_burau_word, topological_entropy,
+};
+pub use sphere::{
+    SphereFrame, SpherePass, SphereWorldlines, geodesic, rigid_tetrahedron,
+    track_on_sphere,
 };
 pub use synthetic::{RealizeOpts, golden_orbit, realize_braid, silver_orbit};
 pub use torus::{
@@ -85,3 +90,4 @@ mod constants_tests {
         assert!((SILVER_RATIO - (1.0 + 2.0_f64.sqrt())).abs() < 1e-12);
     }
 }
+pub mod etec;

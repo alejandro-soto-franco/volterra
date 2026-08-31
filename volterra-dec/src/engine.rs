@@ -16,10 +16,9 @@ use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
 use volterra_core::NematicParams;
 use crate::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
-use crate::curved_stokes::{CurvedStokesSolver, nematic_vorticity_source};
 use crate::semi_lagrangian::SemiLagrangian;
-use crate::stokes_dec::VelocityFieldDec;
-use crate::QFieldDec;
+use crate::stokes::VelocityField;
+use crate::QField;
 
 /// Per-snapshot statistics from the nematic engine.
 #[derive(Debug, Clone)]
@@ -41,7 +40,6 @@ pub struct NematicEngine {
     /// Connection Laplacian (Bochner on L^2, spin-2 parallel transport).
     conn_lap: ConnectionLaplacian,
     /// Curved-surface Stokes solver (modified biharmonic).
-    stokes: CurvedStokesSolver,
     /// Semi-Lagrangian advection operator.
     semi_lag: SemiLagrangian,
     /// Vertex coordinates in R^3.
@@ -68,7 +66,7 @@ impl NematicEngine {
         mesh: Mesh<M, 3, 2>,
         manifold: M,
         params: NematicParams,
-        gaussian_curvature: Vec<f64>,
+        _gaussian_curvature: Vec<f64>,
     ) -> Result<Self, String> {
         params.validate()?;
 
@@ -78,7 +76,7 @@ impl NematicEngine {
         let nv = mesh.n_vertices();
 
         // Extract vertex coordinates.
-        let coords: Vec<[f64; 3]> = crate::stokes_dec::extract_coords(&mesh);
+        let coords: Vec<[f64; 3]> = crate::stokes::extract_coords(&mesh);
 
         // Hodge stars for the connection Laplacian.
         let star0: Vec<f64> = (0..ops.hodge.star0().len())
@@ -88,9 +86,6 @@ impl NematicEngine {
 
         // Connection Laplacian.
         let conn_lap = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
-
-        // Curved Stokes solver.
-        let stokes = CurvedStokesSolver::new(&ops, &mesh, &gaussian_curvature)?;
 
         // Semi-Lagrangian advection.
         let semi_lag = SemiLagrangian::new(coords.clone(), mesh.simplices.clone());
@@ -116,7 +111,6 @@ impl NematicEngine {
         Ok(Self {
             params,
             conn_lap,
-            stokes,
             semi_lag,
             coords,
             dual_areas: star0,
@@ -145,21 +139,11 @@ impl NematicEngine {
     /// 1. Stokes solve for velocity from active stress.
     /// 2. Semi-Lagrangian advection (backward trace + barycentric interp).
     /// 3. Diffusion + bulk LdG (explicit, connection Laplacian).
-    pub fn step(&self, q: &mut QFieldDec) -> VelocityFieldDec {
+    pub fn step(&self, q: &mut QField) -> VelocityField {
         let nv = self.n_vertices;
         let dt = self.dt;
 
-        // 1. Stokes: compute vorticity source and solve for stream function.
-        let source = nematic_vorticity_source(
-            q, self.params.pe,
-            // We need to pass the mesh data. Use stored simplices + coords.
-            &self.simplices, &self.coords, &self.dual_areas,
-        );
-        let (_psi, _vel) = self.stokes.solve(&source, self.params.er);
-
-        // For now, use the vorticity-based velocity from the old solver
-        // until CurvedStokesSolver's velocity extraction is wired up.
-        // Compute velocity from the stream function gradient.
+        // 1. Stokes: velocity from the active stress.
         let vel = self.compute_velocity_from_source(q);
 
         // 2. Semi-Lagrangian advection.
@@ -189,7 +173,7 @@ impl NematicEngine {
     }
 
     /// Temporary: compute velocity using the old Stokes solver approach.
-    fn compute_velocity_from_source(&self, q: &QFieldDec) -> VelocityFieldDec {
+    fn compute_velocity_from_source(&self, q: &QField) -> VelocityField {
         // Use the per-face gradient vorticity source.
         let nv = self.n_vertices;
         let pe = self.params.pe;
@@ -309,23 +293,23 @@ impl NematicEngine {
             *v = scale3(*v, 1.0 / valence);
         }
 
-        VelocityFieldDec { v: vel, n_vertices: nv }
+        VelocityField { v: vel, n_vertices: nv }
     }
 
     /// Run the engine for n_steps, calling the callback at each snapshot.
     pub fn run(
         &self,
-        q: &mut QFieldDec,
+        q: &mut QField,
         n_steps: usize,
         snap_every: usize,
-        mut callback: impl FnMut(usize, &QFieldDec, &VelocityFieldDec, &EngineStats),
+        mut callback: impl FnMut(usize, &QField, &VelocityField, &EngineStats),
     ) {
         for step in 0..=n_steps {
             if step % snap_every == 0 {
                 let vel = if step > 0 {
                     self.compute_velocity_from_source(q)
                 } else {
-                    VelocityFieldDec::zeros(self.n_vertices)
+                    VelocityField::zeros(self.n_vertices)
                 };
                 let v_rms = (vel.v.iter()
                     .map(|[x, y, z]| x*x + y*y + z*z)

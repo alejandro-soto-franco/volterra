@@ -9,7 +9,8 @@ period and is drawn only where a period was found.
 Two series are drawn, the standard model and the enhanced-locking one, from
 runs that differ in nothing else.
 
-    uv run --with numpy,matplotlib plot_fig5.py <sweep-dir> [<out.pdf>]
+    uv run --with numpy,matplotlib plot_fig5.py <sweep-dir> [<out.pdf>] \
+        [--prefix=be] [--prefix2=lock] [--label=...] [--label2=...]
 
 The sweep directory holds `be_ella<L>` and `lock_ella<L>` run directories.
 """
@@ -20,12 +21,18 @@ import sys
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")
+# The PDF backend loses the minus sign from every negative number while
+# `text.usetex` is on. It subsets the Type 1 Computer Modern fonts itself and
+# the CMSY minus does not survive the subset, so a tick at -100 sets as 100 and
+# a label of $-1/2$ as a gap. The PGF backend runs LaTeX over the figure
+# instead and keeps it. The Agg path was never affected, so a PNG of the same
+# figure looks right and hides the fault.
+matplotlib.use("pgf")
 import matplotlib.pyplot as plt
 import numpy as np
 
 plt.rcParams.update({
-    "text.usetex": True, "font.family": "serif", "axes.grid": False,
+    "text.usetex": True, "pgf.texsystem": "pdflatex", "font.family": "serif", "axes.grid": False,
     "text.color": "#000000", "axes.labelcolor": "#000000", "xtick.color": "#000000",
     "ytick.color": "#000000", "axes.edgecolor": "#000000",
     "axes.labelsize": 13, "xtick.labelsize": 11, "ytick.labelsize": 11,
@@ -59,9 +66,12 @@ def series(sweep, prefix):
         bf = d / "braid.json"
         if bf.exists():
             b = json.loads(bf.read_text())
-            # Only where a period was actually found: a prediction from a lag
-            # the autocorrelation never peaked at is not a prediction.
-            if b.get("period_peak", 0.0) > 0.5:
+            # Only where the strands actually return: the period now comes
+            # from the worldlines, so the recurrence quality is what says
+            # whether there is an orbit to predict from. A prediction built on
+            # a lag the strands never came back to is not a prediction, and
+            # above the band it reads several times too large.
+            if b.get("orbit_recurrence", 0.0) > 0.5:
                 pred = b.get("h_tilde_max", np.nan)
         out.append((la, h, float(npl[late].mean()), pred, float(t[-1])))
     return sorted(out)
@@ -76,12 +86,19 @@ def band_colour(n):
 
 
 def main():
-    sweep = Path(sys.argv[1])
-    out = Path(sys.argv[2]) if len(sys.argv) > 2 else sweep / "figure5.pdf"
-    be = series(sweep, "be")
-    lock = series(sweep, "lock")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    opt = {a.split("=")[0]: a.split("=")[1]
+           for a in sys.argv[1:] if a.startswith("--") and "=" in a}
+    sweep = Path(args[0])
+    out = Path(args[1]) if len(args) > 1 else sweep / "figure5.pdf"
+    p1 = opt.get("--prefix", "be")
+    p2 = opt.get("--prefix2", "lock")
+    l1 = opt.get("--label", "standard model")
+    l2 = opt.get("--label2", "enhanced locking")
+    be = series(sweep, p1)
+    lock = series(sweep, p2)
     if not be:
-        sys.exit(f"no be_ella* runs in {sweep}")
+        sys.exit(f"no {p1}_ella* runs in {sweep}")
 
     fig, ax = plt.subplots(figsize=(7.2, 5.0))
 
@@ -94,10 +111,10 @@ def main():
         ax.axvspan(lo, hi, color=BANDS[band_colour(r[2])], lw=0, zorder=0)
 
     ax.plot([r[0] for r in be], [r[1] for r in be], color="#000000", lw=1.4,
-            marker="o", ms=4, label="standard model", zorder=3)
+            marker="o", ms=4, label=l1, zorder=3)
     if lock:
         ax.plot([r[0] for r in lock], [r[1] for r in lock], color=RED, lw=1.4,
-                marker="s", ms=4, label="enhanced locking", zorder=3)
+                marker="s", ms=4, label=l2, zorder=3)
     pb = [(r[0], r[3]) for r in be if np.isfinite(r[3])]
     if pb:
         ax.plot([p[0] for p in pb], [p[1] for p in pb], color=BLUE, lw=1.4,

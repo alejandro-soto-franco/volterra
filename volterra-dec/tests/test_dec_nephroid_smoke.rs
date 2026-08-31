@@ -4,7 +4,7 @@
 //!
 //! This test validates the key risk item for the confined-nephroid run:
 //! **no-slip at the domain boundary**. The Stokes stream-function formulation
-//! in `StokesSolverDec` solves −Δψ = ω via `PoissonSolver`, which only pins one
+//! in `SurfaceStokes` solves −Δψ = ω via `PoissonSolver`, which only pins one
 //! vertex (vertex 0) to remove the constant kernel. On a bounded domain the
 //! correct no-slip condition requires ψ = 0 on the **entire** boundary, not just
 //! a single pinned vertex.
@@ -19,7 +19,7 @@
 //!
 //! The fix is in place: `PoissonSolver::with_dirichlet` imposes ψ = 0 at
 //! all boundary vertices via symmetric Dirichlet elimination, and
-//! `StokesSolverDec::new_confined` uses it (and additionally zeroes the velocity
+//! `SurfaceStokes::new_confined` uses it (and additionally zeroes the velocity
 //! at no-slip vertices after stream-function recovery). With that, the measured
 //! ratio (boundary speed / interior speed) falls below the 0.05 tolerance.
 //!
@@ -32,8 +32,8 @@ use nalgebra::DVector;
 use volterra_core::ActiveNematicParams;
 use volterra_dec::boundary_conditions::apply_strong_anchoring;
 use volterra_dec::epitrochoid::epitrochoid_mesh;
-use volterra_dec::stokes_dec::StokesSolverDec;
-use volterra_dec::QFieldDec;
+use volterra_dec::stokes::SurfaceStokes;
+use volterra_dec::QField;
 use volterra_dec::run_wet_active_nematic_dec_confined;
 
 /// Boundary speed must be below this fraction of the interior peak speed
@@ -78,7 +78,7 @@ fn dec_nephroid_confined_wet_smoke() {
     );
 
     // ── 3. Initialise Q with tangential anchoring on the boundary ─────────────
-    let mut q0 = QFieldDec::random_perturbation(nv, 0.01, 99);
+    let mut q0 = QField::random_perturbation(nv, 0.01, 99);
     let s0 = 0.5_f64;
     apply_strong_anchoring(&mut q0, &confined, s0);
 
@@ -106,7 +106,7 @@ fn dec_nephroid_confined_wet_smoke() {
 
     // ── 3c. Single-step diagnostics (isolate NaN source) ─────────────────────
     {
-        let stokes_check = StokesSolverDec::new_confined(&ops, &confined.mesh, &confined.boundary_vertices)
+        let stokes_check = SurfaceStokes::new_confined(&ops, &confined.mesh, &confined.boundary_vertices)
             .expect("Confined Stokes should construct on nephroid mesh");
         let vel_check = stokes_check.solve(&q0, &params, &ops, &confined.mesh);
         let max_v: f64 = (0..nv).map(|i| vel_check.speed(i)).fold(0.0_f64, f64::max);
@@ -163,7 +163,7 @@ fn dec_nephroid_confined_wet_smoke() {
     // ── 6. NO-SLIP CHECK ──────────────────────────────────────────────────────
     // Re-solve Stokes on q_fin using the confined (Dirichlet) solver so the
     // check is consistent with what the runner used.
-    let stokes = StokesSolverDec::new_confined(&ops, &confined.mesh, &confined.boundary_vertices)
+    let stokes = SurfaceStokes::new_confined(&ops, &confined.mesh, &confined.boundary_vertices)
         .expect("Confined Stokes solver should construct on the nephroid mesh");
     let vel = stokes.solve(&q_fin, &params, &ops, &confined.mesh);
 

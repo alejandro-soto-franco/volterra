@@ -21,6 +21,9 @@
 use cartan_core::Manifold;
 use cartan_dec::Operators;
 use nalgebra::DVector;
+use faer::sparse::{SparseColMat, Triplet};
+use faer::{Mat, Side};
+use faer::linalg::solvers::SolveCore;
 use sprs::CsMat;
 
 use crate::ichol::IChol;
@@ -52,11 +55,45 @@ pub struct PoissonSolver {
     /// recovers the symmetric SPD stiffness `S = d0^T star1 d0`, which is what the iterative
     /// solve requires.
     s: CsMat<f64>,
+    /// The same stiffness in compressed rows, for the matvec.
+    ///
+    /// The triplet form is a scatter: every entry writes to an arbitrary row,
+    /// so the loop cannot be split across threads without a reduction. In rows
+    /// each thread owns its own output entry and the product parallelises with
+    /// no synchronisation at all, which matters because this matvec is the
+    /// single largest cost in a run.
+    row_ptr: Vec<usize>,
+    col_idx: Vec<usize>,
+    val: Vec<f64>,
     /// Jacobi preconditioner `1 / A_ii`, where `A` is `S` with identity rows on Dirichlet
     /// DOFs. One entry per vertex.
     inv_diag: Vec<f64>,
     /// Dual-area mass diagonal (star0), one per vertex; mass-weights the right-hand side.
     star0: Vec<f64>,
+    /// Per-vertex shift `c`, so the operator is `-(Delta + c)` rather than `-Delta`.
+    ///
+    /// Zero for a plain Poisson solve. The surface Stokes stream function needs
+    /// `c = 2K`: see [`Self::new_shifted`].
+    shift: Vec<f64>,
+    /// A sparse Cholesky of a nearby definite operator, as the preconditioner.
+    ///
+    /// The operator itself cannot be factorised: on a sphere `-(Delta + 2K)`
+    /// has eigenvalue `-2` on the constant and `0` on the rotations, so it is
+    /// indefinite and singular. Adding `sigma M` moves the whole spectrum
+    /// positive without changing the sparsity, and the factorisation of THAT
+    /// is an excellent preconditioner for the operator itself: the eigenvalues
+    /// of the preconditioned system are `(lambda - shift) / (lambda - shift +
+    /// sigma)`, which cluster tightly for any `sigma` of the size of the
+    /// shift. The conjugate gradient still converges to the exact solution of
+    /// the unmodified operator, so this changes the iteration count and not
+    /// the answer.
+    chol: Option<ShiftedCholesky>,
+    /// A mass-orthonormal basis of the shifted operator's kernel, beyond the
+    /// constant the closed-manifold mode already removes.
+    ///
+    /// Empty for a plain Poisson solve. At `c = 2K` on a sphere it is the three
+    /// rigid rotations, whose stream functions are the linear coordinates.
+    kernel: Vec<Vec<f64>>,
     /// Dirichlet vertex indices (ψ = 0 enforced here). Empty → closed-manifold mode.
     dirichlet_vertices: Vec<usize>,
     /// Boolean Dirichlet mask, length `n`.
@@ -79,11 +116,13 @@ pub struct PoissonSolver {
 fn cg_operator_triples(
     s: &CsMat<f64>,
     is_dirichlet: &[bool],
+    shift_diag: &[f64],
     f: &mut dyn FnMut(usize, usize, f64),
 ) {
     for (&v, (r, c)) in s.iter() {
         if !is_dirichlet[r] && !is_dirichlet[c] {
-            f(r, c, v);
+            let d = if r == c { shift_diag[r] } else { 0.0 };
+            f(r, c, v - d);
         }
     }
     for (i, &d) in is_dirichlet.iter().enumerate() {
@@ -91,6 +130,101 @@ fn cg_operator_triples(
             f(i, i, 1.0);
         }
     }
+}
+
+
+/// A sparse Cholesky of `A + sigma M`, applied as a preconditioner.
+struct ShiftedCholesky {
+    llt: faer::sparse::linalg::solvers::Llt<usize, f64>,
+    n: usize,
+}
+
+impl ShiftedCholesky {
+    /// Factorise `A + sigma M`, raising `sigma` until it is definite.
+    ///
+    /// `sigma` starts a little above the largest shift, which is where the
+    /// spectrum crosses zero, and doubles on failure. Returning `None` leaves
+    /// the caller on the incomplete Cholesky, so a mesh this cannot factorise
+    /// is slower and never wrong.
+    fn new(
+        row_ptr: &[usize],
+        col_idx: &[usize],
+        val: &[f64],
+        star0: &[f64],
+        shift: &[f64],
+        is_dirichlet: &[bool],
+    ) -> Option<Self> {
+        let n = star0.len();
+        let max_shift = shift.iter().cloned().fold(0.0_f64, f64::max);
+        // A scale for the operator, so a flat mesh with no shift still gets a
+        // positive sigma rather than the singular matrix `S` itself.
+        let rate: f64 = (0..n)
+            .map(|r| {
+                let d = (row_ptr[r]..row_ptr[r + 1])
+                    .find(|&k| col_idx[k] == r)
+                    .map(|k| val[k])
+                    .unwrap_or(0.0);
+                d / star0[r].max(1e-300)
+            })
+            .sum::<f64>()
+            / n as f64;
+        let mut sigma = 2.0 * max_shift + 1e-3 * rate.abs().max(1e-12);
+        for _ in 0..8 {
+            let mut trip: Vec<Triplet<usize, usize, f64>> = Vec::with_capacity(val.len() + n);
+            for r in 0..n {
+                if is_dirichlet[r] {
+                    trip.push(Triplet::new(r, r, 1.0));
+                    continue;
+                }
+                for k in row_ptr[r]..row_ptr[r + 1] {
+                    let c = col_idx[k];
+                    if is_dirichlet[c] {
+                        continue;
+                    }
+                    let d = if r == c { star0[r] * (shift[r] - sigma) } else { 0.0 };
+                    trip.push(Triplet::new(r, c, val[k] - d));
+                }
+            }
+            if let Ok(m) = SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trip) {
+                if let Ok(llt) = m.sp_cholesky(Side::Lower) {
+                    return Some(Self { llt, n });
+                }
+            }
+            sigma *= 2.0;
+        }
+        None
+    }
+
+    fn apply(&self, r: &[f64]) -> Vec<f64> {
+        let mut rhs = Mat::<f64>::zeros(self.n, 1);
+        for i in 0..self.n {
+            rhs[(i, 0)] = r[i];
+        }
+        self.llt.solve_in_place_with_conj(faer::Conj::No, rhs.as_mut());
+        (0..self.n).map(|i| rhs[(i, 0)]).collect()
+    }
+}
+
+/// Compressed-row arrays for `s`, for the parallel matvec.
+fn to_csr(s: &CsMat<f64>, n: usize) -> (Vec<usize>, Vec<usize>, Vec<f64>) {
+    let mut counts = vec![0usize; n];
+    for (_, (r, _)) in s.iter() {
+        counts[r] += 1;
+    }
+    let mut row_ptr = vec![0usize; n + 1];
+    for i in 0..n {
+        row_ptr[i + 1] = row_ptr[i] + counts[i];
+    }
+    let nnz = row_ptr[n];
+    let mut col_idx = vec![0usize; nnz];
+    let mut val = vec![0.0f64; nnz];
+    let mut fill = row_ptr[..n].to_vec();
+    for (&v, (r, c)) in s.iter() {
+        col_idx[fill[r]] = c;
+        val[fill[r]] = v;
+        fill[r] += 1;
+    }
+    (row_ptr, col_idx, val)
 }
 
 impl PoissonSolver {
@@ -107,8 +241,28 @@ impl PoissonSolver {
         let s = full_stiffness(&ops.laplace_beltrami, &star0);
         let is_dirichlet = vec![false; n];
         let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
-        let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, f));
-        Ok(Self { n, s, inv_diag, star0, dirichlet_vertices: Vec::new(), is_dirichlet, ichol })
+        let zero = vec![0.0; n];
+        let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, &zero, f));
+        let (row_ptr, col_idx, val) = to_csr(&s, n);
+        let zero_shift = vec![0.0; n];
+        let chol = ShiftedCholesky::new(
+            &row_ptr, &col_idx, &val, &star0, &zero_shift, &is_dirichlet,
+        );
+        Ok(Self {
+            n,
+            s,
+            row_ptr,
+            col_idx,
+            val,
+            chol,
+            inv_diag,
+            star0,
+            shift: vec![0.0; n],
+            kernel: Vec::new(),
+            dirichlet_vertices: Vec::new(),
+            is_dirichlet,
+            ichol,
+        })
     }
 
     /// Build the solver with Dirichlet ψ = 0 boundary conditions.
@@ -128,21 +282,97 @@ impl PoissonSolver {
             is_dirichlet[d] = true;
         }
         let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
-        let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, f));
+        let zero = vec![0.0; n];
+        let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, &zero, f));
+        let (row_ptr, col_idx, val) = to_csr(&s, n);
+        let zero_shift = vec![0.0; n];
+        let chol = ShiftedCholesky::new(
+            &row_ptr, &col_idx, &val, &star0, &zero_shift, &is_dirichlet,
+        );
         Ok(Self {
             n,
             s,
+            row_ptr,
+            col_idx,
+            val,
+            chol,
             inv_diag,
             star0,
+            shift: vec![0.0; n],
+            kernel: Vec::new(),
             dirichlet_vertices: dirichlet_vertices.to_vec(),
             is_dirichlet,
             ichol,
         })
     }
 
+    /// A closed-manifold solver for `-(Delta + shift) phi = rhs`.
+    ///
+    /// The surface Stokes stream function needs `shift = 2K`. The momentum
+    /// equation has `(Delta_B + K) u` on the vector field with the Bochner
+    /// Laplacian; rewriting a divergence-free `u = J grad psi` through its
+    /// stream function turns that into the scalar Laplace-Beltrami operator
+    /// shifted by TWICE the curvature.
+    ///
+    /// The factor is what makes a Killing field free. On the unit sphere a
+    /// rigid rotation about `z` has stream function `z`, an `l = 1` harmonic
+    /// with `Delta z = -2 z`, so `(Delta + 2K) z = 0` while `(Delta + K) z`
+    /// is `-z`. At the right shift the operator is therefore singular on a
+    /// sphere, and the solve projects that kernel out of both the right-hand
+    /// side and the answer, which is what returns the solution of minimal
+    /// `L2` norm.
+    ///
+    /// On a flat mesh the shift vanishes and this is the plain Poisson solver.
+    pub fn new_shifted<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        shift: &[f64],
+        coords: &[[f64; 3]],
+    ) -> Result<Self, String> {
+        let mut solver = Self::new(ops)?;
+        if shift.len() != solver.n {
+            return Err(format!(
+                "shift has {} entries for {} vertices",
+                shift.len(),
+                solver.n
+            ));
+        }
+        solver.shift = shift.to_vec();
+        // Both preconditioners describe `S`, and the shift moves the diagonal,
+        // so both are rebuilt against the operator that is actually solved.
+        // Preconditioning the shifted system with the unshifted factorisation
+        // costs about 30 per cent more iterations a step.
+        let shift_diag: Vec<f64> =
+            (0..solver.n).map(|i| solver.star0[i] * solver.shift[i]).collect();
+        solver.inv_diag = (0..solver.n)
+            .map(|i| {
+                let d = 1.0 / solver.inv_diag[i] - shift_diag[i];
+                if d.abs() > 1e-300 { 1.0 / d } else { 1.0 }
+            })
+            .collect();
+        solver.ichol = IChol::factor(solver.n, |f| {
+            cg_operator_triples(&solver.s, &solver.is_dirichlet, &shift_diag, f)
+        });
+        solver.chol = ShiftedCholesky::new(
+            &solver.row_ptr, &solver.col_idx, &solver.val,
+            &solver.star0, &solver.shift, &solver.is_dirichlet,
+        );
+        solver.kernel = solver.find_kernel(coords);
+        Ok(solver)
+    }
+
+    /// The kernel directions the solve removes, for inspection in a test.
+    pub fn kernel_dimension(&self) -> usize {
+        self.kernel.len()
+    }
+
     /// The preconditioner to drive the conjugate gradient with: the incomplete
     /// Cholesky when one was built, and diagonal scaling when it was not.
     fn precond(&self) -> Preconditioner<'_> {
+        // The complete factorisation of the nearby definite operator first, the
+        // incomplete one next, and diagonal scaling only when neither built.
+        if let Some(ch) = &self.chol {
+            return Box::new(move |r: &[f64]| ch.apply(r));
+        }
         match &self.ichol {
             Some(ic) => Box::new(move |r: &[f64]| ic.apply(r)),
             None => Box::new(move |r: &[f64]| {
@@ -171,9 +401,20 @@ impl PoissonSolver {
                 *xzi = 0.0;
             }
         }
+        // Compressed rows rather than the triplet scatter: each output entry is
+        // written once, from contiguous values, which the triplet form cannot
+        // do. Threading this is a loss, not a win. The matrix has 72k nonzeros
+        // and the product runs in tens of microseconds, so a rayon fork and
+        // join per call costs more than the work it splits, and the solve calls
+        // it hundreds of times a step. Measured: 22 steps a second sequential
+        // against 8 threaded.
         let mut y = vec![0.0f64; self.n];
-        for (&v, (r, c)) in self.s.iter() {
-            y[r] += v * xz[c];
+        for r in 0..self.n {
+            let mut acc = 0.0;
+            for k in self.row_ptr[r]..self.row_ptr[r + 1] {
+                acc += self.val[k] * xz[self.col_idx[k]];
+            }
+            y[r] = acc - self.star0[r] * self.shift[r] * xz[r];
         }
         // Identity rows for Dirichlet DOFs.
         for (yi, (&d, &xi)) in y.iter_mut().zip(self.is_dirichlet.iter().zip(x)) {
@@ -182,6 +423,69 @@ impl PoissonSolver {
             }
         }
         y
+    }
+
+    /// The mass inner product `x^T M y`.
+    fn m_dot(&self, x: &[f64], y: &[f64]) -> f64 {
+        (0..self.n).map(|i| self.star0[i] * x[i] * y[i]).sum()
+    }
+
+    /// Remove every kernel direction from `x`, in the mass inner product.
+    fn project_out_kernel(&self, x: &mut [f64]) {
+        for b in &self.kernel {
+            let d = self.m_dot(x, b);
+            for i in 0..self.n {
+                x[i] -= d * b[i];
+            }
+        }
+    }
+
+    /// The kernel of the shifted operator, from the candidates a shifted
+    /// Laplacian on a surface can annihilate: the three linear coordinates,
+    /// whose stream functions are the rigid rotations.
+    ///
+    /// Each is kept only when `A` sends it to something negligible beside what
+    /// `A` does to a vector of its size, which is a scale-free test needing no
+    /// tolerance tuned to the mesh. A surface with no Killing field keeps none
+    /// of them, and a flat mesh has no shift to make any of them a kernel in
+    /// the first place. The survivors are mass-orthonormalised, since the
+    /// linear coordinates are mass-orthogonal only up to the mesh's own
+    /// asymmetry.
+    fn find_kernel(&self, coords: &[[f64; 3]]) -> Vec<Vec<f64>> {
+        if self.shift.iter().all(|c| c.abs() < 1e-300) {
+            return Vec::new();
+        }
+        let probe: Vec<f64> = (0..self.n)
+            .map(|i| ((i.wrapping_mul(2654435761)) % 1000) as f64 / 500.0 - 1.0)
+            .collect();
+        let scale = self.m_norm(&self.apply_a(&probe)) / self.m_norm(&probe).max(1e-300);
+        let mut basis: Vec<Vec<f64>> = Vec::new();
+        for axis in 0..3 {
+            let v: Vec<f64> = coords.iter().map(|c| c[axis]).collect();
+            let rel = self.m_norm(&self.apply_a(&v)) / (scale * self.m_norm(&v)).max(1e-300);
+            if rel > 1e-3 {
+                continue;
+            }
+            let mut w = v;
+            for b in &basis {
+                let d = self.m_dot(&w, b);
+                for i in 0..self.n {
+                    w[i] -= d * b[i];
+                }
+            }
+            let nrm = self.m_norm(&w);
+            if nrm > 1e-8 {
+                for x in w.iter_mut() {
+                    *x /= nrm;
+                }
+                basis.push(w);
+            }
+        }
+        basis
+    }
+
+    fn m_norm(&self, x: &[f64]) -> f64 {
+        self.m_dot(x, x).sqrt()
     }
 
     /// Apply the raw stiffness `S`, with no Dirichlet masking.
@@ -264,7 +568,7 @@ impl PoissonSolver {
     /// there exactly.
     /// Solve, starting from `x0` and stopping at `tol`, returning the iterations.
     ///
-    /// See [`pcg_solve_from`]. The gauge fix and the Dirichlet rows are applied
+    /// See [`pcg_solve_from_pc`]. The gauge fix and the Dirichlet rows are applied
     /// exactly as in [`Self::solve`], so the two differ only in where the
     /// iteration starts and where it stops.
     pub fn solve_from(
@@ -284,6 +588,16 @@ impl PoissonSolver {
         } else {
             for &d in &self.dirichlet_vertices {
                 b[d] = 0.0;
+            }
+        }
+        if !self.kernel.is_empty() {
+            // `b` is mass-weighted, so the projection is done on `M^-1 b` and
+            // re-weighted, keeping it in the inner product the kernel was
+            // orthonormalised in.
+            let mut br: Vec<f64> = (0..self.n).map(|i| b[i] / self.star0[i]).collect();
+            self.project_out_kernel(&mut br);
+            for i in 0..self.n {
+                b[i] = self.star0[i] * br[i];
             }
         }
         let pc = self.precond();
@@ -306,6 +620,7 @@ impl PoissonSolver {
                 x[d] = 0.0;
             }
         }
+        self.project_out_kernel(&mut x);
         (DVector::from_vec(x), its)
     }
 
@@ -313,96 +628,28 @@ impl PoissonSolver {
     ///
     /// Exposed so a force-driven solve can convert a nodal functional into the
     /// pointwise source `solve` expects, which is what keeps the resulting
-    /// operator symmetric. See `StokesSolverDec::solve_force_warm`.
+    /// operator symmetric. See `SurfaceStokes::solve_force_warm`.
     pub fn mass_diagonal(&self) -> &[f64] {
         &self.star0
     }
 
+    /// Solve `-(Delta + shift) phi = rhs` cold, at a fixed tolerance.
+    ///
+    /// A thin wrapper over [`Self::solve_from`], which is the single
+    /// implementation. Keeping a second copy here is how the kernel projection
+    /// came to be applied on one path and not the other.
     pub fn solve(&self, rhs: &DVector<f64>) -> DVector<f64> {
-        assert_eq!(rhs.len(), self.n);
-        let closed = self.dirichlet_vertices.is_empty();
-
-        // b = -M rhs (mass-weighted); S psi = -M rhs solves -L psi = rhs (Delta psi = rhs).
-        let mut b: Vec<f64> = (0..self.n).map(|i| -self.star0[i] * rhs[i]).collect();
-        if closed {
-            // Project onto range(S) = {v : sum v = 0}.
-            let mean = b.iter().sum::<f64>() / self.n as f64;
-            for v in b.iter_mut() {
-                *v -= mean;
-            }
-        } else {
-            for &d in &self.dirichlet_vertices {
-                b[d] = 0.0;
-            }
-        }
-
-        let pc = self.precond();
-        let (mut x, _) =
-            pcg_solve_from_pc(|p| self.apply_a(p), &pc, &b, self.n, closed, None, 1e-10);
-
-        if closed {
-            let mean = x.iter().sum::<f64>() / self.n as f64;
-            for v in x.iter_mut() {
-                *v -= mean;
-            }
-        } else {
-            for &d in &self.dirichlet_vertices {
-                x[d] = 0.0;
-            }
-        }
-        DVector::from_vec(x)
+        self.solve_from(rhs, None, 1e-10).0
     }
 }
+
 
 /// Dot product of two slices.
 pub(crate) fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-/// Jacobi-preconditioned conjugate gradient for a symmetric operator `apply` with
-/// preconditioner diagonal `inv_diag`, solving `A x = b`.
-///
-/// `project_kernel` keeps the residual and preconditioned residual mean-free, so the routine
-/// converges to the minimum-norm solution when `A` is singular with the constant vector in
-/// its kernel (closed-manifold Laplacian) OR when `A` is SPD only on the zero-mean subspace
-/// (the shifted `(Delta + K)` operator, which is indefinite on constants but positive on the
-/// zero-mean harmonics). Returns the raw iterate; callers apply any final gauge fix.
-pub(crate) fn pcg_solve<F: Fn(&[f64]) -> Vec<f64>>(
-    apply: F,
-    inv_diag: &[f64],
-    b: &[f64],
-    n: usize,
-    project_kernel: bool,
-) -> Vec<f64> {
-    pcg_solve_from(apply, inv_diag, b, n, project_kernel, None, 1e-10).0
-}
 
-/// The same iteration started from a supplied iterate and stopped at a supplied
-/// tolerance, returning the count.
-///
-/// A time-stepping caller solves this system once per step with a right-hand
-/// side that moves by order `dt`, so the previous solution is a far better
-/// starting point than zero. Starting cold repeats the whole descent every step,
-/// which on a graded mesh is where nearly all of the run time goes.
-pub(crate) fn pcg_solve_from<F: Fn(&[f64]) -> Vec<f64>>(
-    apply: F,
-    inv_diag: &[f64],
-    b: &[f64],
-    n: usize,
-    project_kernel: bool,
-    x0: Option<&[f64]>,
-    tol: f64,
-) -> (Vec<f64>, usize) {
-    pcg_solve_from_pc(
-        apply,
-        &|r: &[f64]| (0..n).map(|i| inv_diag[i] * r[i]).collect(),
-        b,
-        n,
-        project_kernel,
-        x0,
-        tol,
-    )
-}
 
 /// The same iteration with an arbitrary symmetric positive definite
 /// preconditioner `M^{-1}`, given as `precond`.
@@ -585,9 +832,12 @@ mod tests {
         for &d in &edge {
             b[d] = 0.0;
         }
-        let (mut x_j, its_j) = pcg_solve_from(
+        let jacobi: Preconditioner = Box::new(|r: &[f64]| {
+            (0..nv).map(|i| solver.inv_diag[i] * r[i]).collect()
+        });
+        let (mut x_j, its_j) = pcg_solve_from_pc(
             |p| solver.apply_a(p),
-            &solver.inv_diag,
+            &jacobi,
             &b,
             nv,
             closed,

@@ -4,7 +4,7 @@ use cartan_dec::mesh::FlatMesh;
 use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::ActiveNematicParams;
-use volterra_dec::QFieldDec;
+use volterra_dec::QField;
 use volterra_dec::run_wet_active_nematic_dec;
 
 #[test]
@@ -20,7 +20,7 @@ fn wet_dec_nematic_runs_without_nan() {
     params.zeta_eff = 0.5;
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.001, 42);
+    let q0 = QField::random_perturbation(nv, 0.001, 42);
 
     let (q_fin, stats) = run_wet_active_nematic_dec(
         &q0, &params, &ops, &mesh, None, 50, 50,
@@ -43,7 +43,7 @@ fn wet_dec_zero_activity_matches_dry() {
     params.zeta_eff = 0.0; // no activity -> no flow -> dry equivalent
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.001, 42);
+    let q0 = QField::random_perturbation(nv, 0.001, 42);
 
     let (q_wet, _) = run_wet_active_nematic_dec(
         &q0, &params, &ops, &mesh, None, 100, 100,
@@ -81,7 +81,7 @@ fn wet_dec_order_grows_with_activity() {
     assert!(params.a_eff() < 0.0, "need active regime");
 
     let nv = mesh.n_vertices();
-    let q0 = QFieldDec::random_perturbation(nv, 0.01, 42);
+    let q0 = QField::random_perturbation(nv, 0.01, 42);
     let s_before = q0.mean_order_param();
 
     // Run 2000 steps (t=2.0) so the uniform mode grows by e^(|a_eff|*t) = e^3 ~ 20x.

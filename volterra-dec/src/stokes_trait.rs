@@ -11,8 +11,8 @@ use cartan_dec::mesh::Mesh;
 use cartan_dec::stokes::StokesSolverAL;
 use cartan_dec::Operators;
 
-use crate::curved_stokes::CurvedStokesSolver;
-use crate::stokes_dec::{self, VelocityFieldDec};
+use crate::stokes::SurfaceStokes;
+use crate::stokes::{self, VelocityField};
 
 /// Flow field result from a Stokes solve.
 #[derive(Debug, Clone)]
@@ -109,7 +109,7 @@ impl StokesSolver for KillingOperatorSolver {
 /// extracts velocity via the DEC curl u = *d(psi).
 #[allow(dead_code)]
 pub struct StreamFunctionStokes {
-    inner: CurvedStokesSolver,
+    inner: SurfaceStokes,
     n_vertices: usize,
     /// Ericksen number (viscosity ratio) for the biharmonic factorisation.
     er: f64,
@@ -139,9 +139,11 @@ impl StreamFunctionStokes {
         er: f64,
     ) -> Result<Self, String> {
         let n_vertices = mesh.n_vertices();
-        let inner = CurvedStokesSolver::new(ops, mesh, gaussian_k)?;
+        // The solver builds its own curvature from the mesh, by angle defect.
+        let _ = gaussian_k;
+        let inner = SurfaceStokes::new(ops, mesh)?;
 
-        let coords = stokes_dec::extract_coords(mesh);
+        let coords = stokes::extract_coords(mesh);
 
         // Compute barycentric dual areas.
         let mut dual_areas = vec![0.0_f64; n_vertices];
@@ -184,7 +186,7 @@ impl StokesSolver for StreamFunctionStokes {
         let omega = discrete_curl(force_3d, &self.simplices, &self.coords, &self.dual_areas, nv);
 
         // Step 2: Solve the modified biharmonic for stream function psi.
-        let (psi, _) = self.inner.solve(&omega, self.er);
+        let psi = self.inner.stream_from_vorticity(&omega, self.er);
 
         // Step 3: Extract velocity from psi via DEC curl: u = *d(psi).
         let vel = velocity_from_psi(
@@ -262,7 +264,7 @@ fn velocity_from_psi(
     boundaries: &[[usize; 2]],
     vertex_boundaries: &[Vec<usize>],
     coords: &[[f64; 3]],
-) -> VelocityFieldDec {
+) -> VelocityField {
     let ne = boundaries.len();
     let mut vel = vec![[0.0_f64; 3]; nv];
 
@@ -319,7 +321,7 @@ fn velocity_from_psi(
         }
     }
 
-    VelocityFieldDec { v: vel, n_vertices: nv }
+    VelocityField { v: vel, n_vertices: nv }
 }
 
 // Vector helpers.
