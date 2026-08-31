@@ -44,7 +44,8 @@ plt.rcParams.update({
     "axes.labelsize": 16, "xtick.labelsize": 13, "ytick.labelsize": 13,
 })
 
-PX = 620          # sphere raster, pixels across
+BASE_DPI = 110    # the resolution the raster and glyph counts below are set for
+PX = 620          # sphere raster, pixels across, scaled by the requested dpi
 N_GLYPH = 900     # director rods over the whole sphere, culled to the visible face
 
 
@@ -87,9 +88,17 @@ def main():
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--stride", type=int, default=1)
     ap.add_argument("--fps", type=int, default=14)
+    ap.add_argument("--dpi", type=int, default=BASE_DPI,
+                    help="output resolution; 256 gives 3840 across, which is 4K")
     args = ap.parse_args()
     run = args.run
     out = args.out or run / "braid.mp4"
+
+    # The sphere raster and the glyph count follow the output resolution, or a
+    # 4K frame carries an upscaled sphere and the same sparse rods.
+    scale = args.dpi / BASE_DPI
+    raster = int(round(PX * scale))
+    n_glyph = int(round(N_GLYPH * scale ** 1.5))
 
     mesh = json.loads((run / "mesh.json").read_text())
     verts = np.asarray(mesh["vertices"], float)
@@ -123,7 +132,7 @@ def main():
     v = np.cross(d, u)
 
     # Pixel -> vertex, computed once: neither the sphere nor the camera moves.
-    g = np.linspace(-1.0, 1.0, PX)
+    g = np.linspace(-1.0, 1.0, raster)
     X, Y = np.meshgrid(g, -g)
     R2 = X * X + Y * Y
     disc = R2 <= 1.0
@@ -140,7 +149,7 @@ def main():
     shade = 0.45 + 0.55 * shade
 
     # Glyph seats, culled to the face that is comfortably visible.
-    seats = fibonacci(N_GLYPH)
+    seats = fibonacci(n_glyph)
     keep = (seats * d).sum(1) < -0.12
     seats = seats[keep]
     seat_v = tree.query(seats)[1]
@@ -149,7 +158,7 @@ def main():
 
     _, e1, e2 = vertex_frames(verts, tris)
 
-    fig = plt.figure(figsize=(15.0, 8.0), dpi=110)
+    fig = plt.figure(figsize=(15.0, 8.0), dpi=args.dpi)
     fig.patch.set_facecolor("white")
     gs = fig.add_gridspec(2, 2, width_ratios=[1.35, 1.0], height_ratios=[1.0, 0.62],
                           left=0.02, right=0.975, top=0.93, bottom=0.07,
@@ -188,12 +197,16 @@ def main():
     if etec_path.exists():
         ej = json.loads(etec_path.read_text())
         conv = np.asarray(ej.get("convergence", []), dtype=float)
-        AS.plot(conv[:, 0], conv[:, 1], color="#1a1a1a", lw=1.4, zorder=3)
+        # The opening tenth is the band finding the unstable direction, and its
+        # rate is meaningless. Drop it from the curve rather than letting the
+        # y-limits clip it, so the line starts where the measurement does and
+        # runs to the end of the window.
+        k = len(conv) // 10
+        AS.plot(conv[k:, 0] + times[0], conv[k:, 1], color="#1a1a1a", lw=1.4,
+                zorder=3)
         AS.axhline(ej["rate"], color="#8a8a8a", ls="--", lw=1.0, zorder=2)
-        # Scale to the settled part: the first moments are a transient that
-        # would otherwise squash the whole curve flat.
-        tail = conv[len(conv) // 5:, 1]
-        lo_, hi_ = float(tail.min()), float(tail.max())
+        shown = conv[k:, 1]
+        lo_, hi_ = float(shown.min()), float(shown.max())
         pad_ = 0.25 * max(hi_ - lo_, 1e-12)
         AS.set_ylim(lo_ - pad_, hi_ + pad_)
         AS.text(0.985, 0.90, f"{ej['rate']:.3e}", fontsize=11, va="center",
@@ -222,7 +235,7 @@ def main():
             pe = sum(tail_) / len(tail_)
     sup = fig.suptitle("", fontsize=13)
 
-    im = AX.imshow(np.zeros((PX, PX, 4)), extent=(-1, 1, -1, 1),
+    im = AX.imshow(np.zeros((raster, raster, 4)), extent=(-1, 1, -1, 1),
                    origin="upper", interpolation="bilinear", zorder=1)
     rods = LineCollection([], colors="#1a1a1a", linewidths=1.0, alpha=0.75, zorder=3)
     AX.add_collection(rods)
