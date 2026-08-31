@@ -31,12 +31,14 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from scipy.spatial import cKDTree
 
-# The standing film style, the same block the CGPO videos use. Serif with the
-# matching mathtext face rather than usetex: a film runs LaTeX once a frame
-# otherwise, and the face is what matters here.
+# The standing film style, the same block the CGPO videos use. usetex is NOT
+# set here: it comes from ~/.config/matplotlib/matplotlibrc, so every frame goes
+# through LaTeX and sets in Latin Modern. Setting it False falls back to the
+# DejaVu face, which is not the house serif.
 plt.rcParams.update({
-    "font.family": "serif", "mathtext.fontset": "dejavuserif", "axes.grid": False,
-    "text.usetex": False,
+    "font.family": "serif", "mathtext.fontset": "cm", "axes.grid": False,
+    "text.latex.preamble": r"\usepackage{amsmath}\usepackage{amssymb}"
+                           r"\usepackage{amsfonts}\usepackage{lmodern}",
     "text.color": "#000000", "axes.labelcolor": "#000000", "xtick.color": "#000000",
     "ytick.color": "#000000", "axes.edgecolor": "#000000", "figure.dpi": 150,
     "axes.labelsize": 16, "xtick.labelsize": 13, "ytick.labelsize": 13,

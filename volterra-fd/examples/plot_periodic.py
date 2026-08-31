@@ -19,7 +19,7 @@ import numpy as np
 
 plt.rcParams.update({
     "font.family": "serif",
-    "text.usetex": False,
+    "text.usetex": True,
     "mathtext.fontset": "cm",
     "axes.grid": False,
     "text.color": "#000000",
