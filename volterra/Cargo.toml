@@ -19,7 +19,7 @@ cartan-dec       = { workspace = true }
 cartan-manifolds = { workspace = true }
 clap             = { version = "4", features = ["derive"] }
 serde_json       = { workspace = true }
-toml             = "0.8"
+toml             = "1.1"
 
 [[bin]]
 name = "volterra"
