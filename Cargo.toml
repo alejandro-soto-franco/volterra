@@ -46,7 +46,7 @@ rand             = "0.10"
 rustfft          = "6"
 pyo3             = { version = "0.28", features = ["extension-module", "abi3-py310"] }
 numpy            = "0.28"
-criterion        = "0.5"
+criterion        = "0.8"
 
 # Uncomment and point at a local checkout to build against in-tree cartan
 # changes without pushing them first.
