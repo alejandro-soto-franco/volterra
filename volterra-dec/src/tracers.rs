@@ -100,20 +100,28 @@ impl Buckets {
     }
 }
 
+/// The mesh a tracer moves over, borrowed as one argument.
+///
+/// Every function here reads the same four pieces together, and passing them
+/// separately put `advect` one over clippy's argument ceiling. Grouping them
+/// also makes it impossible to hand one function a vertex list and another the
+/// faces of a different mesh.
+#[derive(Clone, Copy)]
+pub struct MeshRef<'a> {
+    pub verts:      &'a [[f64; 3]],
+    pub tris:       &'a [[usize; 3]],
+    pub vert_faces: &'a [Vec<usize>],
+    pub buckets:    &'a Buckets,
+}
+
 /// Velocity at a point, from the incident faces of the nearest vertex.
 ///
 /// Barycentric within the containing triangle where the point falls in one,
 /// and the nearest vertex's own value otherwise. Nearest-vertex alone is first
 /// order in the mesh spacing, which a measurement of exponential separation
 /// cannot afford.
-pub fn velocity_at(
-    p: [f64; 3],
-    verts: &[[f64; 3]],
-    tris: &[[usize; 3]],
-    vert_faces: &[Vec<usize>],
-    buckets: &Buckets,
-    u: &[f64],
-) -> [f64; 3] {
+pub fn velocity_at(p: [f64; 3], mesh: &MeshRef<'_>, u: &[f64]) -> [f64; 3] {
+    let MeshRef { verts, tris, vert_faces, buckets } = *mesh;
     let v0 = buckets.nearest(p, verts);
     for &f in &vert_faces[v0] {
         let [a, b, c] = tris[f];
@@ -143,19 +151,10 @@ pub fn velocity_at(
 }
 
 /// One midpoint step on the sphere, projected back after each move.
-pub fn advect(
-    p: [f64; 3],
-    dt: f64,
-    verts: &[[f64; 3]],
-    tris: &[[usize; 3]],
-    vert_faces: &[Vec<usize>],
-    buckets: &Buckets,
-    u0: &[f64],
-    u1: &[f64],
-) -> [f64; 3] {
+pub fn advect(p: [f64; 3], dt: f64, mesh: &MeshRef<'_>, u0: &[f64], u1: &[f64]) -> [f64; 3] {
     let vel = |x: [f64; 3], s: f64| -> [f64; 3] {
-        let a = velocity_at(x, verts, tris, vert_faces, buckets, u0);
-        let b = velocity_at(x, verts, tris, vert_faces, buckets, u1);
+        let a = velocity_at(x, mesh, u0);
+        let b = velocity_at(x, mesh, u1);
         // Linear in time between the two snapshots the step spans.
         let v = [
             (1.0 - s) * a[0] + s * b[0],

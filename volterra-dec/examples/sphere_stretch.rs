@@ -32,7 +32,7 @@
 
 use std::path::Path;
 
-use volterra_dec::tracers::{advect, geodesic, norm3, cross3, dot3, read_npy, Buckets};
+use volterra_dec::tracers::{advect, geodesic, norm3, cross3, dot3, read_npy, Buckets, MeshRef};
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
@@ -87,6 +87,7 @@ fn main() {
         }
     }
     let buckets = Buckets::new(&verts);
+    let mesh = MeshRef { verts: &verts, tris: &tris, vert_faces: &vert_faces, buckets: &buckets };
 
     // The velocity snapshots, in order, skipping the developing part of the run.
     let mut steps: Vec<usize> = std::fs::read_dir(run).unwrap()
@@ -151,8 +152,8 @@ fn main() {
             let ua = blend(f0);
             let ub = blend(f1);
             for k in 0..seeds {
-                a[k] = advect(a[k], h, &verts, &tris, &vert_faces, &buckets, &ua, &ub);
-                b[k] = advect(b[k], h, &verts, &tris, &vert_faces, &buckets, &ua, &ub);
+                a[k] = advect(a[k], h, &mesh, &ua, &ub);
+                b[k] = advect(b[k], h, &mesh, &ua, &ub);
             }
         }
         // Renormalise: accumulate the growth and pull the companion back to

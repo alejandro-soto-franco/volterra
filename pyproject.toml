@@ -40,4 +40,4 @@ dev = [
 ]
 
 [tool.pyrefly]
-# Enables full Pyrefly type checking; run with `uvc`. See ~/.claude/rules/pyrefly.md
+# Full Pyrefly type checking rather than the degraded basic preset.

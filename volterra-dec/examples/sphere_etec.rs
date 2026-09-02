@@ -18,7 +18,7 @@
 use std::path::Path;
 
 use volterra_braid::etec::{Band, Sphere, delaunay_sphere};
-use volterra_dec::tracers::{Buckets, advect, read_npy};
+use volterra_dec::tracers::{Buckets, MeshRef, advect, read_npy};
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
@@ -71,6 +71,7 @@ fn main() {
         }
     }
     let buckets = Buckets::new(&verts);
+    let mesh = MeshRef { verts: &verts, tris: &tris_mesh, vert_faces: &vert_faces, buckets: &buckets };
 
     let mut steps: Vec<usize> = std::fs::read_dir(run).unwrap()
         .filter_map(|e| {
@@ -131,7 +132,7 @@ fn main() {
             let ua = blend(f0);
             let ub = blend(f1);
             for p in band.points.iter_mut() {
-                *p = advect(*p, h, &verts, &tris_mesh, &vert_faces, &buckets, &ua, &ub);
+                *p = advect(*p, h, &mesh, &ua, &ub);
             }
             band.repair(12);
             band.accumulate();

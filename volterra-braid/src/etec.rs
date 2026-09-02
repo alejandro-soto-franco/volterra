@@ -483,6 +483,10 @@ pub fn delaunay_sphere(points: &[[f64; 3]]) -> Vec<[usize; 3]> {
     let mut visible: Vec<bool> = Vec::new();
     let mut directed: std::collections::HashSet<(usize, usize)> =
         std::collections::HashSet::new();
+    // `p` is a point index the body passes to `vol` and writes into a face,
+    // and the body also writes `placed`, so neither an iterator over `placed`
+    // nor a filter over it applies here.
+    #[allow(clippy::needless_range_loop)]
     for p in 0..n {
         if placed[p] {
             continue;

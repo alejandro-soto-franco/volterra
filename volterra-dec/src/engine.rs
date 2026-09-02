@@ -44,8 +44,6 @@ pub struct NematicEngine {
     semi_lag: SemiLagrangian,
     /// Vertex coordinates in R^3.
     coords: Vec<[f64; 3]>,
-    /// Dual cell areas (from star_0).
-    dual_areas: Vec<f64>,
     /// Mesh boundary connectivity (for vorticity source computation).
     simplices: Vec<[usize; 3]>,
     boundaries: Vec<[usize; 2]>,
@@ -113,7 +111,6 @@ impl NematicEngine {
             conn_lap,
             semi_lag,
             coords,
-            dual_areas: star0,
             simplices: mesh.simplices.clone(),
             boundaries: mesh.boundaries.clone(),
             vertex_boundaries: mesh.vertex_boundaries.clone(),
