@@ -54,7 +54,7 @@ these words and entropies.
 
 The `volterra` PyO3 extension exposes `BraidWord` plus the plain-list functions
 `braid_detect_defects` / `braid_word_from_frames` / `braid_topological_entropy`.
-The `oracle/` directory holds `braid_tracker_v2.py` (a cleaned reimplementation of
+The `oracle/` directory contains `braid_tracker_v2.py` (a cleaned reimplementation of
 the published CGPO tracker) and `cross_check.py` (a Rust-vs-Python differential
 check). See `oracle/README.md`.
 

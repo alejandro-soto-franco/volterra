@@ -5,18 +5,18 @@ Python reimplementation of the CGPO reference braid tracker.
 
 ## Files
 
-- `braid_tracker_v2.py` — cleaned, documented reimplementation of
+- `braid_tracker_v2.py`: cleaned, documented reimplementation of
   `Chaos-Generating-Periodic-Orbits/braid_tracker.py` (defect detection,
   tracking, braid-word extraction, topological entropy). The in-file docstring
   lists every deliberate deviation from the original. Library + self-test.
-- `cross_check.py` — feeds identical inputs to volterra (Rust, via the
+- `cross_check.py`: feeds identical inputs to volterra (Rust, via the
   `volterra` PyO3 extension) and to `braid_tracker_v2`, and asserts they agree on
   defect detection, braid words, and topological entropy.
-- `compare_cgpo.py` — the end-to-end comparison against the **unmodified**
+- `compare_cgpo.py`: the end-to-end comparison against the **unmodified**
   published `braid_tracker.py`. Renders Q-tensor grids for the golden/silver
   braiding configurations, runs the real script via uv, and checks volterra and
   the script extract the same braid word and topological entropy.
-- `bench_braid.py` — throughput benchmark: times volterra (PyO3) vs the Python
+- `bench_braid.py`: throughput benchmark: times volterra (PyO3) vs the Python
   braid_tracker_v2 algorithm on identical Q grids. See BENCHMARKS.md section 9.
   (`cargo run --release --example bench_braid -p volterra-braid` for the native
   Rust numbers.)
@@ -40,8 +40,8 @@ maturin develop --release      # builds + installs `volterra` into .venv
 ```
 
 A passing cross-check means the Rust extraction and the Python reference produce
-identical braid words and entropies on the same data — the analytic braid-group
-gate, decoupled from the active-nematic PDE solve.
+identical braid words and entropies on the same data. That is the analytic
+braid-group stage alone, decoupled from the active-nematic PDE solve.
 
 ### Against the unmodified published script
 

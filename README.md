@@ -41,14 +41,27 @@ volterra is designed around three principles:
 
 ## Crate structure
 
+The workspace has six members:
+
 ```
 volterra          facade crate (start here)
 volterra-core     trait definitions and error types
-volterra-fields   Q-tensor, velocity, pressure, and stress field types
-volterra-solver   equations of motion, time integration, defect tracking
-volterra-dec      DEC mesh, Hodge operators, covariant differential operators (in progress)
-volterra-mars     MARS experimental system presets and dimensionless groups
+volterra-fd       finite-difference solver on confined Cartesian domains
+volterra-dec      DEC physics on triangle meshes: Q-tensor fields, Stokes,
+                  semi-Lagrangian advection, Helfrich energy, variational integrators
+volterra-braid    defect detection and tracking, braid words, topological entropy
 volterra-py       PyO3 bindings  (pip install volterra-nematic)
+```
+
+The CUDA paths live in two further crates. Each is its own workspace, because the
+cuda-oxide codegen backend needs a pinned nightly toolchain that must not reach
+the stable workspace above, and neither is published:
+
+```
+volterra-cuda     double-precision CUDA FIRE minimiser for the passive
+                  Landau-de Gennes relaxation
+volterra-fd-cuda  double-precision CUDA path for the finite-difference solver,
+                  checked kernel by kernel against the CPU crate
 ```
 
 ## Substrate

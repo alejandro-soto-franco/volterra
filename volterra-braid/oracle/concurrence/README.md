@@ -13,13 +13,13 @@ statistical/topological**.
 
 | Piece | State |
 |-------|-------|
-| SP0 — paper-concordant Burau (SI.11–SI.17) | **landed** (`volterra-braid` entropy.rs; `paper_burau_*`) |
+| SP0: paper-concordant Burau (SI.11–SI.17) | **landed** (`volterra-braid` entropy.rs; `paper_burau_*`) |
 | Braid word + entropy concurrence vs braid_tracker.py | **landed earlier** (`oracle/compare_cgpo.py`) |
-| SP3 — dynamical observables (⟨ω⟩ + gyre count, line-stretching entropy) | **landed** (`observables.py`, self-test passes) |
-| SP2 — CGPO reference runner (single point, persist Q+u, dump IC, no rm) | **scaffolded** (`patch_flow_solver.py` → `flow_solver_run.py`); full run is hours, deferred |
-| SP1 — volterra confined DEC runner (no-slip Stokes + Dirichlet Q) | **gated** (research-grade no-slip DEC Stokes; see spec §SP1) |
-| SP3 — DEC↔Cartesian interpolation + matched-IC pointwise norms | **gated on SP1/SP2 output** |
-| SP4 — viscometric concurrence | **deferred** |
+| SP3: dynamical observables (⟨ω⟩ + gyre count, line-stretching entropy) | **landed** (`observables.py`, self-test passes) |
+| SP2: CGPO reference runner (single point, persist Q+u, dump IC, no rm) | **scaffolded** (`patch_flow_solver.py` → `flow_solver_run.py`); full run is hours, deferred |
+| SP1: volterra confined DEC runner (no-slip Stokes + Dirichlet Q) | **blocked** (research-grade no-slip DEC Stokes; see spec §SP1) |
+| SP3: DEC↔Cartesian interpolation + matched-IC pointwise norms | **blocked on SP1/SP2 output** |
+| SP4: viscometric concurrence | **deferred** |
 
 Machine-checking of the paper's *analytical* claims (braid algebra, Burau,
 metallic identities, Beris-Edwards functional derivative, free-energy sign) is a
@@ -39,14 +39,14 @@ FD_LX=60 FD_LY=60 FD_MAX_STEPS=2000 uv run --with numpy --with numba flow_solver
 
 ## Remaining critical path (the field-level concurrence)
 
-1. **SP1 confined DEC runner** — the gating piece. Highest risk: no-slip DEC
+1. **SP1 confined DEC runner**, which the other two wait on. Highest risk: no-slip DEC
    Stokes on a bounded flat domain (pressure Neumann SI.5), validated against an
    analytic confined Stokes flow before wiring the runner. Then Dirichlet-Q
    anchoring (SI.2/SI.3) + the epitrochoid mesh, producing Q/u snapshots.
-2. **SP2 run** — fix the integer `(als,ncl)` map from `(ℓ̃a,ℓ̃c)` + resolution +
+2. **SP2 run**. Fix the integer `(als,ncl)` map from `(ℓ̃a,ℓ̃c)` + resolution +
    domain area, then the full 1.5×10⁶-step golden/nephroid runs (archive to
    ASF-EX2).
-3. **SP3 full harness** — DEC↔Cartesian interpolation; matched-IC short-time
+3. **SP3 full harness**. DEC↔Cartesian interpolation; matched-IC short-time
    `‖Q_v−Q_cgpo‖` + divergence time `t*`; convergence order; then the long-time
    observables above on both solvers' output.
 

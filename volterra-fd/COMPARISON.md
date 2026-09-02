@@ -1,4 +1,6 @@
-# volterra-fd vs fsn_solver (flow-solver.py): runtime + numerical concurrence
+# volterra-fd against fsn_solver
+
+Runtime and numerical concurrence against `flow-solver.py`.
 
 **Date:** 2026-06-13. Confined nephroid (epitrochoid q=2/k=2) active Beris–Edwards +
 relaxation-Stokes. `volterra-fd` is a faithful Rust port of the CGPO finite-difference
@@ -6,10 +8,10 @@ solver `~/Chaos-Generating-Periodic-Orbits/flow-solver.py` (Brandon et al.). Con
 numbers below: **Lx=Ly=100, als=1, ncl=9 (paper silver point), dt=1e-4, max_p_iters=50**,
 identical LdG/activity constants (K=2¹⁴, γ=100, η=√(10K), ρ=1, χ=1, λ=0.7, S₀=√2).
 
-## 1. Numerical concurrence — the Rust port IS the same scheme
+## 1. Numerical concurrence
 
-Per-kernel, element-wise vs the numba kernels on fixed inputs (the backbone test — if every
-kernel matches to rounding, the discretizations are identical):
+The Rust port runs the same scheme. Per-kernel, element-wise against the numba kernels on fixed inputs (the backbone test: if every
+kernel matches to rounding, the discretisations are identical):
 
 | Kernel | max abs diff vs Python |
 |--------|------------------------|
@@ -23,14 +25,14 @@ kernel matches to rounding, the discretizations are identical):
 | Stokes pressure (N sweeps) | < 1e-9 |
 | velocity update dudt | < 1e-9 |
 
-**Capstone — one full `update_step` from a fixed IC (with identical boundary normals on
+**Capstone, one full `update_step` from a fixed IC (with identical boundary normals on
 both sides):**
 - **max\|ΔQ\| = 1.1e-16** (machine epsilon)
 - max\|Δu\| = 2.4e-15
 - max\|Δp\| = 2.2e-11
 
 The two solvers agree to machine precision per timestep. Numerical concurrence is therefore
-**proven at the algorithm level** — not inferred from a chaotic long run. (Over a long run
+**proven at the algorithm level**, rather than inferred from a chaotic long run. (Over a long run
 the two diverge eventually, as any chaotic system must; that is expected and not a
 discrepancy. A matched-IC run is available via `FD_THETA_IC`.)
 
@@ -40,9 +42,9 @@ and Rust (scan + Newton) by ~1e-12 at the ~2 near-degenerate cells where a norma
 concurrence both sides use identical (Rust-dumped) normals; in production each uses its own
 (both are valid epitrochoid normals to rounding).
 
-## 2. Runtime — single-threaded Rust vs 32-core numba
+## 2. Runtime
 
-20000 steps, minimal I/O, 32-core machine:
+Single-threaded Rust against 32-core numba. 20000 steps, minimal I/O, 32-core machine:
 
 | Solver | threading | steps/sec | note |
 |--------|-----------|-----------|------|
@@ -50,16 +52,16 @@ concurrence both sides use identical (Rust-dumped) normals; in production each u
 | flow-solver.py (numba) | `parallel=True`, 32 cores | 504 | compute-only: 19800 steps in (77.94−38.68 compile)=39.26 s |
 
 **Speedup ≈ 4.6× wall-clock**, and the Rust figure is **single-threaded** against a
-32-core-parallel numba — so the per-core advantage is large. Both solvers are bottlenecked
-by the serial pressure-relaxation iteration (which `parallel=True` can't parallelize across
-sweeps), which is why numba's 32 cores don't run away. Parallelizing the Rust kernels with
+32-core-parallel numba, so the per-core advantage is large. Both solvers are bottlenecked
+by the serial pressure-relaxation iteration (which `parallel=True` cannot parallelise across
+sweeps), which is why numba's 32 cores do not run away. Parallelising the Rust kernels with
 rayon (the per-sweep relaxation, the stress/H kernels) is open headroom to widen the gap.
 Rust also has no JIT warm-up (numba pays ~39 s compile per process).
 
-## 3. Beyond the port: reproducibility and formulation contrasts
+## 3. Reproducibility and formulation contrasts
 
-The per-kernel concurrence above proves `volterra-fd` **is** the CGPO scheme. It is not
-the whole relationship. Read against both Python engines in this lineage
+The per-kernel concurrence above proves `volterra-fd` **is** the CGPO scheme, which settles
+one question and leaves three others open. Read against both Python engines in this lineage
 (`flow-solver.py`, the confined-geometry paper code, and `open-zetar/BE_NS_2D.ipynb`, the
 newer periodic-only open-source rewrite), three differences matter for how far the results
 can be trusted:
@@ -74,32 +76,32 @@ can be trusted:
   reproduce twice.
 
 - **Incompressibility formulation.** `flow-solver.py` (and this port) use a direct
-  pressure-Poisson RHS carrying the full nonlinear terms, including the `ρ/dt·∇·u`
+  pressure-Poisson RHS with the full nonlinear terms, including the `ρ/dt·∇·u`
   drift-correction that actively removes accumulated divergence each step. `open-zetar` uses
-  a cleaner fractional-step projection on the acceleration but carries no drift-correction
+  a cleaner fractional-step projection on the acceleration and has no drift-correction
   term, so accumulated `∇·u` over an `O(10^4)`-step run has no restoring force. At the paper
   Reynolds number (~0.01) the near-Stokes flow makes the convective-term differences small;
   the divergence-drift difference is the one that shows up over long runs.
 
 - **Robustness.** `open-zetar`'s Poisson relaxation is an *uncapped* `while` loop (unbounded
   worst-case step time near a steady state); `flow-solver.py` caps iterations;
-  `volterra-fd` caps *and* guards each step with `check_finite`/`check_cfl` (`FdError`),
+  `volterra-fd` caps each step *and* checks it with `check_finite`/`check_cfl` (`FdError`),
   so a blow-up surfaces as a typed error rather than silent NaN propagation.
 
 **Framing.** CGPO concurrence is `volterra-fd`'s validation harness, not its thesis. The
 crate is the flat-space, finite-difference *anchor* that pins the workspace's novel
 machinery (the DEC-native covariant solver on Riemannian manifolds in `volterra-dec`; the
 certified defect-braid topological entropy in `volterra-braid`) to a scheme proven identical
-to the paper's. The accurate claim is not "volterra reproduces CGPO" but "volterra proves its
-numerics are the CGPO scheme, deterministically, so the manifold and braid results the Python
-codes cannot produce inherit that credibility."
+to the paper's. The accurate claim is that volterra proves its numerics are the CGPO scheme,
+deterministically, so the manifold and braid results the Python codes cannot produce inherit
+that credibility.
 
 ## 4. Status
-- **Phase 1 (this): Rust FD port — COMPLETE & VALIDATED** (19 tests; machine-epsilon
+- **Phase 1 (this): Rust FD port, complete and validated** (19 tests; machine-epsilon
   per-step concurrence; 4.6× runtime). Crate `volterra-fd`, runner `bin/fd`
   (env-configurable, writes flow-solver-format Q/u snapshots → reuses `physical/concurrence.py`).
-- **Phase 2 (deferred): volterra DEC-native run** — the gated no-slip DEC Stokes on the
-  epitrochoid mesh; a different discretization, for statistical/topological concurrence.
+- **Phase 2 (deferred): volterra DEC-native run**, waiting on the no-slip DEC Stokes on
+  the epitrochoid mesh; a different discretisation, for statistical/topological concurrence.
 
 ## Reproduce
 ```bash
