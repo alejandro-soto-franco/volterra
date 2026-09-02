@@ -82,8 +82,8 @@ fn search(n_strands: usize, max_len: usize) -> BTreeMap<i64, Vec<i32>> {
 
 fn main() {
     println!(
-        "{:>2} {:>8} {:>14} {:>14} {:>10}  {}",
-        "k", "strands", "2 log m_k", "nearest found", "gap", "word"
+        "{:>2} {:>8} {:>14} {:>14} {:>10}  word",
+        "k", "strands", "2 log m_k", "nearest found", "gap"
     );
     println!("{}", "-".repeat(78));
     for k in 1..=4usize {
