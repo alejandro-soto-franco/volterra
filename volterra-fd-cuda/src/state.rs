@@ -45,6 +45,9 @@ pub struct StepParams {
     pub fixed_sweeps: Option<usize>,
 }
 
+/// The three fields a device read-back returns, in the order `q`, `u`, `p`.
+pub type HostFields = (Vec<f64>, Vec<f64>, Vec<f64>);
+
 impl StepParams {
     /// Read the parameters off a CPU `Params`, so both sides run the same run.
     pub fn from_cpu(p: &volterra_fd::Params) -> Self {
@@ -139,7 +142,7 @@ impl DeviceState {
     }
 
     /// Read `q`, `u` and `p` back.
-    pub fn download(&self, stream: &Arc<CudaStream>) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), CudaError> {
+    pub fn download(&self, stream: &Arc<CudaStream>) -> Result<HostFields, CudaError> {
         Ok((
             self.q.to_host_vec(stream)?,
             self.u.to_host_vec(stream)?,

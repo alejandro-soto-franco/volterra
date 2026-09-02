@@ -345,7 +345,10 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut pi_a_cpu = vec![0.0; n];
         volterra_fd::nematic::calculate_pi(
             &mut pi_s_cpu, &mut pi_a_cpu, &h_cpu, &smooth,
-            params.lambda, params.zeta, params.k_elastic, &bnd,
+            params.lambda, params.zeta, params.k_elastic,
+            // The GPU kernel adds the Ericksen stress and 2 Tr[QH] Q, so the CPU
+            // reference it is measured against takes the Full model too.
+            volterra_fd::StressModel::Full, &bnd,
         );
         let (pi_s_gpu, pi_a_gpu) = dev.calculate_pi(
             &h_cpu, &smooth, &d_bnd, params.lambda, params.zeta, params.k_elastic,
@@ -380,7 +383,10 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut pi_a = vec![0.0; n];
         volterra_fd::nematic::calculate_pi(
             &mut pi_s, &mut pi_a, &h, &smooth,
-            params.lambda, params.zeta, params.k_elastic, &bnd,
+            params.lambda, params.zeta, params.k_elastic,
+            // The GPU kernel adds the Ericksen stress and 2 Tr[QH] Q, so the CPU
+            // reference it is measured against takes the Full model too.
+            volterra_fd::StressModel::Full, &bnd,
         );
 
         {
@@ -464,7 +470,10 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
             let mut pi_a = vec![0.0; n];
             volterra_fd::nematic::calculate_pi(
                 &mut pi_s, &mut pi_a, &h, &smooth,
-                params.lambda, params.zeta, params.k_elastic, &bnd,
+                params.lambda, params.zeta, params.k_elastic,
+                // The GPU kernel adds the Ericksen stress and 2 Tr[QH] Q, so the CPU
+                // reference it is measured against takes the Full model too.
+                volterra_fd::StressModel::Full, &bnd,
             );
             let p_aux = random_scalar(n, &mut rng);
             let p_seed = random_scalar(n, &mut rng);
@@ -544,7 +553,6 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
 fn phase_step(steps: usize) -> Result<(), Box<dyn std::error::Error>> {
     let dev = Device::new(0)?;
     let bnd = boundary::circular_boundary(LX, LX);
-    let n = LX * LX;
     let d_bnd = DeviceBoundary::upload_full(dev.stream(), &bnd)?;
 
     let params = volterra_fd::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50).with_net_charge(1.5);

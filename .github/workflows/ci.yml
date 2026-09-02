@@ -45,6 +45,37 @@ jobs:
           maturin develop
           pytest tests/ -q
 
+  cuda:
+    name: CUDA crates (clippy)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [volterra-cuda, volterra-fd-cuda]
+    steps:
+      - uses: actions/checkout@v5
+      # Each CUDA crate is its own workspace on a pinned nightly, so the codegen
+      # backend stays out of the stable workspace. Neither is a member of
+      # ../Cargo.toml and neither was checked by any job until now, which is how
+      # volterra-fd-cuda came to call calculate_pi with the argument count it had
+      # before StressModel was added. rustup reads each crate's
+      # rust-toolchain.toml and installs the pin and its components itself, so no
+      # toolchain action is needed here.
+      #
+      # cuda-bindings runs bindgen against cuda.h and exits 1 when the toolkit is
+      # absent, so the headers must be present even though clippy links nothing
+      # and no runner has a device.
+      - uses: Jimver/cuda-toolkit@v0.2.36
+        id: cuda
+        with:
+          method: network
+      - name: Clippy
+        working-directory: ${{ matrix.crate }}
+        env:
+          CUDA_HOME: ${{ steps.cuda.outputs.CUDA_PATH }}
+          CUDA_TOOLKIT_PATH: ${{ steps.cuda.outputs.CUDA_PATH }}
+        run: cargo clippy --all-targets -- -D warnings
+
   bench:
     name: Benches + perf floor
     runs-on: ubuntu-latest

@@ -673,6 +673,10 @@ pub mod kernels {
             return;
         };
 
+        // Written out rather than as `nx.clamp(-1.0, 1.0)`: clamp asserts that
+        // its bounds are ordered, and a panic path in device code is worth
+        // avoiding for a comparison the compiler would fold anyway.
+        #[allow(clippy::manual_clamp)]
         let clamped = if nx > 1.0 {
             1.0
         } else if nx < -1.0 {

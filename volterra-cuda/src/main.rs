@@ -416,7 +416,7 @@ fn phase_matched(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         // Untimed warm-up, then 3 timed repeats, two independent batches (6
         // total), same protocol as `phase_time_tuned`.
         let (_warm_t, warm_iters, _warm_fm, warm_ok) =
-            timed_run(dev, preset, n, p.dt, LITERAL_TARGET, 2000, &q0_flat, &ldg)?;
+            timed_run(dev, preset, p.dt, LITERAL_TARGET, 2000, &q0_flat, &ldg)?;
         if !warm_ok {
             return Err("[matched] warm-up run did not reach target".into());
         }
@@ -426,7 +426,7 @@ fn phase_matched(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         for batch in 0..2 {
             for rep in 0..3 {
                 let (t, iters, force_max, ok) =
-                    timed_run(dev, preset, n, p.dt, LITERAL_TARGET, 2000, &q0_flat, &ldg)?;
+                    timed_run(dev, preset, p.dt, LITERAL_TARGET, 2000, &q0_flat, &ldg)?;
                 if !ok {
                     return Err(format!("[matched] batch {batch} rep {rep}: did not reach target").into());
                 }
@@ -495,7 +495,6 @@ fn phase_roofline(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
 fn timed_run(
     dev: &Device,
     preset: &Preset,
-    n: usize,
     initial_dt: f64,
     target: f64,
     max_iterations: usize,
@@ -506,7 +505,6 @@ fn timed_run(
     let t0 = Instant::now();
     let result = dev.fire_minimize(q0_flat, ldg, &gpu_params)?;
     let elapsed = t0.elapsed().as_secs_f64();
-    let _ = n;
     Ok((elapsed, result.iterations, result.force_max, result.converged))
 }
 
@@ -521,7 +519,7 @@ fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
     for (label, target) in [("literal (1e-3)", LITERAL_TARGET), ("scale-matched (2.09e-5)", SCALE_MATCHED_TARGET)] {
         // Untimed warm-up (pays first-touch cost once), then 3 timed repeats.
         let (_warm_t, warm_iters, _warm_fm, warm_ok) =
-            timed_run(dev, preset, n, p.dt, target, 2000, &q0_flat, &ldg)?;
+            timed_run(dev, preset, p.dt, target, 2000, &q0_flat, &ldg)?;
         if !warm_ok {
             return Err(format!("[time-tuned] {label}: warm-up run did not reach target").into());
         }
@@ -529,7 +527,7 @@ fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         let mut times = Vec::with_capacity(3);
         let mut iters_seen = Vec::with_capacity(3);
         for rep in 0..3 {
-            let (t, iters, force_max, ok) = timed_run(dev, preset, n, p.dt, target, 2000, &q0_flat, &ldg)?;
+            let (t, iters, force_max, ok) = timed_run(dev, preset, p.dt, target, 2000, &q0_flat, &ldg)?;
             if !ok {
                 return Err(format!("[time-tuned] {label} rep {rep}: did not reach target").into());
             }
