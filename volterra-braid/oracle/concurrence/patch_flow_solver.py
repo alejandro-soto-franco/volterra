@@ -49,6 +49,20 @@ PATCHES = [
     ("        run_active_nematic_sim(u, Q, p, boundary, bounds, consts_dict, runname)",
      "        np.savetxt(f'theta_ic_{runname}.txt', theta_initial)  # patched: matched IC for SP3\n"
      "        run_active_nematic_sim(u, Q, p, boundary, bounds, consts_dict, runname)"),
+    # snapshot cadence from env, so a comparison can match another solver's
+    # frame spacing rather than the published 1000 steps
+    ("        save_every_n_steps = 10 * jit_loops",
+     "        save_every_n_steps = int(os.environ.get('FD_SAVE_EVERY', str(10 * jit_loops)))  # patched"),
+    # the notebook display hook, which a script run never reaches and which
+    # newer IPython no longer exports from that module
+    ("from IPython.core.display import display",
+     "def display(*_a, **_k):  # patched: notebook display, unused in a script run\n    pass"),
+    # epitrochoid geometry from env: the published sweep is per shape, and the
+    # nephroid is k = 2 where the file ships the cardioid's k = 1
+    ("        d = .99  # between 0 and 1. 0 -> circle, 1-> epicycloid (d/r) on wikipedia definition",
+     "        d = float(os.environ.get('FD_D', '0.99'))  # patched: env-overridable"),
+    ("        k = 1  # 2(q-1) = number of cusps",
+     "        k = int(os.environ.get('FD_K', '1'))  # patched: env-overridable"),
     # disable ffmpeg + results cleanup so Q_*.txt / u_*.txt persist
     ("        os.system(f\"ffmpeg -framerate 15 -pattern_type glob -i '{imgpath}{runname}/*.png'   -c:v libx264 -pix_fmt yuv420p {imgpath}{runname}/{runname}.mp4\")",
      "        pass  # patched: ffmpeg disabled"),
