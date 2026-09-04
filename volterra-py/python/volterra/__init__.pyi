@@ -8,6 +8,10 @@ from typing import Sequence
 import numpy as np
 import numpy.typing as npt
 
+# A flat run of doubles. PyO3 extracts `Vec<f64>` through the sequence
+# protocol, so a one-dimensional float64 array is accepted wherever a list is.
+Floats = Sequence[float] | npt.NDArray[np.float64]
+
 # ---------------------------------------------------------------------------
 # ActiveNematicParams
 # ---------------------------------------------------------------------------
@@ -322,8 +326,8 @@ class BraidWord:
     def __str__(self) -> str: ...
 
 def braid_detect_defects(
-    qxx: Sequence[float],
-    qxy: Sequence[float],
+    qxx: Floats,
+    qxy: Floats,
     nx: int,
     ny: int,
     threshold: float,
@@ -339,8 +343,8 @@ def braid_detect_defects(
 
 
 def braid_detect_defects_winding(
-    qxx: Sequence[float],
-    qxy: Sequence[float],
+    qxx: Floats,
+    qxy: Floats,
     nx: int,
     ny: int,
     mask: Sequence[bool],
