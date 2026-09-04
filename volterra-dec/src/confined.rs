@@ -449,6 +449,57 @@ pub struct ConfinedMesh2 {
     pub quality: MeshQuality,
 }
 
+/// The parameter increment whose chord along the curve is `ds`.
+///
+/// The sampler wants an arc, and the parametrisation is what it can step. The
+/// two differ by the speed, and at a cusp the speed collapses: on the nephroid
+/// at `d = 0.9` it falls to 2.4 against 15.8 elsewhere. Converting once with
+/// `ds / speed` and capping the result in the PARAMETER therefore truncates the
+/// arc by the speed ratio, and the wall is sampled up to seven times finer than
+/// asked for, right where the elements are already smallest. Every one of the
+/// eight shortest boundary edges on that mesh stepped at the old cap, and the
+/// slivers they made with the interior were the mesh's worst triangles at 6.3
+/// degrees against 35.5 in the bulk.
+///
+/// Solving for the chord instead lets the increment grow where the speed falls,
+/// so the wall is sampled at the size the grading asked for. `cap` remains only
+/// to bound the step on a pathological curve.
+fn arc_step<C: PlaneCurve + ?Sized>(curve: &C, u: f64, ds: f64, cap: f64) -> f64 {
+    let p0 = curve.point(u);
+    let chord = |d: f64| {
+        let p = curve.point(u + d);
+        ((p[0] - p0[0]).powi(2) + (p[1] - p0[1]).powi(2)).sqrt()
+    };
+    let seed = (ds / curve.speed(u).max(1e-12)).min(cap);
+    // `!(seed > 0.0)` rejects NaN as well as a non-positive value, which is the
+    // point: a curve whose speed returns NaN must fall through to the bound.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(seed > 0.0) {
+        return cap;
+    }
+    // Grow a bracket until the chord reaches the target, or the guard is hit.
+    let mut hi = seed;
+    for _ in 0..40 {
+        if chord(hi) >= ds || hi >= cap {
+            break;
+        }
+        hi = (hi * 1.6).min(cap);
+    }
+    if chord(hi) <= ds {
+        return hi;
+    }
+    // The chord rises from zero and the bracket now straddles the target, so
+    // bisection finishes it. The chord is not monotone over a whole circuit,
+    // which is why the bracket is grown from a local seed rather than set to
+    // the period.
+    let (mut lo, mut hi) = (0.0_f64, hi);
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if chord(mid) < ds { lo = mid } else { hi = mid }
+    }
+    0.5 * (lo + hi)
+}
+
 /// Local target size: the bulk size, reduced towards `h_min` near a cusp.
 ///
 /// The reduction is geometric in the distance to the nearest cusp, which is what
@@ -503,8 +554,7 @@ fn cusp_to_tip_offsets<C: PlaneCurve + ?Sized>(
         let rc = curve.curvature_radius(u);
         let h_geom = if rc.is_finite() { o.boundary_frac * rc } else { o.h_bulk };
         let ds = h_geom.min(target_size(p, &cusps, o)).max(floor);
-        let speed = curve.speed(u).max(1e-12);
-        let mut dt = (ds / speed).min(curve.period() / 64.0);
+        let mut dt = arc_step(curve, u, ds, curve.period() / 16.0);
         // Share the run to the tip out evenly, so the last edge before it is not
         // a stub. The tip is a symmetry point, so a stub there is mirrored into a
         // pair of stubs.
@@ -567,6 +617,7 @@ fn sample_boundary_walk<C: PlaneCurve + ?Sized>(
     let mut pts = Vec::new();
     let mut params = Vec::new();
     let mut u = 0.0_f64;
+    let mut last_ds: Option<f64> = None;
     // A hard cap on the sample count, so a pathological d cannot spin forever.
     let max_pts = 2_000_000usize;
     while u < period && pts.len() < max_pts {
@@ -575,13 +626,25 @@ fn sample_boundary_walk<C: PlaneCurve + ?Sized>(
         params.push(u);
         let rc = curve.curvature_radius(u);
         let h_geom = if rc.is_finite() { o.boundary_frac * rc } else { o.h_bulk };
-        let ds = h_geom
+        let mut ds = h_geom
             .min(target_size(p, &cusps, o))
             .max(o.h_min.min(o.h_bulk) * 0.25);
-        let speed = curve.speed(u).max(1e-12);
-        // Step in the parameter that realises that arc, capped so a vanishing
-        // speed at a cusp cannot produce an unbounded parameter jump.
-        u += (ds / speed).min(period / 64.0);
+        // Grade the wall's own spacing. Leaving each step free to take the local
+        // target puts a `h_bulk` edge next to the sub-unit edges that resolve a
+        // cusp, since the target saturates within a few steps of leaving it, and
+        // the triangle spanning the long edge beside the short ones is thin by
+        // construction: on the cardioid at `d = 0.9` the wall spacing was
+        // bimodal at 0.037 and 1.6 with nothing between, and the worst triangles
+        // all had one edge of exactly `h_bulk`. Capping the growth per step
+        // makes the spacing Lipschitz, which is the property the interior size
+        // field then inherits.
+        if let Some(prev) = last_ds {
+            ds = ds.min(prev * o.grade);
+        }
+        last_ds = Some(ds);
+        // Step the arc rather than the parameter, so a vanishing speed at a cusp
+        // lengthens the increment instead of truncating the arc.
+        u += arc_step(curve, u, ds, period / 16.0);
     }
     // Drop a final sample that has wrapped onto the first.
     while pts.len() > 3 {
@@ -595,6 +658,89 @@ fn sample_boundary_walk<C: PlaneCurve + ?Sized>(
         }
     }
     (pts, params)
+}
+
+/// The element size the interior is filled at, read off the wall it has to meet.
+///
+/// [`target_size`] grades towards a cusp POINT, which leaves the interior beside
+/// a finely sampled stretch of wall filled at the bulk size. The triangle
+/// spanning two close wall vertices and one distant interior vertex is then a
+/// sliver, and the smoother cannot repair it because both of its short-edge
+/// vertices are pinned on the curve. Measured on the nephroid, every triangle
+/// under 15 degrees had exactly two wall vertices; those with none ran from 29.7
+/// to 35.5 degrees.
+///
+/// This is the standard Lipschitz field over the wall samples,
+///
+/// ```text
+///     h(p) = min( h_bulk, min_k [ s_k + (grade - 1) |p - b_k| ] )
+/// ```
+///
+/// for `s_k` the wall's own spacing at sample `k`, so the fill beside a fine
+/// stretch of wall is fine and coarsens inward at the grading rate. Only sources
+/// within `(h_bulk - floor) / (grade - 1)` can pull the value below the bulk
+/// size, which bounds the query.
+/// A wall sample and the spacing the fill beside it has to match.
+type SizedSample = ([f64; 2], f64);
+
+struct WallSizeField {
+    cell: f64,
+    reach: f64,
+    grade_minus_one: f64,
+    floor: f64,
+    h_bulk: f64,
+    /// Wall sample and its own local spacing.
+    map: HashMap<(i64, i64), Vec<SizedSample>>,
+}
+
+impl WallSizeField {
+    fn new(bpts: &[[f64; 2]], o: &MeshOpts) -> Self {
+        let floor = o.h_min.min(o.h_bulk) * 0.25;
+        let g = (o.grade - 1.0).max(1e-6);
+        let reach = ((o.h_bulk - floor) / g).max(0.0);
+        let cell = o.h_bulk.max(1e-12);
+        let n = bpts.len();
+        let mut map: HashMap<(i64, i64), Vec<SizedSample>> = HashMap::new();
+        for k in 0..n {
+            let prev = bpts[(k + n - 1) % n];
+            let next = bpts[(k + 1) % n];
+            let d = |a: [f64; 2], b: [f64; 2]| {
+                ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+            };
+            // The shorter of the two incident edges, so the field reads the
+            // spacing the fill actually has to match. It is NOT clamped up to
+            // the floor: where the curvature bound has sampled the wall finer
+            // than `h_min`, the fill beside it has to be that fine too, and
+            // clamping here is what leaves the sliver in place.
+            let s = d(bpts[k], prev).min(d(bpts[k], next));
+            let key = ((bpts[k][0] / cell).floor() as i64, (bpts[k][1] / cell).floor() as i64);
+            map.entry(key).or_default().push((bpts[k], s));
+        }
+        Self { cell, reach, grade_minus_one: g, floor, h_bulk: o.h_bulk, map }
+    }
+
+    fn at(&self, p: [f64; 2]) -> f64 {
+        let mut h = self.h_bulk;
+        let span = (self.reach / self.cell).ceil() as i64 + 1;
+        let (kx, ky) = (
+            (p[0] / self.cell).floor() as i64,
+            (p[1] / self.cell).floor() as i64,
+        );
+        for dx in -span..=span {
+            for dy in -span..=span {
+                if let Some(v) = self.map.get(&(kx + dx, ky + dy)) {
+                    for &(b, s) in v {
+                        let dist = ((p[0] - b[0]).powi(2) + (p[1] - b[1]).powi(2)).sqrt();
+                        h = h.min(s + self.grade_minus_one * dist);
+                    }
+                }
+            }
+        }
+        // The floor is the sampling floor rather than `h_min`, for the same
+        // reason: the wall may be finer than `h_min` where its curvature
+        // demanded it, and the fill has to follow.
+        h.clamp(self.floor, self.h_bulk)
+    }
 }
 
 /// A hash grid over cells of a fixed size, for nearest-point rejection.
@@ -882,7 +1028,18 @@ pub fn confined_mesh<C: PlaneCurve + 'static>(curve: C, o: MeshOpts) -> Confined
     let curve: Arc<dyn PlaneCurve> = Arc::new(curve);
     let (bpts, bparams) = sample_boundary(curve.as_ref(), &o);
     let n_b = bpts.len();
-    let cusps: Vec<[f64; 2]> = curve.features().iter().map(|&u| curve.point(u)).collect();
+    // The boundary is sampled first, so the size field the interior is filled at
+    // can read the spacing it has to meet. `target_size` grades towards a cusp
+    // point and knows nothing about how finely the wall beside it was sampled.
+    let size = WallSizeField::new(&bpts, &o);
+    // The wall's own spacing at each sample, which is the unit the layer march
+    // strides in.
+    let wall_spacing: Vec<f64> = (0..n_b)
+        .map(|k| {
+            let next = bpts[(k + 1) % n_b];
+            ((bpts[k][0] - next[0]).powi(2) + (bpts[k][1] - next[1]).powi(2)).sqrt()
+        })
+        .collect();
 
     let mut pts = bpts.clone();
     let mut grid = HashGrid::new(o.h_bulk);
@@ -899,22 +1056,28 @@ pub fn confined_mesh<C: PlaneCurve + 'static>(curve: C, o: MeshOpts) -> Confined
         let mut added = 0usize;
         let mut k = 0usize;
         while k < n_b {
-            let h = target_size(bpts[k], &cusps, &o);
+            let h = size.at(bpts[k]);
             depth[k] += h;
             let cand = [
                 bpts[k][0] + normals[k][0] * depth[k],
                 bpts[k][1] + normals[k][1] * depth[k],
             ];
-            let hc = target_size(cand, &cusps, &o);
+            let hc = size.at(cand);
             if inside(&bpts, cand) && !grid.any_within(&pts, cand, 0.85 * hc) {
                 grid.insert(cand, pts.len());
                 pts.push(cand);
                 added += 1;
             }
-            // Stride along the wall in proportion to the local size, so a layer
-            // does not oversample where the boundary is finely sampled.
-            let stride = (h / (o.h_bulk * 0.35)).ceil() as usize;
-            k += stride.max(1);
+            // Stride so consecutive layer points sit about one local size apart
+            // ALONG THE WALL. Measuring that in the wall's own spacing is what
+            // keeps the first layer commensurate with the boundary: a fixed
+            // stride against `h_bulk` places layer points three wall samples
+            // apart wherever the size is bulk, and the triangles between a wall
+            // sampled at `s` and a layer sampled at `3 s` are thin by
+            // construction.
+            let s_wall = wall_spacing[k].max(1e-12);
+            let stride = (h / s_wall).round().max(1.0) as usize;
+            k += stride;
         }
         if added == 0 {
             break;
@@ -938,7 +1101,7 @@ pub fn confined_mesh<C: PlaneCurve + 'static>(curve: C, o: MeshOpts) -> Confined
             lo[0] + rng.random::<f64>() * (hi[0] - lo[0]),
             lo[1] + rng.random::<f64>() * (hi[1] - lo[1]),
         ];
-        let h = target_size(p, &cusps, &o);
+        let h = size.at(p);
         if !inside(&bpts, p) || grid.any_within(&pts, p, 0.85 * h) {
             misses += 1;
             continue;

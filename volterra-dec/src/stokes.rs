@@ -1594,9 +1594,17 @@ mod tests {
     #[test]
     fn the_clamped_wall_holds_on_a_cusped_mesh() {
         use crate::confined::{Epitrochoid, MeshOpts, confined_mesh};
+        // A GRADED mesh, which is where the boundary system is rank deficient.
+        // The fixture was `d = 0.72` at `h_bulk = h_min = 2.0` until the wall
+        // sampling was graded and the interior size field taught to follow it;
+        // that mesh now returns a full-rank boundary system, 146 of 146, so it
+        // no longer exercises the case this test exists for. Measured deficits
+        // after the change: 1 at `d = 0.72` with `2.0 / 0.5`, 5 here, and 2 at
+        // `d = 1` with `3.0 / 3.0`. This one has the widest margin, so the
+        // fixture is not on a knife edge.
         let cm = confined_mesh(
-            Epitrochoid { q: 2.0, d: 0.72, r: 53.071676 },
-            MeshOpts { h_bulk: 2.0, h_min: 2.0, ..Default::default() },
+            Epitrochoid { q: 2.0, d: 0.9, r: 53.071676 },
+            MeshOpts { h_bulk: 1.5, h_min: 0.3, ..Default::default() },
         );
         let mesh = &cm.mesh;
         let ops = Operators::from_mesh(mesh, &Euclidean::<2>);
