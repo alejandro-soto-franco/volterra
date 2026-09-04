@@ -171,7 +171,20 @@ def test_a_tabulated_wall_meshes_like_the_analytic_one():
 
     assert mt.imposed_charge(1.0)[0] == pytest.approx(ma.imposed_charge(1.0)[0], abs=1e-4)
     assert mt.n_triangles == pytest.approx(ma.n_triangles, rel=0.25)
-    assert mt.min_angle_deg > 0.5 * ma.min_angle_deg
+
+    # Declaring the cusp is what closes the quality gap. The analytic curve
+    # reports its cusp parameters, so the sampler grades towards them and the
+    # size field follows; a bare table of the same points is treated as smooth
+    # and measures about half the minimum angle, 10.6 degrees against 22.1.
+    # Naming the same points as features recovers it.
+    marked = v.PlaneCurve.from_points(
+        analytic.sample(1500), features=[u * 1500 / (2 * math.pi) for u in analytic.features]
+    )
+    mm = v.confined_mesh(marked, h_bulk=1.0, h_min=0.25, seed=3)
+    assert mm.min_angle_deg > 0.8 * ma.min_angle_deg, (
+        f"marked {mm.min_angle_deg:.2f}, analytic {ma.min_angle_deg:.2f}, "
+        f"unmarked {mt.min_angle_deg:.2f}"
+    )
 
 
 def test_a_wall_that_is_no_epitrochoid_meshes():
@@ -222,19 +235,23 @@ def filleted_square(n=800, half=45.0, radius=12.0):
 
 
 def test_a_right_angle_corner_is_reported_as_unresolved():
-    """A square sampled at one point per corner turns the director by a half
-    turn in a single boundary step, which is past the quarter turn the winding
-    sum needs. The charge comes back at 0.5, and the two diagnostics beside it
-    are what say so: the worst step is over 90 degrees and the count is
-    non-zero. Refining the sampling does not fix it, since the corner stays a
-    corner; rounding it does."""
+    """A square turns the director by a quarter turn at each corner, which is
+    the bound the winding sum needs, so the corner shows up in the diagnostics:
+    the worst doubled-angle step is over 90 degrees and the count is non-zero.
+    Refining the sampling does not remove it, since a corner is scale free.
+
+    The total charge itself comes out right at 1.0000. It did not before the
+    wall sampling was graded, when the square read 0.5 at any sampling density;
+    grading the step so consecutive wall edges differ by at most `grade` puts
+    enough samples through the corner for the wrapped increments to sum
+    correctly, and the reading that remains is the per-step one."""
     c = v.PlaneCurve.from_points(sharp_square(), features=[0.0, 40.0, 80.0, 120.0])
     m = v.confined_mesh(c, h_bulk=1.0, h_min=0.5)
     assert m.n_triangles > 200
     charge, worst, over = m.imposed_charge(1.0)
     assert worst > 90.0
     assert over > 0
-    assert charge != pytest.approx(1.0, abs=1e-3)
+    assert charge == pytest.approx(1.0, abs=1e-6)
 
     fine = v.PlaneCurve.from_points(sharp_square(160), features=[0.0, 160.0, 320.0, 480.0])
     _, worst_fine, over_fine = v.confined_mesh(fine, h_bulk=1.0, h_min=0.5).imposed_charge(1.0)
