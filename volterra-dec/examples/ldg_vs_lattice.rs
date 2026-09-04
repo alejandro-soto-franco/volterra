@@ -7,7 +7,7 @@
 //! `consts_dict["zeta"] = 0`.
 //!
 //! The quantity to compare is the total defect charge, which the anchoring fixes at
-//! the winding `q`. Klein's lattice loses it once the wall's tip falls below a cell:
+//! the winding `q`. The lattice loses it once the wall's tip falls below a cell:
 //! at `q = 2`, `d = 0.99` and `L = 100` it imposes `+4`, and the trefoiloid at
 //! `d >= 0.9` is wrong at every resolution up to `L = 300`. This runs the mesh at
 //! the same points and reports what it reaches.
@@ -81,10 +81,10 @@ fn main() {
                 for &seed in &seeds {
                     let mesh = confined_mesh(curve, mesh_opts);
                     let verts = mesh.mesh.n_vertices();
-                    // Klein's constants at the paper's stable-golden point, with the
+                    // The reference constants at the paper's stable-golden point, with the
                     // activity removed. ncl = 2 lattice sites, so a core spans
                     // about one bulk element at h = 2 and several at the cusp.
-                    let params = NematicParams::klein(1.5, ncl, 100).passive();
+                    let params = NematicParams::from_length_scales(1.5, ncl, 100).passive();
                     let p = LdgProblem::new(mesh, params, q_anchor).expect("operators");
                     let mut state = p.random_state(seed);
                     let (steps, residual) = p.relax(&mut state, 2e-3, 8000, 1e-10);

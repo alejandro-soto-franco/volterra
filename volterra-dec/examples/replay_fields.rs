@@ -110,7 +110,7 @@ fn main() {
         println!("  mesh reproduced: {nv} vertices, worst vertex offset {worst:.2e}");
     }
 
-    let params = NematicParams::klein(als, ncl, r.round() as usize);
+    let params = NematicParams::from_length_scales(als, ncl, r.round() as usize);
     let p = LdgProblem::new(mesh, params, q_anchor).expect("operators");
     let hloc = p.local_h();
 

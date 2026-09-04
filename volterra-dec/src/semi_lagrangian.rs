@@ -67,7 +67,7 @@ impl SemiLagrangian {
     /// This is the advective transport `Q(x) <- Q(x - u dt)` and nothing else.
     /// [`Self::advect_with_params`] additionally applies the deformation
     /// gradient, which realises a Lie or Jaumann derivative and so folds a
-    /// particular flow-coupling closure into the transport. Klein's system
+    /// particular flow-coupling closure into the transport. The reference system
     /// carries its own closure explicitly, as
     ///
     /// ```text

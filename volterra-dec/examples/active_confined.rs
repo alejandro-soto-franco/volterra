@@ -155,8 +155,8 @@ fn main() {
     let nv = mesh.mesh.n_vertices();
     let boundary: Vec<usize> = mesh.boundary_vertices.clone();
 
-    let params = NematicParams::klein(als, ncl, r.round() as usize);
-    // Klein integrates at 1e-4, which his lattice needs because his elastic term
+    let params = NematicParams::from_length_scales(als, ncl, r.round() as usize);
+    // The reference integrates at 1e-4, which its lattice needs because its elastic term
     // is explicit. Here it is implicit and the transport can be taken by a
     // backward trace, so the step is bounded by accuracy rather than by
     // stability, and the run length the paper's protocol asks for is otherwise
@@ -227,7 +227,7 @@ fn main() {
     );
 
     // `SurfaceStokes::solve` reads only `zeta_eff` and `eta` off this struct;
-    // the molecular field comes from `LdgProblem`, which carries Klein's own
+    // the molecular field comes from `LdgProblem`, which carries the reference's own
     // `H = K grad^2 Q - (A + C Tr(Q^2)) Q`, so the rotor convention's `a_eff`
     // never enters. Activity therefore reaches the physics through the stress
     // alone, which is where the reference puts it.
@@ -248,7 +248,7 @@ fn main() {
          \"min_angle_deg\": {},\n  \"obtuse\": {},\n  \
          \"imposed_charge\": {imposed},\n  \"imposed_worst_step_deg\": {worst_step},\n  \
          \"imposed_steps\": {n_steps_b},\n  \"wall_layer_h\": {wall_h},\n  \
-         \"dt\": {dt},\n  \"dt_klein\": {dtk},\n  \"dt_diffusive_limit\": {dt_diff},\n  \
+         \"dt\": {dt},\n  \"dt_reference\": {dtk},\n  \"dt_diffusive_limit\": {dt_diff},\n  \
          \"steps\": {steps},\n  \"save_every\": {save_every},\n  \"seed\": {seed},\n  \
          \"K\": {},\n  \"A\": {},\n  \"C\": {},\n  \"gamma\": {},\n  \
          \"lambda\": {},\n  \"zeta\": {},\n  \"eta\": {}\n}}\n",
