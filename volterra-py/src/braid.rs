@@ -16,7 +16,9 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use volterra_braid::{BraidWord, Defect, detect_defects, topological_entropy};
+use volterra_braid::{
+    BraidWord, Defect, detect_defects, detect_defects_winding, topological_entropy,
+};
 
 fn frames_to_defects(frames: Vec<Vec<(f64, f64, i64)>>) -> Vec<Vec<Defect>> {
     frames
@@ -132,7 +134,19 @@ impl PyBraidWord {
     }
 }
 
-/// Detect defects in a row-major `nx * ny` Q-tensor grid.
+/// Detect defects by the saddle-splay density, thresholded.
+///
+/// `threshold` bounds the SADDLE-SPLAY quantity
+/// `d_x Qxy d_y Qxx - d_x Qxx d_y Qxy`, taken by central differences, which is
+/// what the reference implementation marks its defects with. It is not an
+/// angle, and its scale follows the field's own gradients: the reference draws
+/// at `0.05 * S0`, about 0.07 for `S0 = sqrt 2`. Passing an angle such as
+/// `pi / 2` is 22 times too large and returns nothing on a smooth field while
+/// still firing on a noisy initial condition, which makes the mistake look like
+/// a physical result.
+///
+/// Prefer [`braid_detect_defects_winding`], which reads the director's holonomy
+/// and needs no threshold.
 ///
 /// Returns one `(x, y, charge)` triple per detected defect.
 #[pyfunction]
@@ -146,6 +160,32 @@ fn braid_detect_defects(
     mask: Vec<bool>,
 ) -> Vec<(f64, f64, i64)> {
     detect_defects(&qxx, &qxy, nx, ny, threshold, &mask)
+        .into_iter()
+        .map(|d| (d.pos[0], d.pos[1], d.charge as i64))
+        .collect()
+}
+
+/// Detect defects by the director's holonomy on a row-major `nx * ny` grid.
+///
+/// Sums the wrapped director increments round each plaquette, so a `+1/2` core
+/// returns a half turn and a `-1/2` core minus that. There is no threshold to
+/// choose: the sum is a topological quantity and takes one of a few values.
+///
+/// `mask` marks the cells inside the domain; a plaquette is read only where all
+/// four of its corners are in.
+///
+/// Returns one `(x, y, charge)` triple per detected defect, charge in half
+/// units.
+#[pyfunction]
+#[pyo3(signature = (qxx, qxy, nx, ny, mask))]
+fn braid_detect_defects_winding(
+    qxx: Vec<f64>,
+    qxy: Vec<f64>,
+    nx: usize,
+    ny: usize,
+    mask: Vec<bool>,
+) -> Vec<(f64, f64, i64)> {
+    detect_defects_winding(&qxx, &qxy, nx, ny, &mask)
         .into_iter()
         .map(|d| (d.pos[0], d.pos[1], d.charge as i64))
         .collect()
@@ -173,6 +213,7 @@ fn braid_topological_entropy(n_strands: usize, codes: Vec<i32>) -> PyResult<f64>
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBraidWord>()?;
     m.add_function(wrap_pyfunction!(braid_detect_defects, m)?)?;
+    m.add_function(wrap_pyfunction!(braid_detect_defects_winding, m)?)?;
     m.add_function(wrap_pyfunction!(braid_word_from_frames, m)?)?;
     m.add_function(wrap_pyfunction!(braid_topological_entropy, m)?)?;
     Ok(())

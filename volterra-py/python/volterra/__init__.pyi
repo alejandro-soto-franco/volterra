@@ -329,7 +329,23 @@ def braid_detect_defects(
     threshold: float,
     mask: Sequence[bool],
 ) -> list[tuple[float, float, int]]:
-    """Detect defects in a row-major nx*ny Q grid -> [(x, y, charge), ...]."""
+    """Detect defects by the saddle-splay density, thresholded.
+
+    `threshold` bounds the saddle-splay quantity, not an angle. Its scale
+    follows the field's gradients; the reference draws at 0.05 * S0, about 0.07.
+    Prefer braid_detect_defects_winding, which needs no threshold.
+    """
+    ...
+
+
+def braid_detect_defects_winding(
+    qxx: Sequence[float],
+    qxy: Sequence[float],
+    nx: int,
+    ny: int,
+    mask: Sequence[bool],
+) -> list[tuple[float, float, int]]:
+    """Detect defects by the director's holonomy. No threshold to choose."""
     ...
 
 def braid_word_from_frames(
