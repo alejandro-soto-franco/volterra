@@ -4,7 +4,7 @@ All notable changes to volterra are documented here.
 
 ---
 
-## [Unreleased]
+## [0.5.0] - 2026-09-05
 
 ### Added
 
@@ -114,7 +114,64 @@ All notable changes to volterra are documented here.
 - **`examples/plot_braid.py`, `plot_fig5.py` and `plot_paper_figures.py`**,
   which reproduce Figs. 2, 5, 3 and 4 of Mitchell et al.
 
+- **`volterra_dec::curve::PlaneCurve`**, the wall a confined run is meshed
+  against. A closed plane curve answers four questions and the mesher needs no
+  others: where it is, how fast the parametrisation runs along it, how sharply
+  it turns, and which side is the interior. `Epitrochoid` is the analytic
+  family; `PolyCurve` splines a closed table of points with a periodic cubic,
+  so a wall measured from an image or written as a parametrisation meshes on
+  the same path. `confined_mesh` is generic over the trait rather than over the
+  one shape it used to take.
+
+- **The confined domain and its run in the Python bindings.** `PlaneCurve`
+  (`epitrochoid`, `from_points`, `from_callable`), `confined_mesh` returning a
+  `ConfinedMesh`, and `ConfinedRun`, which steps the same scheme the Rust driver
+  runs and hands back the fields, the defects and a census. A collaborator
+  reproduces a confined run without building the Rust.
+
+- **The velocity wall as a toggle.** `ConfinedRun(wall=...)` takes `"noslip"`,
+  the clamped plate with `psi = 0` and `dpsi/dn = 0`, or `"freeslip"`, the
+  simply supported one with `psi = 0` and `Laplacian psi = 0`. Both take the
+  same anchoring and the same seed, so a pair of runs separates the wall from
+  everything else.
+
+- **`ConfinedMesh::imposed_charge`**, the total charge the anchoring puts in the
+  interior, measured on that mesh's own boundary, with the worst doubled-angle
+  step beside it. A step past a quarter turn means the sampling booked the wrong
+  branch, which a corner does at any sampling density. The number a mesh reports
+  is the boundary condition a run has, and it is what to read rather than the
+  regularisation parameter.
+
+- **`braid_detect_defects_winding`**, detection by the director's holonomy, with
+  no threshold to choose. `braid_detect_defects` thresholds the saddle-splay
+  density, whose scale follows the field's gradients, and an angle-sized
+  threshold silently returns nothing on a settled field. Its docstring now says
+  what it bounds.
+
+- **A typed wheel.** The bindings ship as a mixed maturin layout, so
+  `__init__.pyi` and `py.typed` install beside the extension and a caller's type
+  checker sees the whole API.
+
+- **`volterra-py/examples/nephroid_braid.py`**, the shortest run that means
+  something: the nephroid meshed, stepped to its periodic orbit, and read back
+  as the silver braid at entropy `log(3 + 2 sqrt 2)`.
+
 ### Changed
+
+- **The confined mesher samples the wall in arc length.** The step along the
+  boundary was a parameter-space cap applied to an arc-length target, which
+  compressed the spacing wherever the parametrisation ran fast and left every
+  sub-15-degree triangle with exactly two wall vertices. The interior fill and
+  the layer stride now follow the wall's own spacing, and the boundary step is
+  graded against the previous one. On the production family the minimum angle
+  goes from 5 to 10 degrees to 22 to 34, with the imposed charge exactly 1.000
+  in all twelve configurations.
+
+- **`NematicParams::klein` is `NematicParams::from_length_scales`**, and
+  `Parameterisation::Klein { als, ncl, lx }` is
+  `Parameterisation::LengthScales { active_length, coherence_length, resolution }`.
+  A constructor named after a person says nothing about what it takes. The
+  module `klein` is `constants`. Breaking for any caller of those three names.
 
 - **`entropy.json` and `line_lengths.csv` are written at every observation**
   rather than when a run ends. A material-line entropy is a fit to a history
