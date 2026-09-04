@@ -3,9 +3,9 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "volterra-nematic"
+name = "volterra-py"
 dynamic = ["version"]
-description = "Python bindings for the volterra active nematics simulation library"
+description = "Python bindings for the volterra active matter simulation library"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"

@@ -3,7 +3,7 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "volterra-nematic"
+name = "volterra-py"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.20"]
 classifiers = [
@@ -12,7 +12,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dynamic = ["version"]
-description = "Python bindings for the volterra active nematics simulation library"
+description = "Python bindings for the volterra active matter simulation library"
 license = { text = "MIT" }
 
 [tool.maturin]

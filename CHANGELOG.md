@@ -4,6 +4,24 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **The PyPI distribution is `volterra-py`**, which is the crate's own name.
+  It was `volterra-nematic` through 0.5.0. The module is still imported as
+  `import volterra`, so no code changes, and the bare name `volterra` belongs
+  to an unrelated package on PyPI. The old distribution keeps its releases up
+  to 0.5.0 and takes no new ones.
+
+  The engine is not restricted to nematics, and a distribution named for one
+  phase says otherwise. The `k`-atic order parameters are the intended scope.
+
+  A distribution rename makes a new PyPI project, and trusted publishing is
+  registered per project. The pending publisher for `volterra-py` has to be
+  created by hand on pypi.org, against this repository and `release.yml`,
+  before the first tag under the new name.
+
 ## [0.5.0] - 2026-09-05
 
 ### Added

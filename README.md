@@ -1,13 +1,13 @@
 # volterra
 
-Covariant active nematics simulation on Riemannian manifolds, in Rust.
+Covariant active matter simulation on Riemannian manifolds, in Rust.
 
 [![CI](https://github.com/alejandro-soto-franco/volterra/actions/workflows/ci.yml/badge.svg)](https://github.com/alejandro-soto-franco/volterra/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
-[![PyPI](https://img.shields.io/pypi/v/volterra-nematic.svg)](https://pypi.org/project/volterra-nematic/)
+[![PyPI](https://img.shields.io/pypi/v/volterra-py.svg)](https://pypi.org/project/volterra-py/)
 [![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)](Cargo.toml)
 
-> **Python users:** the PyPI distribution is `volterra-nematic` (`pip install volterra-nematic`), but the Python module is imported as `import volterra`. The name `volterra` was already taken on PyPI.
+> **Python users:** the PyPI distribution is `volterra-py` (`pip install volterra-py`), and the Python module is imported as `import volterra`. The bare name `volterra` belongs to an unrelated package on PyPI. Releases through 0.5.0 were published as `volterra-nematic`.
 
 **volterra** solves the Beris-Edwards nematohydrodynamics equations for active liquid crystals on curved spaces. It is built on [cartan](https://github.com/alejandro-soto-franco/cartan), a Riemannian geometry library, and uses discrete exterior calculus (DEC) to discretise covariant differential operators on arbitrary manifolds.
 
@@ -50,7 +50,7 @@ volterra-fd       finite-difference solver on confined Cartesian domains
 volterra-dec      DEC physics on triangle meshes: Q-tensor fields, Stokes,
                   semi-Lagrangian advection, Helfrich energy, variational integrators
 volterra-braid    defect detection and tracking, braid words, topological entropy
-volterra-py       PyO3 bindings  (pip install volterra-nematic)
+volterra-py       PyO3 bindings  (pip install volterra-py)
 ```
 
 The CUDA paths live in two further crates. Each is its own workspace, because the

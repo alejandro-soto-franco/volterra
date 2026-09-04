@@ -1,17 +1,17 @@
 # volterra-py
 
-Python bindings for the volterra active nematics simulation library.
+Python bindings for the volterra active matter simulation library.
 
 Part of the [volterra](https://github.com/alejandro-soto-franco/volterra) workspace.
 
 ## Overview
 
-`volterra-py` exposes volterra's Rust simulation engine to Python via PyO3. The PyPI package is published as `volterra-nematic`, but the Python module is imported as `import volterra`. NumPy arrays are used for all field data interchange with zero-copy where possible.
+`volterra-py` exposes volterra's Rust simulation engine to Python via PyO3. The distribution and the module share the crate's name: `pip install volterra-py`, then `import volterra`. Releases through 0.5.0 were published as `volterra-nematic`. NumPy arrays are used for all field data interchange with zero-copy where possible.
 
 ## Installation
 
 ```bash
-pip install volterra-nematic
+pip install volterra-py
 ```
 
 ## Exposed API

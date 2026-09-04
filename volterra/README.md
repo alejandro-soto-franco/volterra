@@ -30,8 +30,8 @@ or as geometric-algebra rotors from `cartan-core`.
 
 ## Python
 
-A Python distribution is published separately on PyPI as `volterra-nematic`
-(`pip install volterra-nematic`), imported as `import volterra`.
+A Python distribution is published separately on PyPI as `volterra-py`
+(`pip install volterra-py`), imported as `import volterra`.
 
 ## License
 
