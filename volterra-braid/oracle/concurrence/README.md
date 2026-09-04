@@ -16,8 +16,9 @@ statistical/topological**.
 | SP0: paper-concordant Burau (SI.11–SI.17) | **landed** (`volterra-braid` entropy.rs; `paper_burau_*`) |
 | Braid word + entropy concurrence vs braid_tracker.py | **landed earlier** (`oracle/compare_cgpo.py`) |
 | SP3: dynamical observables (⟨ω⟩ + gyre count, line-stretching entropy) | **landed** (`observables.py`, self-test passes) |
-| SP2: CGPO reference runner (single point, persist Q+u, dump IC, no rm) | **scaffolded** (`patch_flow_solver.py` → `flow_solver_run.py`); full run is hours, deferred |
-| SP1: volterra confined DEC runner (no-slip Stokes + Dirichlet Q) | **blocked** (research-grade no-slip DEC Stokes; see spec §SP1) |
+| SP2: CGPO reference runner (single point, persist Q+u, dump IC, no rm) | **landed** (`patch_flow_solver.py` → `flow_solver_run.py`); runs at 1.93 ms a step at L=100, 8.2 at L=200 |
+| SP1: volterra confined DEC runner (no-slip Stokes + Dirichlet Q) | **landed** (`volterra.ConfinedRun`, clamped wall); 1.18 ms a step on 1435 vertices |
+| Topological concurrence at the published point | **landed** (`compare_solvers.py`); complement and net charge agree, braid window still short on the lattice |
 | SP3: DEC↔Cartesian interpolation + matched-IC pointwise norms | **blocked on SP1/SP2 output** |
 | SP4: viscometric concurrence | **deferred** |
 
@@ -25,6 +26,27 @@ Machine-checking of the paper's *analytical* claims (braid algebra, Burau,
 metallic identities, Beris-Edwards functional derivative, free-energy sign) is a
 separate, **complete** deliverable in the private `cgpo-review` repo (SymPy +
 Cadabra2 + Lean), which surfaced two manuscript-level findings.
+
+## Topological concurrence, measured
+
+Nephroid at the published pair `(l_a, l_c) = (0.0128, 0.0766)`, which is
+`als = 2`, `ncl = 11.7` at `Lx = 200`. Both walls impose a charge of `+1`: the
+lattice mask at `d = 0.99`, and the mesh at `d = 0.9`. Same constants, same
+`dt = 1e-4`, same 500-step cadence, 120000 steps, 240 frames.
+
+| | complement | net charge | braid entropy |
+|---|---|---|---|
+| reference lattice | `(4, 2)` in 212 frames | `+1` | 0.000000 |
+| conforming mesh | `(4, 2)` in 216 frames | `+1` | 1.762747, silver |
+
+The complement and the charge agree. The braid does not yet: the lattice's four
+positive cores have not begun to exchange by `t = 12`, where the mesh reaches
+the silver braid by `t = 1.65`. Closing that needs the published 1.5e6 steps,
+about 3.4 hours on the lattice.
+
+Read the reference's frames with `braid_detect_defects_winding`. The other
+detector thresholds the saddle-splay density rather than an angle, and an
+angle-sized threshold returns nothing at all on a settled field.
 
 ## What runs now
 
