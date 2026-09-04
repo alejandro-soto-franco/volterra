@@ -1,4 +1,4 @@
-//! Klein's Landau-de Gennes nematic on a conforming DEC mesh.
+//! The confined Landau-de Gennes nematic on a conforming DEC mesh.
 //!
 //! The molecular field, the strong anchoring and the defect count, written to
 //! match `flow-solver.py` term for term so a mesh result and a lattice result are
@@ -32,13 +32,13 @@
 //!
 //! Note the amplitude convention: with `Q = S0 (m m - I/2)` the invariant is
 //! `Tr(Q^2) = S0^2 / 2`, so the ordered state has `sqrt(Tr(Q^2)) = S0 / sqrt(2)`,
-//! which is 1 at Klein's `A = -C`. The reference's own `S` diagnostic is
+//! which is 1 at the reference's `A = -C`. Its own `S` diagnostic is
 //! `sqrt(Tr(Q^2))`, so a fully ordered run reports 1 and not `S0`.
 //!
 //! ## Timestepping
 //!
 //! The passive relaxation is `dQ/dt = H / gamma`. Explicitly that is stable only
-//! for `dt < gamma h^2 / (4 K)`, which is 1.5e-3 at Klein's constants and `h = 1`
+//! for `dt < gamma h^2 / (4 K)`, which is 1.5e-3 at the reference constants and `h = 1`
 //! and 1.5e-9 at the `h = 1e-3` a graded cusp needs, so the elastic term is taken
 //! implicitly:
 //!
@@ -92,7 +92,7 @@ pub struct LdgProblem {
     pub mesh: ConfinedMesh2,
     pub ops: Operators<Euclidean<2>, 3, 2>,
     pub params: NematicParams,
-    /// Anchoring winding, Klein's `net_charge`.
+    /// Anchoring winding, the reference's `net_charge`.
     pub q_anchor: f64,
     /// Anchored values at the boundary vertices, `(Qxx, Qxy)`.
     pub anchor: Vec<(f64, f64)>,
@@ -275,7 +275,7 @@ impl LdgProblem {
         }
     }
 
-    /// Klein's molecular field, `H = K grad^2 Q - (A + C Tr(Q^2)) Q`.
+    /// The molecular field, `H = K grad^2 Q - (A + C Tr(Q^2)) Q`.
     pub fn molecular_field(&self, q: &QField) -> QField {
         let nv = q.n_vertices;
         let l1 = self
@@ -1218,7 +1218,7 @@ impl LdgProblem {
         (worst, at)
     }
 
-    /// Klein's co-rotation tensor `S`, term for term against `H_S_from_Q`.
+    /// The co-rotation tensor `S`, term for term against `H_S_from_Q`.
     ///
     /// ```text
     /// S_ij = lambda S E_ij + Q_ik omega_kj - omega_ik Q_kj - 2 Tr(Q E) Q_ij
@@ -1525,7 +1525,7 @@ mod tests {
                     ..Default::default()
                 },
             );
-            let params = NematicParams::klein(1.5, 4.0, 100).passive();
+            let params = NematicParams::from_length_scales(1.5, 4.0, 100).passive();
             let mut p = LdgProblem::new(mesh, params, 1.0).expect("operators");
             p.params.zeta = 0.0;
             let mut q = p.random_state(7);
@@ -2305,6 +2305,7 @@ mod tests {
 
     use super::*;
     use crate::confined::{Epitrochoid, MeshOpts, confined_mesh};
+    use crate::curve::PlaneCurve;
 
     /// A passive problem with the core resolved by the mesh.
     ///
@@ -2517,7 +2518,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let params = NematicParams::klein(1.5, ncl, 100).passive();
+        let params = NematicParams::from_length_scales(1.5, ncl, 100).passive();
         LdgProblem::new(mesh, params, q_anchor).expect("operators")
     }
 

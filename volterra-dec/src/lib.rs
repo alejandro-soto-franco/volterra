@@ -26,6 +26,7 @@
 //! | [`flow`] | Semi-implicit time stepping for overdamped Helfrich flow |
 //! | [`helfrich`] | Superseded shape-equation forces; see [`bending`] |
 //! | [`variational`] | BAOAB splitting integrator for membrane dynamics |
+//! | [`curve`] | `PlaneCurve`: the boundary geometry a confined mesh conforms to |
 //! | [`mesh_gen`] | Icosphere, torus, and epitrochoid mesh generators |
 //! | [`poisson`] | Precomputed LDL^T Poisson solver |
 //! | [`boundary_conditions`] | Boundary condition handling |
@@ -44,6 +45,7 @@ pub mod curvature_correction;
 pub mod domain;
 pub mod implicit;
 pub mod confined;
+pub mod curve;
 pub mod confined_ldg;
 pub mod nematic_params;
 pub mod epitrochoid;
@@ -86,4 +88,5 @@ pub mod sim_impls;
 pub use domain::DecDomain;
 pub use evolving_domain::EvolvingDomain;
 pub use molecular_field_dec::molecular_field_dec;
+pub use curve::{PlaneCurve, PolyCurve};
 pub use qfield::QField;

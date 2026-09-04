@@ -42,9 +42,13 @@
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
+use std::sync::Arc;
+
 use cartan_dec::mesh::FlatMesh;
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
+
+use crate::curve::PlaneCurve;
 
 /// A regularised epitrochoid, the curve the reference's `set_boundary` traces.
 ///
@@ -327,6 +331,34 @@ impl Epitrochoid {
 
 }
 
+/// The epitrochoid as a boundary geometry.
+///
+/// Every geometric quantity is the analytic one already written above; the
+/// trait adds the cusp parameters as the features to grade towards, and the
+/// statement that the arcs between them are congruent, which is what lets the
+/// boundary be sampled symmetrically.
+impl PlaneCurve for Epitrochoid {
+    fn point(&self, u: f64) -> [f64; 2] {
+        Epitrochoid::point(self, u)
+    }
+
+    fn d1(&self, u: f64) -> [f64; 2] {
+        Epitrochoid::d1(self, u)
+    }
+
+    fn d2(&self, u: f64) -> [f64; 2] {
+        Epitrochoid::d2(self, u)
+    }
+
+    fn features(&self) -> Vec<f64> {
+        self.cusp_params()
+    }
+
+    fn feature_symmetric(&self) -> bool {
+        self.cusps() > 0
+    }
+}
+
 /// How to build the mesh.
 #[derive(Debug, Clone, Copy)]
 pub struct MeshOpts {
@@ -402,6 +434,7 @@ pub struct MeshQuality {
 }
 
 /// A built confined mesh with its boundary tagged.
+#[derive(Clone)]
 pub struct ConfinedMesh2 {
     pub mesh: FlatMesh,
     /// Boundary vertices, in order along the curve.
@@ -410,7 +443,9 @@ pub struct ConfinedMesh2 {
     pub boundary_params: Vec<f64>,
     /// Inward unit normal at each boundary vertex.
     pub boundary_normals: Vec<[f64; 2]>,
-    pub curve: Epitrochoid,
+    /// The wall this mesh conforms to, kept so the anchoring and the diagnostics
+    /// can ask it for a tangent at a boundary parameter.
+    pub curve: Arc<dyn PlaneCurve>,
     pub quality: MeshQuality,
 }
 
@@ -443,11 +478,15 @@ fn target_size(p: [f64; 2], cusps: &[[f64; 2]], o: &MeshOpts) -> f64 {
 /// round leaves the stride wherever the previous step ended, and beside a cusp
 /// that gave edges of 0.60 approaching against 1.24 leaving, a factor of two at
 /// the one feature whose symmetry holds a defect in place.
-fn cusp_to_tip_offsets(curve: &Epitrochoid, o: &MeshOpts, trunc: f64) -> Vec<f64> {
-    let k = curve.k();
-    let half = PI / k;
-    let uc = PI / k;
-    let cusps: Vec<[f64; 2]> = curve.cusp_params().iter().map(|&u| curve.point(u)).collect();
+fn cusp_to_tip_offsets<C: PlaneCurve + ?Sized>(
+    curve: &C,
+    o: &MeshOpts,
+    trunc: f64,
+) -> Vec<f64> {
+    let feats = curve.features();
+    let half = 0.5 * curve.period() / feats.len() as f64;
+    let uc = feats[0];
+    let cusps: Vec<[f64; 2]> = feats.iter().map(|&u| curve.point(u)).collect();
     // The cusp itself, then the vertex one edge along it, then the ordinary
     // stride out to the tip.
     let mut offs = vec![0.0_f64];
@@ -465,7 +504,7 @@ fn cusp_to_tip_offsets(curve: &Epitrochoid, o: &MeshOpts, trunc: f64) -> Vec<f64
         let h_geom = if rc.is_finite() { o.boundary_frac * rc } else { o.h_bulk };
         let ds = h_geom.min(target_size(p, &cusps, o)).max(floor);
         let speed = curve.speed(u).max(1e-12);
-        let mut dt = (ds / speed).min(2.0 * PI / 64.0);
+        let mut dt = (ds / speed).min(curve.period() / 64.0);
         // Share the run to the tip out evenly, so the last edge before it is not
         // a stub. The tip is a symmetry point, so a stub there is mirrored into a
         // pair of stubs.
@@ -489,15 +528,21 @@ fn cusp_to_tip_offsets(curve: &Epitrochoid, o: &MeshOpts, trunc: f64) -> Vec<f64
 /// boundary is built from one cusp-to-tip arc, reflected and rotated, which is
 /// exactly symmetric. Otherwise it walks once round, which is what every smooth
 /// `d < 1` mesh was calibrated against.
-fn sample_boundary(curve: &Epitrochoid, o: &MeshOpts) -> (Vec<[f64; 2]>, Vec<f64>) {
-    let sharp = curve.cusp_edge_param(o.cusp_edge);
+fn sample_boundary<C: PlaneCurve + ?Sized>(
+    curve: &C,
+    o: &MeshOpts,
+) -> (Vec<[f64; 2]>, Vec<f64>) {
+    let feats = curve.features();
+    let sharp = if curve.feature_symmetric() && !feats.is_empty() {
+        curve.feature_edge_param(o.cusp_edge)
+    } else {
+        0.0
+    };
     if sharp > 0.0 {
-        let k = curve.k();
-        let half = PI / k;
+        let half = 0.5 * curve.period() / feats.len() as f64;
         let offs = cusp_to_tip_offsets(curve, o, sharp);
-        let mut params = Vec::with_capacity(offs.len() * 2 * curve.cusps().max(1));
-        for j in 0..curve.cusps() {
-            let uc = PI / k + 2.0 * PI * j as f64 / k;
+        let mut params = Vec::with_capacity(offs.len() * 2 * feats.len());
+        for &uc in &feats {
             // Cusp out to the tip.
             for &t in &offs {
                 params.push(uc + t);
@@ -513,14 +558,18 @@ fn sample_boundary(curve: &Epitrochoid, o: &MeshOpts) -> (Vec<[f64; 2]>, Vec<f64
     sample_boundary_walk(curve, o)
 }
 
-fn sample_boundary_walk(curve: &Epitrochoid, o: &MeshOpts) -> (Vec<[f64; 2]>, Vec<f64>) {
-    let cusps: Vec<[f64; 2]> = curve.cusp_params().iter().map(|&u| curve.point(u)).collect();
+fn sample_boundary_walk<C: PlaneCurve + ?Sized>(
+    curve: &C,
+    o: &MeshOpts,
+) -> (Vec<[f64; 2]>, Vec<f64>) {
+    let cusps: Vec<[f64; 2]> = curve.features().iter().map(|&u| curve.point(u)).collect();
+    let period = curve.period();
     let mut pts = Vec::new();
     let mut params = Vec::new();
     let mut u = 0.0_f64;
     // A hard cap on the sample count, so a pathological d cannot spin forever.
     let max_pts = 2_000_000usize;
-    while u < 2.0 * PI && pts.len() < max_pts {
+    while u < period && pts.len() < max_pts {
         let p = curve.point(u);
         pts.push(p);
         params.push(u);
@@ -532,7 +581,7 @@ fn sample_boundary_walk(curve: &Epitrochoid, o: &MeshOpts) -> (Vec<[f64; 2]>, Ve
         let speed = curve.speed(u).max(1e-12);
         // Step in the parameter that realises that arc, capped so a vanishing
         // speed at a cusp cannot produce an unbounded parameter jump.
-        u += (ds / speed).min(2.0 * PI / 64.0);
+        u += (ds / speed).min(period / 64.0);
     }
     // Drop a final sample that has wrapped onto the first.
     while pts.len() > 3 {
@@ -815,7 +864,8 @@ fn quality(pts: &[[f64; 2]], tris: &[[usize; 3]], n_b: usize) -> MeshQuality {
     }
 }
 
-/// Build a boundary-conforming graded mesh of the epitrochoid's interior.
+/// Build a boundary-conforming graded mesh of the interior of any
+/// [`PlaneCurve`].
 ///
 /// Three stages. The boundary is sampled first and its points are the mesh's
 /// first `n_b` vertices, in order along the curve, which is what lets the
@@ -828,10 +878,11 @@ fn quality(pts: &[[f64; 2]], tris: &[[usize; 3]], n_b: usize) -> MeshQuality {
 /// The domain test is what handles a re-entrant cusp: a Delaunay triangulation
 /// covers the convex hull of the point set, so the exterior spike between the
 /// two branches would be filled in unless the triangles there are discarded.
-pub fn confined_mesh(curve: Epitrochoid, o: MeshOpts) -> ConfinedMesh2 {
-    let (bpts, bparams) = sample_boundary(&curve, &o);
+pub fn confined_mesh<C: PlaneCurve + 'static>(curve: C, o: MeshOpts) -> ConfinedMesh2 {
+    let curve: Arc<dyn PlaneCurve> = Arc::new(curve);
+    let (bpts, bparams) = sample_boundary(curve.as_ref(), &o);
     let n_b = bpts.len();
-    let cusps: Vec<[f64; 2]> = curve.cusp_params().iter().map(|&u| curve.point(u)).collect();
+    let cusps: Vec<[f64; 2]> = curve.features().iter().map(|&u| curve.point(u)).collect();
 
     let mut pts = bpts.clone();
     let mut grid = HashGrid::new(o.h_bulk);
