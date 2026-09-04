@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -25,10 +25,10 @@ categories = ["science", "mathematics", "simulation"]
 # The internal crates carry their version here and nowhere else. Nine
 # hard-coded pins across four manifests is how a bump leaves one behind,
 # and `cargo publish` is where that surfaces.
-volterra-core    = { path = "volterra-core",   version = "0.5.0" }
-volterra-braid   = { path = "volterra-braid",  version = "0.5.0" }
-volterra-dec     = { path = "volterra-dec",    version = "0.5.0" }
-volterra-fd      = { path = "volterra-fd",     version = "0.5.0" }
+volterra-core    = { path = "volterra-core",   version = "0.5.1" }
+volterra-braid   = { path = "volterra-braid",  version = "0.5.1" }
+volterra-dec     = { path = "volterra-dec",    version = "0.5.1" }
+volterra-fd      = { path = "volterra-fd",     version = "0.5.1" }
 
 cartan-core      = "0.6.1"
 cartan-manifolds = "0.6"
