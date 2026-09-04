@@ -10,6 +10,9 @@
 //   volterra.run_dry_active_nematic -- dry active nematic simulation runner
 //   volterra.k0_convolution         -- K₀ transfer map
 //   volterra.scan_defects           -- holonomy-based defect detection
+//   volterra.PlaneCurve             -- a closed wall, the boundary geometry of a confined run
+//   volterra.confined_mesh          -- boundary-conforming graded mesh of its interior
+//   volterra.ConfinedRun            -- a confined active nematic run, stepped from Python
 
 use numpy::ndarray::{Array1, Array2};
 use numpy::{IntoPyArray, PyArray1, PyArray2, PyReadonlyArray2};
@@ -18,6 +21,8 @@ use pyo3::prelude::*;
 
 mod bindings_3d;
 mod braid;
+mod confined_run;
+mod mesh;
 
 use volterra_core::ActiveNematicParams;
 use volterra_core::{QField2D, ScalarField2D, VelocityField2D};
@@ -618,5 +623,7 @@ fn volterra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ch_step_etd_py, m)?)?;
     bindings_3d::register(m)?;
     braid::register(m)?;
+    mesh::register(m)?;
+    confined_run::register(m)?;
     Ok(())
 }

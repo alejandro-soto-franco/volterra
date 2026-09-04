@@ -20,6 +20,7 @@ crate-type = ["cdylib"]
 [dependencies]
 volterra-core   = { workspace = true }
 volterra-fd = { workspace = true }
+volterra-dec    = { workspace = true }
 volterra-braid  = { workspace = true }
 cartan-geo      = { workspace = true }
 pyo3            = { workspace = true, features = ["extension-module"] }

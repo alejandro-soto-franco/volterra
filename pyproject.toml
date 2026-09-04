@@ -26,7 +26,12 @@ dependencies = [
 manifest-path = "volterra-py/Cargo.toml"
 # The lib.name in volterra-py/Cargo.toml is "volterra", so the Python
 # module is imported as `import volterra`.
-module-name = "volterra"
+module-name = "volterra.volterra"
+# Mixed layout: the package directory ships the stubs and `py.typed` beside the
+# extension, so an installed wheel is typed. Kept in step with the same keys in
+# volterra-py/pyproject.toml, which is the file the release workflow builds
+# against (`--manifest-path volterra-py/Cargo.toml`).
+python-source = "volterra-py/python"
 # Always build with --release for scientific workloads
 profile = "release"
 # stub files live alongside the .so, not in a separate source tree

@@ -51,6 +51,9 @@ volterra-braid/oracle/concurrence/flow_solver_run.py
 theta_ic_*.txt
 als_*_ncl_*/
 
-# maturin / packaging build output
+# maturin / packaging build output. The mixed layout builds the extension
+# into the package directory, where the stubs and py.typed live.
 dist/
+volterra-py/python/volterra/*.so
+volterra-py/python/volterra/*.pyd
 uv.lock
