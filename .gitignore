@@ -26,12 +26,13 @@ __pycache__/
 !volterra-dec/examples/replay_fields.rs
 volterra-dec/examples/dbg_*.rs
 
-# The two scripts the bindings' README points at: one builds a wall four ways
-# and reads the charge each imposes, the other runs one geometry under both
-# velocity wall conditions.
+# The three scripts the bindings' README points at: one builds a wall four ways
+# and reads the charge each imposes, one runs a geometry under both velocity
+# wall conditions, and one runs the nephroid to its braid.
 !volterra-py/examples/
 !volterra-py/examples/new_boundary_geometry.py
 !volterra-py/examples/confined_run.py
+!volterra-py/examples/nephroid_braid.py
 
 # The drivers and the figure and film scripts a reader needs to reproduce a
 # published run. The remaining volterra-fd examples stay ignored: each is

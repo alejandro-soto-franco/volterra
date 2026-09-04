@@ -32,7 +32,7 @@ import volterra as v
 # resolves the tip. `imposed_charge` is the reading that says whether the
 # boundary sampling can see the winding it is being asked to impose.
 CURVE = v.PlaneCurve.epitrochoid(q=2.0, d=0.85, r=40.0)
-MESH = v.confined_mesh(CURVE, h_bulk=1.4, h_min=0.5, seed=0)
+MESH = v.confined_mesh(CURVE, h_bulk=1.4, h_min=0.35, seed=0)
 
 # The two lengths that set the physics, in lattice units. `active_length` is
 # sqrt(K / zeta) and `coherence_length` is sqrt(K / C), the defect core size.

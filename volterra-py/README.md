@@ -120,8 +120,9 @@ The `wall` argument is the velocity condition. `"noslip"` is the clamped plate,
 `psi = 0` with `dpsi/dn = 0`. `"freeslip"` is the simply supported plate,
 `psi = 0` with `Laplacian psi = 0`. Both take the same anchoring, so a pair of
 runs from one seed is an A/B on the wall alone: measured on a nephroid at
-`d = 0.85`, free slip reaches a mean speed of 4.62 against 2.17 and a maximum
-of 15.5 against 5.5, while both settle to the same two `+1/2` cores.
+`d = 0.85` over 4000 steps, free slip reaches a mean speed of 3.12 against 1.21
+and a maximum of 14.27 against 3.92, while both settle to the same two `+1/2`
+cores at a total charge of `+1`.
 
 `full_stress=False` drops the elastic backflow and keeps the active term.
 `elastic_h` sets where the elastic stress is suppressed, and `wall_h` how far
@@ -133,6 +134,8 @@ reads like an arrested run.
 
 `volterra-py/examples/confined_run.py` runs one geometry under both wall
 conditions and draws the two side by side.
+`volterra-py/examples/nephroid_braid.py` runs the nephroid to its periodic
+orbit and prints the braid word and its entropy, in thirty lines.
 
 ## Development and testing
 
