@@ -38,7 +38,37 @@ use volterra_dec::curve::{PlaneCurve, PolyCurve};
 ///   and splines the result.
 ///
 /// `features` are the parameters of the corners and cusps that set the local
-/// element size. Leave them out for a smooth wall.
+/// element size. Leave them out for a smooth wall, or pass `"auto"` on either
+/// splined constructor to read them off the curvature.
+/// What a `features` argument asked for: a list of parameters, or the string
+/// `"auto"`, which reads them off the curvature.
+enum Features {
+    Given(Vec<f64>),
+    Auto,
+}
+
+/// Read `features`: a sequence of floats, `"auto"`, or nothing.
+fn read_features(obj: Option<&Bound<'_, PyAny>>) -> PyResult<Features> {
+    let Some(o) = obj else {
+        return Ok(Features::Given(Vec::new()));
+    };
+    if o.is_none() {
+        return Ok(Features::Given(Vec::new()));
+    }
+    if let Ok(word) = o.extract::<String>() {
+        if word == "auto" {
+            return Ok(Features::Auto);
+        }
+        return Err(PyValueError::new_err(format!(
+            "features takes a sequence of parameters or the string \"auto\", not \"{word}\""
+        )));
+    }
+    let v: Vec<f64> = o.extract().map_err(|_| {
+        PyValueError::new_err("features must be a sequence of floats or the string \"auto\"")
+    })?;
+    Ok(Features::Given(v))
+}
+
 #[pyclass(name = "PlaneCurve", module = "volterra", from_py_object)]
 #[derive(Clone)]
 pub struct PyPlaneCurve {
@@ -90,7 +120,12 @@ impl PyPlaneCurve {
     /// `curve.point(k)` returns row `k` exactly, and sampling more densely where
     /// the wall turns is how a sharp feature is described.
     ///
-    /// `features` are sample indices, as floats.
+    /// `features` are sample indices, as floats, or `"auto"`, which reports the
+    /// samples whose radius of curvature falls below a quarter of the curve's
+    /// circle-equivalent radius, one per run, at the tightest of each. That
+    /// scale is the wall's own, so the answer is independent of the units the
+    /// points came in and of the mesh they are later meshed at. A circle sits
+    /// at exactly that radius everywhere and reports none.
     ///
     /// A true corner stays a corner under the spline, and the boundary sampling
     /// steps across it in one go: the director then turns by more than a
@@ -103,31 +138,34 @@ impl PyPlaneCurve {
     #[pyo3(signature = (points, features = None))]
     fn from_points(
         points: PyArrayLike2<'_, f64, AllowTypeChange>,
-        features: Option<Vec<f64>>,
+        features: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let a = points.as_array();
         if a.ncols() != 2 {
             return Err(PyValueError::new_err("points must have shape (n, 2)"));
         }
         let pts: Vec<[f64; 2]> = a.rows().into_iter().map(|r| [r[0], r[1]]).collect();
-        let feats = features.unwrap_or_default();
         let n = pts.len();
-        for f in &feats {
-            if !f.is_finite() || *f < 0.0 || *f >= n as f64 {
-                return Err(PyValueError::new_err(format!(
-                    "feature {f} is outside the parameter range [0, {n})"
-                )));
+        let bad = "a wall needs at least three points enclosing a non-zero area; \
+                   check for a repeated first point or a self-intersection";
+        let curve = match read_features(features)? {
+            Features::Auto => PolyCurve::new_auto(&pts),
+            Features::Given(feats) => {
+                for f in &feats {
+                    if !f.is_finite() || *f < 0.0 || *f >= n as f64 {
+                        return Err(PyValueError::new_err(format!(
+                            "feature {f} is outside the parameter range [0, {n})"
+                        )));
+                    }
+                }
+                PolyCurve::new(&pts, &feats)
             }
         }
-        let curve = PolyCurve::new(&pts, &feats).ok_or_else(|| {
-            PyValueError::new_err(
-                "a wall needs at least three points enclosing a non-zero area; \
-                 check for a repeated first point or a self-intersection",
-            )
-        })?;
+        .ok_or_else(|| PyValueError::new_err(bad))?;
+        let found = curve.features().len();
         Ok(Self {
             inner: Arc::new(curve),
-            label: format!("from_points(n={n}, features={})", feats.len()),
+            label: format!("from_points(n={n}, features={found})"),
         })
     }
 
@@ -135,7 +173,8 @@ impl PyPlaneCurve {
     ///
     /// `f` is evaluated at `samples` points, uniformly in `u`, and the result is
     /// splined. `features` are given in the caller's own parameter and converted
-    /// to sample indices, so a cusp at `u = pi` stays at `u = pi`.
+    /// to sample indices, so a cusp at `u = pi` stays at `u = pi`, or `"auto"`
+    /// to read them off the curvature.
     ///
     /// Resolution is the sample count: a wall that turns inside one sample
     /// interval is described by raising `samples`, or by tabulating it directly
@@ -147,7 +186,7 @@ impl PyPlaneCurve {
         f: &Bound<'_, PyAny>,
         samples: usize,
         period: f64,
-        features: Option<Vec<f64>>,
+        features: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         if samples < 3 {
             return Err(PyValueError::new_err("samples must be at least 3"));
@@ -170,19 +209,21 @@ impl PyPlaneCurve {
             pts.push([x, y]);
         }
         let scale = samples as f64 / period;
-        let feats: Vec<f64> = features
-            .unwrap_or_default()
-            .iter()
-            .map(|u| {
-                let w = u - period * (u / period).floor();
-                w * scale
-            })
-            .collect();
-        let curve = PolyCurve::new(&pts, &feats).ok_or_else(|| {
-            PyValueError::new_err(
-                "the sampled wall encloses no area; check the parametrisation and the period",
-            )
-        })?;
+        let bad = "the sampled wall encloses no area; check the parametrisation and the period";
+        let curve = match read_features(features)? {
+            Features::Auto => PolyCurve::new_auto(&pts),
+            Features::Given(given) => {
+                let feats: Vec<f64> = given
+                    .iter()
+                    .map(|u| {
+                        let w = u - period * (u / period).floor();
+                        w * scale
+                    })
+                    .collect();
+                PolyCurve::new(&pts, &feats)
+            }
+        }
+        .ok_or_else(|| PyValueError::new_err(bad))?;
         Ok(Self {
             inner: Arc::new(curve),
             label: format!("from_callable(samples={samples}, period={period})"),

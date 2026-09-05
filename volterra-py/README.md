@@ -71,10 +71,25 @@ flower = v.PlaneCurve.from_callable(
 # (n, 2) sequence works, a list of pairs included.
 square = v.PlaneCurve.from_points(xy, features=[0.0, 200.0, 400.0, 600.0])
 
+# Or let the curvature name them. Both splined constructors take "auto".
+traced = v.PlaneCurve.from_points(xy, features="auto")
+
 m = v.confined_mesh(flower, h_bulk=1.6, h_min=0.5)
 charge, worst_step_deg, over = m.imposed_charge(q_anchor=1.0)
 q_wall = m.anchoring_q(q_anchor=1.0, s0=1.0)   # Dirichlet Q, one row per wall vertex
 ```
+
+`features` are the parameters where the wall turns sharply, and they seed the
+size field: `h_min` at a feature, growing linearly to `h_bulk` away from it. The
+analytic family reports its own cusps, so only a splined wall has to be told.
+`features="auto"` tells it from the curvature, reporting the samples whose radius
+falls below a quarter of the curve's circle-equivalent radius, one per run, at
+the tightest of each. That scale is the wall's own, so the answer survives a
+change of units and does not depend on the mesh built later. A circle sits at
+exactly that radius everywhere and reports none. On a nephroid at `d = 0.85`
+tabulated at 900 rows, `"auto"` returns `[225.0, 675.0]` and meshes to the vertex
+identically to naming them by hand, where naming nothing gives a minimum angle of
+5.0 degrees against 18.7.
 
 `imposed_charge` is the reading to take before spending time on a run. It
 returns the total defect charge the anchoring puts in the interior, measured on

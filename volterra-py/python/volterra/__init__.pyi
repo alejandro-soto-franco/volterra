@@ -4,7 +4,7 @@ Generated manually; update when the Rust API changes.
 """
 
 from __future__ import annotations
-from typing import Sequence
+from typing import Literal, Sequence
 import numpy as np
 import numpy.typing as npt
 
@@ -390,9 +390,12 @@ class PlaneCurve:
     @staticmethod
     def from_points(
         points: npt.ArrayLike,
-        features: Sequence[float] | None = None,
+        features: Sequence[float] | Literal["auto"] | None = None,
     ) -> PlaneCurve:
-        """Closed table of (n, 2) points, splined. The parameter is the row index."""
+        """Closed table of (n, 2) points, splined. The parameter is the row index.
+
+        `features` takes row indices, or "auto" to read them off the curvature.
+        """
         ...
 
     @staticmethod
@@ -400,9 +403,13 @@ class PlaneCurve:
         f: object,
         samples: int = 1024,
         period: float = 6.283185307179586,
-        features: Sequence[float] | None = None,
+        features: Sequence[float] | Literal["auto"] | None = None,
     ) -> PlaneCurve:
-        """Parametrisation f(u) -> (x, y) over [0, period), sampled and splined."""
+        """Parametrisation f(u) -> (x, y) over [0, period), sampled and splined.
+
+        `features` takes parameters in the caller's own u, or "auto" to read
+        them off the curvature.
+        """
         ...
 
     def point(self, u: float) -> tuple[float, float]: ...

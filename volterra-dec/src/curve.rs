@@ -33,6 +33,13 @@
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
+/// Radius of curvature, as a fraction of the curve's circle-equivalent radius,
+/// below which a sample is a feature. A circle sits at exactly 1 everywhere, so
+/// any fraction under 1 reports none on it. The value is a quarter because the
+/// walls this meshes have features an order of magnitude tighter than that, and
+/// a lower cut starts reporting the gentle turns a bulk element already resolves.
+pub const AUTO_FEATURE_FRACTION: f64 = 0.25;
+
 /// A closed, oriented plane curve bounding a simply connected domain.
 ///
 /// Implement `point`, `d1` and `d2`. Override the rest where the type has an
@@ -247,6 +254,84 @@ impl PolyCurve {
         })
     }
 
+    /// Build from a closed list of points, taking the features from the
+    /// curvature.
+    ///
+    /// See [`detect_features`](Self::detect_features) for what is found and
+    /// what is missed.
+    pub fn new_auto(points: &[[f64; 2]]) -> Option<Self> {
+        let probe = Self::new(points, &[])?;
+        let features = probe.detect_features(AUTO_FEATURE_FRACTION);
+        Some(Self { features, ..probe })
+    }
+
+    /// Sample parameters where the wall turns sharply, one per run.
+    ///
+    /// A sample is tight when its radius of curvature falls below `frac` of the
+    /// curve's circle-equivalent radius, the perimeter over `2 pi`. That scale
+    /// is the curve's own, so the answer is independent of the units the points
+    /// were given in and of the mesh they are later meshed at. Consecutive tight
+    /// samples are one feature, reported at the tightest of them.
+    ///
+    /// A wall whose tight samples exceed half the total is uniformly curved
+    /// rather than featured, and returns none: refining everywhere is what
+    /// `h_bulk` is for.
+    pub fn detect_features(&self, frac: f64) -> Vec<f64> {
+        let n = self.xs.len();
+        if n < 3 || !frac.is_finite() || frac <= 0.0 {
+            return Vec::new();
+        }
+        let mut perimeter = 0.0_f64;
+        for i in 0..n {
+            let j = (i + 1) % n;
+            perimeter += (self.xs[i] - self.xs[j]).hypot(self.ys[i] - self.ys[j]);
+        }
+        let scale = perimeter / TAU;
+        if !scale.is_finite() || scale <= 0.0 {
+            return Vec::new();
+        }
+        let cut = frac * scale;
+
+        let radii: Vec<f64> = (0..n).map(|i| self.curvature_radius(i as f64)).collect();
+        let tight: Vec<bool> = radii.iter().map(|r| *r < cut).collect();
+        let count = tight.iter().filter(|t| **t).count();
+        if count == 0 || count * 2 > n {
+            return Vec::new();
+        }
+
+        // Start on a slack sample so a run never straddles the wrap.
+        let start = match tight.iter().position(|t| !*t) {
+            Some(k) => k,
+            None => return Vec::new(),
+        };
+        let mut out = Vec::new();
+        let mut i = 0usize;
+        while i < n {
+            let k = (start + i) % n;
+            if !tight[k] {
+                i += 1;
+                continue;
+            }
+            let (mut best, mut best_r) = (k, radii[k]);
+            let mut run = 0usize;
+            while i + run < n {
+                let m = (start + i + run) % n;
+                if !tight[m] {
+                    break;
+                }
+                if radii[m] < best_r {
+                    best_r = radii[m];
+                    best = m;
+                }
+                run += 1;
+            }
+            out.push(best as f64);
+            i += run;
+        }
+        out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        out
+    }
+
     /// Number of samples, which is also the period of the parametrisation.
     pub fn len(&self) -> usize {
         self.xs.len()
@@ -380,6 +465,126 @@ fn thomas(diag: &[f64], rhs: &[f64]) -> Vec<f64> {
 mod tests {
     use super::*;
     use std::f64::consts::PI;
+
+    fn sampled(n: usize, f: impl Fn(f64) -> [f64; 2]) -> Vec<[f64; 2]> {
+        (0..n).map(|i| f(TAU * i as f64 / n as f64)).collect()
+    }
+
+    fn nephroid_points(n: usize, d: f64) -> Vec<[f64; 2]> {
+        sampled(n, |u| {
+            [
+                10.0 * (3.0 * u.cos() + d * (3.0 * u).cos()),
+                10.0 * (3.0 * u.sin() + d * (3.0 * u).sin()),
+            ]
+        })
+    }
+
+    #[test]
+    fn a_circle_has_no_features() {
+        // Every sample sits at exactly the circle-equivalent radius, so no
+        // fraction below one reports anything. This is the case that says the
+        // scale is right rather than merely consistent.
+        let c = PolyCurve::new_auto(&sampled(600, |u| [30.0 * u.cos(), 30.0 * u.sin()])).unwrap();
+        assert!(c.features().is_empty(), "found {:?}", c.features());
+    }
+
+    #[test]
+    fn auto_finds_both_tips_of_a_nephroid() {
+        let c = PolyCurve::new_auto(&nephroid_points(900, 0.85)).unwrap();
+        let f = c.features();
+        assert_eq!(f.len(), 2, "found {f:?}");
+        // The tips are at u = pi/2 and 3 pi/2, which are rows 225 and 675.
+        assert!((f[0] - 225.0).abs() <= 1.0, "{f:?}");
+        assert!((f[1] - 675.0).abs() <= 1.0, "{f:?}");
+    }
+
+    #[test]
+    fn auto_finds_every_corner_of_a_square() {
+        let n = 40;
+        let mut pts = Vec::new();
+        for side in 0..4 {
+            for i in 0..n {
+                let t = 2.0 * (i as f64 / n as f64) - 1.0;
+                pts.push(match side {
+                    0 => [30.0 * t, -30.0],
+                    1 => [30.0, 30.0 * t],
+                    2 => [-30.0 * t, 30.0],
+                    _ => [-30.0, -30.0 * t],
+                });
+            }
+        }
+        let c = PolyCurve::new_auto(&pts).unwrap();
+        assert_eq!(c.features().len(), 4, "found {:?}", c.features());
+    }
+
+    #[test]
+    fn auto_agrees_with_declaring_by_hand() {
+        let pts = nephroid_points(900, 0.85);
+        let auto = PolyCurve::new_auto(&pts).unwrap().features();
+        let hand = PolyCurve::new(&pts, &[225.0, 675.0]).unwrap().features();
+        assert_eq!(auto, hand);
+    }
+
+    #[test]
+    fn detection_is_independent_of_the_units() {
+        // The cut is a fraction of the curve's own size, so scaling the points
+        // scales nothing that matters.
+        let small = PolyCurve::new_auto(&nephroid_points(900, 0.85)).unwrap();
+        let big: Vec<[f64; 2]> = nephroid_points(900, 0.85)
+            .iter()
+            .map(|p| [1000.0 * p[0], 1000.0 * p[1]])
+            .collect();
+        assert_eq!(small.features(), PolyCurve::new_auto(&big).unwrap().features());
+    }
+
+    #[test]
+    fn every_lobe_of_a_flower_is_a_feature() {
+        // Twenty lobes turn sharply at both the crest and the trough, so forty
+        // features is the answer rather than a detector running away.
+        let pts = sampled(200, |u| {
+            let r = 30.0 * (1.0 + 0.35 * (20.0 * u).cos());
+            [r * u.cos(), r * u.sin()]
+        });
+        let c = PolyCurve::new_auto(&pts).unwrap();
+        assert_eq!(c.features().len(), 40, "found {:?}", c.features());
+    }
+
+    #[test]
+    fn a_uniformly_curved_wall_reports_none() {
+        // A fraction above one makes every sample of a circle tight, which is
+        // the wall that turns everywhere. Refining everywhere is what the bulk
+        // size is for, so the answer is none.
+        let c = PolyCurve::new(&sampled(600, |u| [30.0 * u.cos(), 30.0 * u.sin()]), &[]).unwrap();
+        assert!(c.detect_features(2.0).is_empty());
+    }
+
+    #[test]
+    fn a_run_of_tight_samples_is_one_feature() {
+        // Densely sampled through the tip, so many consecutive samples fall
+        // below the cut and a naive scan would report each of them.
+        let c = PolyCurve::new_auto(&nephroid_points(4000, 0.9)).unwrap();
+        assert_eq!(c.features().len(), 2, "found {:?}", c.features());
+    }
+
+    #[test]
+    fn a_feature_at_the_wrap_is_found_once() {
+        // Rotated so a tip sits on sample zero, where a run straddles the seam.
+        let pts = sampled(900, |u| {
+            let v = u + PI / 2.0;
+            [
+                10.0 * (3.0 * v.cos() + 0.85 * (3.0 * v).cos()),
+                10.0 * (3.0 * v.sin() + 0.85 * (3.0 * v).sin()),
+            ]
+        });
+        let c = PolyCurve::new_auto(&pts).unwrap();
+        assert_eq!(c.features().len(), 2, "found {:?}", c.features());
+    }
+
+    #[test]
+    fn a_zero_fraction_reports_none() {
+        let c = PolyCurve::new(&nephroid_points(900, 0.85), &[]).unwrap();
+        assert!(c.detect_features(0.0).is_empty());
+    }
 
     fn circle(n: usize, r: f64) -> PolyCurve {
         let pts: Vec<[f64; 2]> = (0..n)

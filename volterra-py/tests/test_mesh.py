@@ -350,3 +350,89 @@ def test_repr_reports_the_mesh_size():
     r = repr(m)
     assert "ConfinedMesh(" in r and "min_angle" in r
     assert "epitrochoid" in repr(c)
+
+
+# ---------------------------------------------------------------------------
+# features="auto"
+# ---------------------------------------------------------------------------
+
+
+def _sampled(n, f):
+    return np.array([f(2.0 * math.pi * i / n) for i in range(n)])
+
+
+def _nephroid_points(n=900, d=0.85):
+    return _sampled(n, lambda u: (10.0 * (3 * math.cos(u) + d * math.cos(3 * u)),
+                                  10.0 * (3 * math.sin(u) + d * math.sin(3 * u))))
+
+
+def test_auto_finds_nothing_on_a_circle():
+    """Every sample sits at the circle-equivalent radius, which is the case that
+    says the scale is right rather than merely consistent."""
+    c = v.PlaneCurve.from_points(
+        _sampled(600, lambda u: (30 * math.cos(u), 30 * math.sin(u))), features="auto"
+    )
+    assert c.features == []
+
+
+def test_auto_finds_both_tips_of_a_nephroid():
+    c = v.PlaneCurve.from_points(_nephroid_points(), features="auto")
+    assert len(c.features) == 2
+    assert c.features[0] == pytest.approx(225.0, abs=1.0)
+    assert c.features[1] == pytest.approx(675.0, abs=1.0)
+
+
+def test_auto_matches_declaring_by_hand():
+    """The claim that makes it usable: the same mesh, to the vertex."""
+    pts = _nephroid_points()
+    opts = dict(h_bulk=1.5, h_min=0.5)
+    a = v.confined_mesh(v.PlaneCurve.from_points(pts, features="auto"), **opts)
+    b = v.confined_mesh(v.PlaneCurve.from_points(pts, features=[225.0, 675.0]), **opts)
+    assert a.n_vertices == b.n_vertices
+    assert a.min_angle_deg == pytest.approx(b.min_angle_deg)
+
+
+def test_auto_recovers_the_mesh_that_declaring_nothing_loses():
+    pts = _nephroid_points()
+    opts = dict(h_bulk=1.5, h_min=0.5)
+    bare = v.confined_mesh(v.PlaneCurve.from_points(pts), **opts)
+    auto = v.confined_mesh(v.PlaneCurve.from_points(pts, features="auto"), **opts)
+    assert bare.min_angle_deg < 10.0
+    assert auto.min_angle_deg > 15.0
+    # The charge reads the boundary rather than the elements, so it is right
+    # either way. Quality is what the declaration buys.
+    assert bare.imposed_charge(1.0)[0] == pytest.approx(1.0, abs=1e-9)
+    assert auto.imposed_charge(1.0)[0] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_auto_is_independent_of_the_units():
+    pts = _nephroid_points()
+    a = v.PlaneCurve.from_points(pts, features="auto")
+    b = v.PlaneCurve.from_points(1000.0 * pts, features="auto")
+    assert a.features == b.features
+
+
+def test_from_callable_takes_auto_in_its_own_parameter():
+    d = 0.85
+    c = v.PlaneCurve.from_callable(
+        lambda u: (10.0 * (3 * math.cos(u) + d * math.cos(3 * u)),
+                   10.0 * (3 * math.sin(u) + d * math.sin(3 * u))),
+        samples=2048, features="auto",
+    )
+    assert len(c.features) == 2
+    # Reported in the sample index, which is the curve's parameter either way.
+    assert c.period == 2048.0
+    assert c.features[0] == pytest.approx(512.0, abs=2.0)
+
+
+def test_a_wrong_word_is_rejected_by_name():
+    """The stub rejects these two statically as well, which is why they are
+    ignored here: the test is that the run time rejects them too, for a caller
+    who never ran a type checker."""
+    with pytest.raises(ValueError, match='"auto"'):
+        v.PlaneCurve.from_points(_nephroid_points(), features="Auto")  # type: ignore
+
+
+def test_a_bare_number_is_rejected():
+    with pytest.raises((ValueError, TypeError)):
+        v.PlaneCurve.from_points(_nephroid_points(), features=3.0)  # type: ignore

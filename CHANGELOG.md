@@ -4,6 +4,32 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [0.5.2] - 2026-09-05
+
+### Added
+
+- **`features="auto"`** on both splined constructors, `PlaneCurve.from_points`
+  and `PlaneCurve.from_callable`. The analytic family reports its own cusps, so
+  a splined wall was the only one that had to be told where it turns, and a wall
+  that arrives as a traced contour or a CAD export has nobody to tell it.
+
+  A sample is a feature when its radius of curvature falls below a quarter of
+  the curve's circle-equivalent radius, the perimeter over `2 pi`. Consecutive
+  tight samples are one feature, reported at the tightest of them. The scale is
+  the wall's own, so the answer survives a change of units and stays independent
+  of the mesh options passed later, and a circle, which sits at exactly that
+  radius everywhere, reports none.
+
+  On a nephroid at `d = 0.85` tabulated at 900 rows it returns `[225.0, 675.0]`
+  and meshes to the vertex identically to naming those by hand. Naming nothing
+  gives a minimum angle of 5.0 degrees against 18.7.
+
+  A corner is found as readily as a smooth tip, since the criterion is relative
+  rather than absolute: a corner's spline radius follows the sample spacing,
+  which is small against the wall either way. What a corner still loses is the
+  imposed charge, which no amount of refinement recovers, and `imposed_charge`
+  is what reports that.
+
 ## [0.5.1] - 2026-09-05
 
 ### Changed
