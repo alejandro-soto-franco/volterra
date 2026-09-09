@@ -70,7 +70,16 @@ pub struct PoissonSolver {
     inv_diag: Vec<f64>,
     /// Dual-area mass diagonal (star0), one per vertex; mass-weights the right-hand side.
     star0: Vec<f64>,
-    /// Per-vertex shift `c`, so the operator is `-(Delta + c)` rather than `-Delta`.
+    /// Per-vertex shift `c`. The assembled matrix is `S - c M`, the weak form of
+    /// `-(Delta + c)`, and [`Self::solve_from`] negates the source, so what the
+    /// solvers INVERT is `(Delta + c) phi = rhs`.
+    ///
+    /// Both statements are needed, and until 2026-09-09 the second was absent
+    /// while every doc comment below asserted the first as the solved equation.
+    /// The error was invisible because the only caller is the biharmonic, which
+    /// applies the solve TWICE and squares the overall sign away. A screened
+    /// chamber is the first single-application solve in this crate, and its
+    /// manufactured solution is what distinguished the two.
     ///
     /// Zero for a plain Poisson solve. The surface Stokes stream function needs
     /// `c = 2K`: see [`Self::new_shifted`].
@@ -306,7 +315,7 @@ impl PoissonSolver {
         })
     }
 
-    /// A closed-manifold solver for `-(Delta + shift) phi = rhs`.
+    /// A closed-manifold solver inverting `(Delta + shift) phi = rhs`.
     ///
     /// The surface Stokes stream function needs `shift = 2K`. The momentum
     /// equation has `(Delta_B + K) u` on the vector field with the Bochner
@@ -329,34 +338,54 @@ impl PoissonSolver {
         coords: &[[f64; 3]],
     ) -> Result<Self, String> {
         let mut solver = Self::new(ops)?;
-        if shift.len() != solver.n {
-            return Err(format!(
-                "shift has {} entries for {} vertices",
-                shift.len(),
-                solver.n
-            ));
+        solver.apply_shift(shift, coords)?;
+        Ok(solver)
+    }
+
+    /// Apply a per-vertex shift `c` to an already-assembled solver, so the
+    /// operator becomes `-(Delta + c)`.
+    ///
+    /// Both preconditioners describe `S`, and the shift moves the diagonal, so
+    /// both are rebuilt against the operator that is actually solved.
+    /// Preconditioning the shifted system with the unshifted factorisation
+    /// takes about 30 per cent more iterations a step.
+    fn apply_shift(&mut self, shift: &[f64], coords: &[[f64; 3]]) -> Result<(), String> {
+        if shift.len() != self.n {
+            return Err(format!("shift has {} entries for {} vertices", shift.len(), self.n));
         }
-        solver.shift = shift.to_vec();
-        // Both preconditioners describe `S`, and the shift moves the diagonal,
-        // so both are rebuilt against the operator that is actually solved.
-        // Preconditioning the shifted system with the unshifted factorisation
-        // costs about 30 per cent more iterations a step.
+        self.shift = shift.to_vec();
         let shift_diag: Vec<f64> =
-            (0..solver.n).map(|i| solver.star0[i] * solver.shift[i]).collect();
-        solver.inv_diag = (0..solver.n)
+            (0..self.n).map(|i| self.star0[i] * self.shift[i]).collect();
+        self.inv_diag = (0..self.n)
             .map(|i| {
-                let d = 1.0 / solver.inv_diag[i] - shift_diag[i];
+                let d = 1.0 / self.inv_diag[i] - shift_diag[i];
                 if d.abs() > 1e-300 { 1.0 / d } else { 1.0 }
             })
             .collect();
-        solver.ichol = IChol::factor(solver.n, |f| {
-            cg_operator_triples(&solver.s, &solver.is_dirichlet, &shift_diag, f)
-        });
-        solver.chol = ShiftedCholesky::new(
-            &solver.row_ptr, &solver.col_idx, &solver.val,
-            &solver.star0, &solver.shift, &solver.is_dirichlet,
+        self.ichol =
+            IChol::factor(self.n, |f| cg_operator_triples(&self.s, &self.is_dirichlet, &shift_diag, f));
+        self.chol = ShiftedCholesky::new(
+            &self.row_ptr, &self.col_idx, &self.val,
+            &self.star0, &self.shift, &self.is_dirichlet,
         );
-        solver.kernel = solver.find_kernel(coords);
+        self.kernel = self.find_kernel(coords);
+        Ok(())
+    }
+
+    /// A bounded solver inverting `(Delta + shift) phi = rhs` with `phi = 0` on
+    /// `dirichlet_vertices`.
+    ///
+    /// The Hele-Shaw screening of a shallow chamber is `shift = -1 / l_s^2`, a
+    /// constant and negative, which moves the spectrum further from zero and
+    /// conditions the solve at least as well as the unshifted one.
+    pub fn with_dirichlet_shifted<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        dirichlet_vertices: &[usize],
+        shift: &[f64],
+        coords: &[[f64; 3]],
+    ) -> Result<Self, String> {
+        let mut solver = Self::with_dirichlet(ops, dirichlet_vertices)?;
+        solver.apply_shift(shift, coords)?;
         Ok(solver)
     }
 
@@ -367,6 +396,15 @@ impl PoissonSolver {
     /// the spectrum when the actual dimension is the question.
     pub fn kernel_dimension(&self) -> usize {
         self.kernel.len()
+    }
+
+    /// Whether the shifted operator reported a kernel.
+    ///
+    /// A closed-manifold solver at the curvature shift is singular on the
+    /// Killing fields and reports one. A Dirichlet solver under a negative
+    /// shift is strictly positive definite and must not.
+    pub fn kernel_is_empty(&self) -> bool {
+        self.kernel.is_empty()
     }
 
     /// Apply the operator the solve inverts, for inspection.
@@ -647,6 +685,10 @@ impl PoissonSolver {
     ) -> (DVector<f64>, usize) {
         assert_eq!(rhs.len(), self.n);
         let closed = self.dirichlet_vertices.is_empty();
+        // The assembled matrix is `S - c M`, the weak form of `-(Delta + c)`,
+        // and the source is negated here, so the equation actually inverted is
+        // `(Delta + c) phi = rhs`. Keep the two facts together: separating them
+        // is how the doc comments came to state the opposite sign.
         let mut b: Vec<f64> = (0..self.n).map(|i| -self.star0[i] * rhs[i]).collect();
         if closed {
             let mean = b.iter().sum::<f64>() / self.n as f64;
@@ -701,7 +743,7 @@ impl PoissonSolver {
         &self.star0
     }
 
-    /// Solve `-(Delta + shift) phi = rhs` cold, at a fixed tolerance.
+    /// Solve `(Delta + shift) phi = rhs` cold, at a fixed tolerance.
     ///
     /// A thin wrapper over [`Self::solve_from`], which is the single
     /// implementation. Keeping a second copy here is how the kernel projection
@@ -867,8 +909,94 @@ mod tests {
     use cartan_dec::mesh::FlatMesh;
     use cartan_manifolds::euclidean::Euclidean;
 
+    /// `I_0` by Abramowitz and Stegun 9.8.1 and 9.8.2, relative error below
+    /// `4e-7` over `[0, 60]`, which is far inside the tolerance any solver test
+    /// here asserts.
+    fn bessel_i0(x: f64) -> f64 {
+        let ax = x.abs();
+        if ax < 3.75 {
+            let t = (x / 3.75) * (x / 3.75);
+            1.0 + t * (3.5156229
+                + t * (3.0899424
+                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+        } else {
+            let t = 3.75 / ax;
+            (ax.exp() / ax.sqrt())
+                * (0.39894228
+                    + t * (0.01328592
+                        + t * (0.00225319
+                            + t * (-0.00157565
+                                + t * (0.00916281
+                                    + t * (-0.02057706
+                                        + t * (0.02635537
+                                            + t * (-0.01647633 + t * 0.00392377))))))))
+        }
+    }
+
+    /// `-(Delta - k^2) a = S` on a disc with `a = 0` on the wall has the exact
+    /// solution `a(r) = (S / k^2) (1 - I_0(k r) / I_0(k R))`, which is the
+    /// first of the two solves the screened biharmonic factors into.
+    #[test]
+    fn the_shifted_dirichlet_solver_reproduces_the_screened_disc() {
+        let rad = 1.0_f64;
+        let cm = crate::epitrochoid::disk_mesh(rad, 1.0, 240, 0.04);
+        let mesh = cm.mesh;
+        let bverts = cm.boundary_vertices;
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+
+        let k = 4.0_f64;
+        let shift = vec![-k * k; nv];
+        let coords = crate::stokes::extract_coords(&mesh);
+        let solver =
+            PoissonSolver::with_dirichlet_shifted(&ops, &bverts, &shift, &coords).unwrap();
+
+        let s_src = -4.0_f64;
+        // `solve` returns `x` from `(Delta + shift) x = rhs`, so the source
+        // term `S` of `-(Delta - k^2) a = S` goes in as `-S`.
+        let rhs = DVector::from_element(nv, -s_src);
+        let got = solver.solve(&rhs);
+
+        let i0_kr = bessel_i0(k * rad);
+        let exact: Vec<f64> = coords
+            .iter()
+            .map(|p| {
+                let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
+                (s_src / (k * k)) * (1.0 - bessel_i0(k * r) / i0_kr)
+            })
+            .collect();
+
+        let num: f64 = got.iter().zip(&exact).map(|(a, b)| (a - b) * (a - b)).sum();
+        let den: f64 = exact.iter().map(|b| b * b).sum();
+        let err = (num / den).sqrt();
+        assert!(err < 0.05, "screened Dirichlet solve, relative L2 error {err:.4}");
+
+        for &b in &bverts {
+            assert!(got[b].abs() < 1e-8, "a should vanish on the wall, got {}", got[b]);
+        }
+
+        // The conjugate gradient must actually converge. It returns quietly
+        // when it runs out of iterations, so a solve that never converged
+        // reaches the assertions above as a wrong field with no signal.
+        let (_x, its) = solver.solve_from(&rhs, None, 1e-10);
+        let max_iter = 10 * nv + 100;
+        assert!(
+            its < max_iter / 2,
+            "the screened solve took {its} iterations against a cap of {max_iter}, \
+             which means it is at or near non-convergence"
+        );
+
+        // A negative shift with Dirichlet rows is strictly positive definite,
+        // so `find_kernel` must come back empty. A spurious kernel projects
+        // part of the answer away and no tolerance change would reveal it.
+        assert!(
+            solver.kernel_is_empty(),
+            "the shifted Dirichlet operator reported a kernel; it is positive definite"
+        );
+    }
+
     /// The incomplete Cholesky has to solve the same system Jacobi does, and in
-    /// fewer iterations, or there is no reason to carry it.
+    /// fewer iterations, or there is no reason to keep it.
     ///
     /// A unit square with Dirichlet edges is the shape the confined stream
     /// function actually solves on, and the gain grows with the mesh diameter,
@@ -923,7 +1051,7 @@ mod tests {
 
         // And fewer iterations. Two triangular solves cost about as much as the
         // matvec, so the count has to fall by more than a factor of two before
-        // the factorisation pays for itself at all.
+        // the factorisation reduces the total work at all.
         assert!(
             (its_ic as f64) * 2.0 < its_j as f64,
             "incomplete Cholesky took {its_ic} iterations against Jacobi's {its_j}, shift {shift}"
