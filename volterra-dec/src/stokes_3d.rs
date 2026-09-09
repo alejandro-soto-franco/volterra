@@ -76,7 +76,49 @@ use faer::Mat;
 use sprs::CsMat;
 
 use crate::mimetic::assemble_star;
+use crate::saddle::{minres, MinresReport, Riesz, RieszMode, SymOperator};
 use crate::tet_mesh::TetComplex;
+
+/// How the saddle point is inverted.
+///
+/// The matrix is symmetric indefinite and free of the viscosity, so one choice
+/// serves every right-hand side on a mesh.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Inversion {
+    /// Sparse LU with partial pivoting. Exact, and its memory grows fastest,
+    /// which is what sets the ceiling on chamber resolution.
+    Direct,
+    /// MINRES against the Riesz map of the natural norms: `H(curl)` for the
+    /// vorticity, `H(div)` for the velocity, `L2` for the pressure. The
+    /// preconditioner has no parameter, and the iteration counts it reaches are
+    /// measured in `examples/stokes3d_minres.rs` rather than assumed.
+    Minres {
+        /// How the Riesz blocks are inverted.
+        mode: RieszMode,
+        /// Relative residual in the preconditioner norm.
+        tol: f64,
+        /// Iteration cap. A solve that reaches it returns the iterate it has,
+        /// with `converged` false in the report.
+        max_iter: usize,
+    },
+}
+
+impl Default for Inversion {
+    fn default() -> Self {
+        Self::Direct
+    }
+}
+
+/// The factorisation or the iterative context, whichever the mesh was built for.
+enum Backend {
+    Lu(faer::sparse::linalg::solvers::Lu<usize, f64>),
+    Iterative {
+        a: SymOperator,
+        m: Riesz,
+        tol: f64,
+        max_iter: usize,
+    },
+}
 
 /// What can go wrong in the three-dimensional solver.
 #[derive(Debug, Clone, PartialEq)]
@@ -131,15 +173,20 @@ pub struct BoundedStokes3D {
     n_w: usize,
     n_u: usize,
     n_p: usize,
-    lu: faer::sparse::linalg::solvers::Lu<usize, f64>,
+    backend: Backend,
 }
 
 impl BoundedStokes3D {
-    /// Assemble and factorise the operator for a complex.
+    /// Assemble and factorise the operator for a complex, inverted directly.
     ///
     /// Every boundary face is essential. Interior faces are unknowns, every edge
     /// is an unknown, and every cell but the pinned one has a pressure unknown.
     pub fn new(mesh: TetComplex) -> Result<Self, Stokes3DError> {
+        Self::with_inversion(mesh, Inversion::Direct)
+    }
+
+    /// Assemble the operator and prepare the chosen inversion.
+    pub fn with_inversion(mesh: TetComplex, inversion: Inversion) -> Result<Self, Stokes3DError> {
         let d1 = mesh.d1();
         let d2 = mesh.d2();
         let m1 = assemble_star(&mesh, 1).ok_or(Stokes3DError::DegenerateCell)?;
@@ -167,11 +214,11 @@ impl BoundedStokes3D {
         let row_u = |i: usize| n_w + i;
         let row_p = |t: usize| n_w + n_u + (t - 1);
 
-        let mut trip: Vec<Triplet<usize, usize, f64>> = Vec::new();
+        let mut trip: Vec<(usize, usize, f64)> = Vec::new();
 
         // (1,1): -M1.
         for (v, (r, c)) in m1.iter() {
-            trip.push(Triplet::new(row_w(r), row_w(c), -v));
+            trip.push((row_w(r), row_w(c), -v));
         }
 
         // (1,2) and (2,1). The first is `(d1^T M2)[:, free]`, the second its
@@ -183,13 +230,13 @@ impl BoundedStokes3D {
             };
             if let Some(slot) = face_slot[f] {
                 for (e, &s) in row_g.iter() {
-                    trip.push(Triplet::new(row_w(e), row_u(slot), s * v));
+                    trip.push((row_w(e), row_u(slot), s * v));
                 }
             }
             if let Some(slot_g) = face_slot[g] {
                 if let Some(row_f) = d1.outer_view(f) {
                     for (e, &s) in row_f.iter() {
-                        trip.push(Triplet::new(row_u(slot_g), row_w(e), v * s));
+                        trip.push((row_u(slot_g), row_w(e), v * s));
                     }
                 }
             }
@@ -202,13 +249,69 @@ impl BoundedStokes3D {
                 continue;
             }
             let v = -s * m3[t];
-            trip.push(Triplet::new(row_u(slot), row_p(t), v));
-            trip.push(Triplet::new(row_p(t), row_u(slot), v));
+            trip.push((row_u(slot), row_p(t), v));
+            trip.push((row_p(t), row_u(slot), v));
         }
 
-        let mat = SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &trip)
-            .map_err(|_| Stokes3DError::Singular)?;
-        let lu = mat.sp_lu().map_err(|_| Stokes3DError::Singular)?;
+        let backend = match inversion {
+            Inversion::Direct => {
+                let ft: Vec<Triplet<usize, usize, f64>> =
+                    trip.iter().map(|&(r, c, v)| Triplet::new(r, c, v)).collect();
+                let mat = SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &ft)
+                    .map_err(|_| Stokes3DError::Singular)?;
+                Backend::Lu(mat.sp_lu().map_err(|_| Stokes3DError::Singular)?)
+            }
+            Inversion::Minres { mode, tol, max_iter } => {
+                // The Riesz map of the natural norms. `H(curl)` on edges,
+                // `H(div)` on the free faces, `L2` on the free cells.
+                let mut w_block: Vec<(usize, usize, f64)> = Vec::new();
+                for (v, (r, c)) in m1.iter() {
+                    w_block.push((r, c, *v));
+                }
+                if mode.edge_block_has_curl() {
+                    for (v, (g, f)) in m2.iter() {
+                        let (Some(rg), Some(rf)) = (d1.outer_view(g), d1.outer_view(f)) else {
+                            continue;
+                        };
+                        for (e, &se) in rg.iter() {
+                            for (e2, &sf) in rf.iter() {
+                                w_block.push((e, e2, se * v * sf));
+                            }
+                        }
+                    }
+                }
+
+                let mut u_block: Vec<(usize, usize, f64)> = Vec::new();
+                for (v, (r, c)) in m2.iter() {
+                    if let (Some(a), Some(b)) = (face_slot[r], face_slot[c]) {
+                        u_block.push((a, b, *v));
+                    }
+                }
+                for t in 0..mesh.n_tets() {
+                    let Some(row) = d2.outer_view(t) else { continue };
+                    for (f, &s) in row.iter() {
+                        let Some(a) = face_slot[f] else { continue };
+                        for (f2, &s2) in row.iter() {
+                            if let Some(b) = face_slot[f2] {
+                                u_block.push((a, b, s * m3[t] * s2));
+                            }
+                        }
+                    }
+                }
+
+                let p_diagonal: Vec<f64> =
+                    (0..mesh.n_tets()).filter(|&t| t != pin).map(|t| m3[t]).collect();
+
+                let m = Riesz::new(mode, n_w, n_u, &w_block, &u_block, &p_diagonal)
+                    .ok_or(Stokes3DError::Singular)?;
+                Backend::Iterative {
+                    a: SymOperator::from_triplets(n, &trip),
+                    m,
+                    tol,
+                    max_iter,
+                }
+            }
+        };
 
         Ok(Self {
             mesh,
@@ -221,7 +324,7 @@ impl BoundedStokes3D {
             n_w,
             n_u,
             n_p,
-            lu,
+            backend,
         })
     }
 
@@ -302,19 +405,29 @@ impl BoundedStokes3D {
             rhs[(self.n_w + self.n_u + (t - 1), 0)] = self.m3[t] * div_bc[t];
         }
 
-        self.lu.solve_in_place_with_conj(faer::Conj::No, rhs.as_mut());
+        let (sol, report) = match &self.backend {
+            Backend::Lu(lu) => {
+                lu.solve_in_place_with_conj(faer::Conj::No, rhs.as_mut());
+                ((0..n).map(|i| rhs[(i, 0)]).collect::<Vec<f64>>(), None)
+            }
+            Backend::Iterative { a, m, tol, max_iter } => {
+                let b: Vec<f64> = (0..n).map(|i| rhs[(i, 0)]).collect();
+                let (x, r) = minres(a, m, &b, *tol, *max_iter);
+                (x, Some(r))
+            }
+        };
 
-        let vorticity: Vec<f64> = (0..self.n_w).map(|e| rhs[(e, 0)]).collect();
+        let vorticity: Vec<f64> = sol[..self.n_w].to_vec();
         let mut flux = u_bc;
         for (i, &f) in self.free_faces.iter().enumerate() {
-            flux[f] = rhs[(self.n_w + i, 0)];
+            flux[f] = sol[self.n_w + i];
         }
         let mut pressure = vec![0.0; self.mesh.n_tets()];
         for t in 0..self.mesh.n_tets() {
             if t == self.pin {
                 continue;
             }
-            pressure[t] = eta * rhs[(self.n_w + self.n_u + (t - 1), 0)];
+            pressure[t] = eta * sol[self.n_w + self.n_u + (t - 1)];
         }
 
         let div = matvec(&self.d2, &flux);
@@ -325,6 +438,7 @@ impl BoundedStokes3D {
             flux,
             pressure,
             divergence_residual,
+            report,
         })
     }
 
@@ -350,6 +464,8 @@ pub struct Flow3D {
     /// The largest cellwise net outflux, which is the incompressibility the
     /// masked spectral solver never had.
     pub divergence_residual: f64,
+    /// What the iterative inversion did, absent for a direct solve.
+    pub report: Option<MinresReport>,
 }
 
 impl Flow3D {

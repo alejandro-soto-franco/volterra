@@ -342,6 +342,7 @@ fn a_constant_field_survives_the_round_trip() {
         flux,
         pressure: vec![0.0; mesh.n_tets()],
         divergence_residual: 0.0,
+        report: None,
     };
     for t in 0..mesh.n_tets() {
         let x = mesh.tet_centroid(t);
@@ -360,6 +361,15 @@ fn a_constant_field_survives_the_round_trip() {
             assert!((v[i] - v0[i]).abs() < 1e-12);
         }
     }
+
+    // The L2 norm of a constant field is its magnitude times the root volume,
+    // and the assembled star reproduces a constant exactly, so this is an
+    // equality rather than an estimate.
+    let m2 = assemble_star(&mesh, 2).unwrap();
+    let speed = (v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2]).sqrt();
+    let want = speed * mesh.volume().sqrt();
+    let got = flow.velocity_norm(&m2);
+    assert!((got - want).abs() < 1e-11 * want, "velocity norm {got} against {want}");
 }
 
 /// A boundary condition whose fluxes do not sum to zero has no incompressible
@@ -449,4 +459,184 @@ fn a_chamber_with_a_pillar_leaves_no_harmonic_mode() {
     let solver = BoundedStokes3D::new(mesh).unwrap();
     let flow = solver.solve(&f, &vec![0.0; nf], 1.0).unwrap();
     assert!(flow.divergence_residual < 1e-16, "divergence {}", flow.divergence_residual);
+}
+
+/// MINRES against the Riesz map reaches the direct answer.
+///
+/// The tolerance is on the residual in the preconditioner norm, so the
+/// agreement with the direct solve is looser than it and is the quantity worth
+/// asserting. Measured at 1.6e-8 for a tolerance of 1e-10.
+#[test]
+fn minres_reaches_the_direct_answer() {
+    use volterra_dec::saddle::RieszMode;
+    use volterra_dec::stokes_3d::Inversion;
+
+    let eta = 1.3;
+    let n = 4;
+    let mesh = box_mesh(n, n, n, 1.0, 1.0, 1.0).unwrap();
+    let m2 = assemble_star(&mesh, 2).unwrap();
+    let f = mesh.flux_dofs(source(eta));
+    let wall = vec![0.0; mesh.n_faces()];
+
+    let direct = BoundedStokes3D::new(mesh.clone()).unwrap();
+    let reference = direct.solve(&f, &wall, eta).unwrap();
+    assert!(reference.report.is_none(), "a direct solve has no iteration report");
+
+    let iterative = BoundedStokes3D::with_inversion(
+        mesh,
+        Inversion::Minres { mode: RieszMode::Exact, tol: 1e-10, max_iter: 5000 },
+    )
+    .unwrap();
+    let flow = iterative.solve(&f, &wall, eta).unwrap();
+    let report = flow.report.expect("an iterative solve reports its iterations");
+    assert!(report.converged, "MINRES stopped at {} iterations", report.iterations);
+
+    let d: Vec<f64> = flow.flux.iter().zip(&reference.flux).map(|(p, q)| p - q).collect();
+    let rel = m2_norm(&m2, &d) / m2_norm(&m2, &reference.flux);
+    assert!(rel < 1e-6, "MINRES differs from the direct answer by {rel}");
+    assert!(
+        flow.divergence_residual < 1e-12,
+        "divergence residual {}",
+        flow.divergence_residual
+    );
+}
+
+/// The graph norm on the edges beats the mass norm, by a margin that is
+/// measured rather than assumed.
+///
+/// The `(1,1)` block of the saddle point is `-M1` exactly, so the `L2` norm
+/// inverts it exactly and the graph norm only approximately, which is an
+/// argument for the mass norm. The measurement says otherwise: at `n = 4` the
+/// graph norm takes 102 iterations against 734, and at `n = 10` it takes 193
+/// against 2512. The coupling block, rather than the diagonal one, is what sets
+/// the conditioning.
+#[test]
+fn the_graph_norm_on_the_edges_beats_the_mass_norm() {
+    use volterra_dec::saddle::RieszMode;
+    use volterra_dec::stokes_3d::Inversion;
+
+    let eta = 1.3;
+    let n = 4;
+    let mesh = box_mesh(n, n, n, 1.0, 1.0, 1.0).unwrap();
+    let f = mesh.flux_dofs(source(eta));
+    let wall = vec![0.0; mesh.n_faces()];
+
+    let mut counts = Vec::new();
+    for mode in [RieszMode::Exact, RieszMode::ExactMass] {
+        let s = BoundedStokes3D::with_inversion(
+            mesh.clone(),
+            Inversion::Minres { mode, tol: 1e-10, max_iter: 20000 },
+        )
+        .unwrap();
+        let flow = s.solve(&f, &wall, eta).unwrap();
+        let r = flow.report.unwrap();
+        assert!(r.converged, "{mode:?} stopped at {} iterations", r.iterations);
+        counts.push(r.iterations);
+    }
+    assert!(
+        counts[0] * 3 < counts[1],
+        "graph norm took {} iterations against the mass norm's {}, which is not the \
+         margin the measurement showed",
+        counts[0],
+        counts[1]
+    );
+}
+
+/// An arbitrary chip footprint extrudes into a chamber and solves.
+///
+/// Single-layer soft lithography moulds a planar footprint at one depth, so the
+/// prism restriction is the fabrication process rather than a limitation. The
+/// footprint here is a polygon with a re-entrant neck, the shape a mixing
+/// chamber takes, meshed by the same `confined_mesh` the two-dimensional lane
+/// uses.
+#[test]
+fn an_arbitrary_chip_footprint_extrudes_and_solves() {
+    use volterra_dec::confined::{confined_mesh, MeshOpts};
+    use volterra_dec::curve::PolyCurve;
+    use volterra_dec::tet_mesh::prism_extrude_flat;
+
+    // A chamber with a narrow neck between two lobes.
+    let outline = [
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [1.0, 0.6],
+        [0.62, 0.6],
+        [0.62, 0.35],
+        [0.38, 0.35],
+        [0.38, 0.6],
+        [0.0, 0.6],
+    ];
+    let curve = PolyCurve::new_auto(&outline).expect("the outline is a valid polygon");
+    let opts = MeshOpts { h_bulk: 0.075, h_min: 0.04, ..Default::default() };
+    let planar = confined_mesh(curve, opts);
+
+    let depth = 0.15;
+    let mesh = prism_extrude_flat(&planar.mesh, depth, 2).expect("the footprint extrudes");
+    assert!(mesh.n_tets() > 200, "only {} cells", mesh.n_tets());
+
+    // The extrusion is conforming, so the chamber's surface is the footprint
+    // twice over plus its wall. A split chosen per prism rather than on the
+    // global vertex order leaves the two prisms sharing a quadrilateral
+    // disagreeing on its diagonal, and the boundary area then overshoots by the
+    // area of every such quadrilateral. An unstructured triangulation is where
+    // that shows, since a structured one can agree by accident.
+    let area: f64 = planar
+        .mesh
+        .simplices
+        .iter()
+        .map(|t| {
+            let (a, b, c) = (
+                planar.mesh.vertices[t[0]],
+                planar.mesh.vertices[t[1]],
+                planar.mesh.vertices[t[2]],
+            );
+            0.5 * ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs()
+        })
+        .sum();
+    // The wall perimeter from the mesh's own boundary rather than from the ideal
+    // polygon: the mesher samples the curve, so the two differ by a per cent and
+    // that slack would swallow the defect this test is for.
+    use std::collections::HashMap;
+    let mut edge_count: HashMap<[usize; 2], usize> = HashMap::new();
+    for t in &planar.mesh.simplices {
+        for k in 0..3 {
+            let mut e = [t[k], t[(k + 1) % 3]];
+            e.sort_unstable();
+            *edge_count.entry(e).or_insert(0) += 1;
+        }
+    }
+    let perimeter: f64 = edge_count
+        .iter()
+        .filter(|&(_, &c)| c == 1)
+        .map(|(e, _)| {
+            let (p, q) = (planar.mesh.vertices[e[0]], planar.mesh.vertices[e[1]]);
+            ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2)).sqrt()
+        })
+        .sum();
+    let boundary: f64 = (0..mesh.n_faces())
+        .filter(|&f| mesh.is_boundary_face(f))
+        .map(|f| mesh.face_area(f))
+        .sum();
+    let expect = 2.0 * area + perimeter * depth;
+    assert!(
+        (boundary - expect).abs() < 1e-10 * expect,
+        "boundary area {boundary} against the footprint's own {expect}"
+    );
+
+    let nf = mesh.n_faces();
+    let f = mesh.flux_dofs(|x: [f64; 3]| [0.0, 0.0, 0.4 - x[0]]);
+    let solver = BoundedStokes3D::new(mesh).unwrap();
+    let flow = solver.solve(&f, &vec![0.0; nf], 1.0).unwrap();
+
+    let scale = flow.flux.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
+    assert!(scale > 0.0, "the chamber produced no flow");
+    assert!(
+        flow.divergence_residual < 1e-12 * scale,
+        "divergence residual {} against a flux scale of {scale}",
+        flow.divergence_residual
+    );
+    assert!(
+        flow.wall_slip(solver.mesh()).rms.is_finite(),
+        "the wall slip must be a number on a general footprint"
+    );
 }

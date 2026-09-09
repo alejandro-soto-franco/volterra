@@ -314,6 +314,7 @@ mod tests {
             "residual {} was expected to be nonzero",
             d.residual
         );
+        assert!(!d.is_usable(), "an inconsistent diagonal star must not be usable");
         assert!(d.residual > 1e-3, "residual {} is too small to be real", d.residual);
     }
 
@@ -329,8 +330,10 @@ mod tests {
         for t in 0..m.n_tets() {
             let d = diagonal_star(&tet_points(&m, t), 1).unwrap();
             let lo = d.entries.iter().cloned().fold(f64::INFINITY, f64::min);
-            if lo < 0.0 {
+            if !d.is_positive() {
                 negatives += 1;
+                assert!(lo < 0.0, "is_positive disagreed with the entries themselves");
+                assert!(!d.is_usable(), "a negative diagonal star must not be usable");
             }
             worst = worst.min(lo);
         }

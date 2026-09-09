@@ -101,6 +101,7 @@ fn a_constant_flow_reaches_every_grid_point() {
         flux: mesh.flux_dofs(|_| v0),
         pressure: vec![0.0; mesh.n_tets()],
         divergence_residual: 0.0,
+        report: None,
     };
     let sampled = solver.sample_to_grid(&flow);
     for (n, v) in sampled.u.iter().enumerate() {

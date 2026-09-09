@@ -579,6 +579,25 @@ impl StructuredBox {
     }
 }
 
+/// Extrude a `cartan-dec` planar triangulation into a chamber.
+///
+/// This is the path a chip footprint takes: `confined_mesh` triangulates an
+/// arbitrary region bounded by a `PlaneCurve`, and the extrusion gives it a
+/// uniform depth. Single-layer soft lithography moulds exactly that shape, a
+/// planar footprint at one depth, so the prism restriction is the fabrication
+/// process rather than a limitation of the mesher. A chamber whose depth varies
+/// needs a constrained tetrahedraliser, and it also needs a second lithography
+/// layer.
+pub fn prism_extrude_flat(
+    planar: &cartan_dec::mesh::FlatMesh,
+    depth: f64,
+    layers: usize,
+) -> Result<TetComplex, TetMeshError> {
+    let v: Vec<[f64; 2]> = planar.vertices.iter().map(|p| [p[0], p[1]]).collect();
+    let t: Vec<[usize; 3]> = planar.simplices.clone();
+    prism_extrude(&v, &t, depth, layers)
+}
+
 /// A structured triangulation of the annulus `r_inner <= r <= r_outer`, on an
 /// `n_theta by n_r` polar grid.
 ///

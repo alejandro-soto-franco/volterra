@@ -55,6 +55,7 @@ pub mod poisson;
 pub mod stokes;
 pub mod tet_mesh;
 pub mod mimetic;
+pub mod saddle;
 pub mod stokes_3d;
 pub mod active_stokes_3d;
 pub mod vorticity;
