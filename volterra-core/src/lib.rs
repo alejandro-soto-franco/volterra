@@ -104,10 +104,23 @@ impl Screening {
 
     /// `1 / l_s^2`, which is the magnitude of the shift the Poisson solver
     /// takes, and zero where there is no screening.
+    ///
+    /// A non-positive length answers infinity rather than a number. Squaring
+    /// alone would turn `Length(-0.5)` into the shift of `Length(0.5)` and
+    /// accept it silently; a screening length is a length.
     pub fn inverse_square(&self) -> f64 {
         match self {
             Self::None => 0.0,
-            Self::Length(l) => 1.0 / (l * l),
+            Self::Length(l) if *l > 0.0 => 1.0 / (l * l),
+            Self::Length(_) => f64::INFINITY,
+        }
+    }
+
+    /// Whether this states a usable chamber depth.
+    pub fn is_valid(&self) -> bool {
+        match self {
+            Self::None => true,
+            Self::Length(l) => *l > 0.0 && l.is_finite(),
         }
     }
 }
@@ -320,6 +333,12 @@ impl ActiveNematicParams {
                     self.nx * self.ny
                 )));
             }
+        }
+        if !self.screening.is_valid() {
+            return Err(VError::InvalidParams(format!(
+                "screening length must be positive and finite, got {:?}",
+                self.screening
+            )));
         }
         Ok(())
     }
@@ -787,6 +806,19 @@ mod tests {
         let want = 12.0 / (h * h);
         let got = Screening::from_depth(h).inverse_square();
         assert!((got - want).abs() / want < 1e-12, "got {got}, want {want}");
+
+        // A negative length squares to look like a positive one, so it has to
+        // be rejected by value rather than by its square.
+        assert!(!Screening::Length(-0.5).is_valid());
+        assert!(!Screening::Length(0.0).is_valid());
+        assert!(!Screening::Length(f64::INFINITY).is_valid());
+        assert!(Screening::Length(0.5).is_valid());
+        assert_eq!(Screening::Length(-0.5).inverse_square(), f64::INFINITY);
+        let mut bad = ActiveNematicParams::default_test();
+        bad.screening = Screening::Length(-0.5);
+        assert!(bad.validate().is_err(), "validate must reject a negative screening length");
+        bad.screening = Screening::Length(0.5);
+        assert!(bad.validate().is_ok());
 
         // A params file written before this field existed still loads. The case
         // is built by serialising the current struct and removing the one key,

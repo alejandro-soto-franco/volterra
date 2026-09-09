@@ -2421,6 +2421,14 @@ mod tests {
     /// First order in `h`, at every screening length. A tolerance chosen to sit
     /// just above 1.076e-1 would encode this mesh; the halving is the property,
     /// and a wrong closed form plateaus rather than halving.
+    ///
+    /// Shown to fail against the wrong implementation, rather than argued to.
+    /// With the response basis built by taking BOTH solves through `poisson`,
+    /// which is what this file did before the basis was corrected to run the
+    /// stream-function solve through `outer`, the error GROWS under refinement:
+    /// 1.035e-1 at `h = 0.08` against 2.165e-1 at `h = 0.04`, a ratio of 0.48
+    /// against the 1.7 this asserts. The wall slope is still nulled in that
+    /// state, so no wall-condition test sees it and only this one does.
     #[test]
     fn the_clamped_screened_solve_converges_to_its_closed_form() {
         let rad = 1.0_f64;

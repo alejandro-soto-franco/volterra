@@ -121,7 +121,8 @@ pub fn direction_2d(omega: &[f64], eps: Epsilon) -> Vec<f64> {
 /// Regularised direction of a vector vorticity field, of magnitude below one.
 ///
 /// The zero vector where the vorticity is exactly zero, and finite for every
-/// input.
+/// finite input and for an infinity, whose sign is kept componentwise. A NaN
+/// component propagates, for the reason [`direction_2d`] records.
 pub fn direction_3d(omega: &[[f64; 3]], eps: Epsilon) -> Vec<[f64; 3]> {
     let e = eps.resolve(rms_3d(omega));
     omega
@@ -287,6 +288,42 @@ mod tests {
             "the shipped direction should barely move where the absolute form jumps: \
              {sq_jump:.4e} against {ab_jump:.4e}"
         );
+    }
+
+    /// Scaling the field and the regularisation together leaves the direction
+    /// alone, which is what makes a relative epsilon the sensible default.
+    ///
+    /// The only test of `Epsilon::Relative` on a field that has a scale, and the
+    /// only coverage `rms_3d` has. It was deleted in the review-fix wave and
+    /// restored here.
+    #[test]
+    fn the_direction_is_invariant_under_a_shared_rescaling() {
+        let omega: Vec<f64> = vec![-2.0, -0.5, 0.0, 0.25, 3.0];
+        let a = direction_2d(&omega, Epsilon::Relative(1e-3));
+        let scaled: Vec<f64> = omega.iter().map(|w| w * 1e6).collect();
+        let b = direction_2d(&scaled, Epsilon::Relative(1e-3));
+        for i in 0..omega.len() {
+            assert!(
+                (a[i] - b[i]).abs() < 1e-12,
+                "entry {i} moved under rescaling: {} against {}",
+                a[i],
+                b[i]
+            );
+        }
+
+        let w3 = vec![[1.0, -2.0, 0.5], [0.0; 3], [-3.0, 0.25, 4.0]];
+        let a3 = direction_3d(&w3, Epsilon::Relative(1e-3));
+        let s3: Vec<[f64; 3]> = w3.iter().map(|w| [w[0] * 1e6, w[1] * 1e6, w[2] * 1e6]).collect();
+        let b3 = direction_3d(&s3, Epsilon::Relative(1e-3));
+        for i in 0..w3.len() {
+            for k in 0..3 {
+                assert!(
+                    (a3[i][k] - b3[i][k]).abs() < 1e-12,
+                    "vector entry {i} component {k} moved under rescaling"
+                );
+            }
+        }
+        assert!(rms_3d(&w3) > 0.0, "rms_3d must see a scale in a nonzero field");
     }
 
     /// The magnitude doubles as the null mask, which is what saves a separate
