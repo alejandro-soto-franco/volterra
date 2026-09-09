@@ -137,7 +137,11 @@ pub fn run_wet_active_nematic_dec_confined<M: Manifold>(
     n_steps: usize,
     snap_every: usize,
 ) -> Result<(QField, Vec<SnapStatsDec>), String> {
-    let stokes = SurfaceStokes::new_confined(ops, mesh, boundary_vertices)?;
+    // The chamber depth reaches the solver here. A params file that states none
+    // gives Screening::None, which is the unbounded-depth two-dimensional fluid
+    // every earlier run assumed.
+    let stokes =
+        SurfaceStokes::new_confined_screened(ops, mesh, boundary_vertices, params.screening)?;
     let coords = extract_coords_runner(mesh);
     Ok(run_wet_inner(
         q_init,

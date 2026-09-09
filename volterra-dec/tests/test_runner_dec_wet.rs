@@ -95,3 +95,61 @@ fn wet_dec_order_grows_with_activity() {
         "order should grow: s_before={s_before}, s_after={s_after}"
     );
 }
+
+/// The chamber depth in the params reaches the confined solver.
+///
+/// Screening suppresses the flow: in the Darcy limit the peak speed goes as
+/// `l_s^2`, so a strongly screened run sits closer to the zero-activity run than
+/// an unscreened one does. Both halves matter. The first asserts the two runs
+/// differ at all, which fails if the parameter never reaches the solver. The
+/// second asserts they differ in the right DIRECTION, which fails if the
+/// screening is applied with the wrong sign, since an inverted shift would
+/// amplify the flow rather than suppress it.
+#[test]
+fn the_wet_runner_screens_when_the_params_say_so() {
+    use volterra_core::Screening;
+    use volterra_dec::run_wet_active_nematic_dec_confined;
+
+    let cm = volterra_dec::epitrochoid::disk_mesh(1.0, 1.0, 60, 0.12);
+    let mesh = cm.mesh;
+    let bverts = cm.boundary_vertices;
+    let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+    let nv = mesh.n_vertices();
+    let q0 = QField::random_perturbation(nv, 0.001, 42);
+
+    let run = |screening: Screening, zeta: f64| {
+        let mut p = ActiveNematicParams::default_test();
+        p.dt = 0.0005;
+        p.zeta_eff = zeta;
+        p.screening = screening;
+        run_wet_active_nematic_dec_confined(&q0, &p, &ops, &mesh, &bverts, None, 40, 40)
+            .unwrap()
+            .0
+    };
+
+    let unscreened = run(Screening::None, 0.5);
+    let screened = run(Screening::Length(0.02), 0.5);
+    let still = run(Screening::None, 0.0);
+
+    let distance = |a: &QField, b: &QField| -> f64 {
+        a.q1.iter()
+            .zip(&b.q1)
+            .chain(a.q2.iter().zip(&b.q2))
+            .map(|(x, y)| (x - y) * (x - y))
+            .sum::<f64>()
+            .sqrt()
+    };
+
+    let d_unscreened = distance(&unscreened, &still);
+    let d_screened = distance(&screened, &still);
+
+    assert!(
+        distance(&unscreened, &screened) > 0.0,
+        "the screening never reached the solver: the two runs are identical"
+    );
+    assert!(
+        d_screened < d_unscreened,
+        "screening should suppress the flow, so the screened run should sit closer to the \
+         zero-activity run: screened {d_screened:.6e} against unscreened {d_unscreened:.6e}"
+    );
+}
