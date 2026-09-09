@@ -467,6 +467,69 @@ pub fn box_mesh(
     prism_extrude(&v, &t, lz, nz)
 }
 
+/// A degree-five, seven-point quadrature rule on the reference triangle, in
+/// barycentric coordinates with weights summing to one.
+///
+/// The manufactured source of the validation ladder is a degree-eleven
+/// polynomial, so the quadrature error on a cell of diameter `h` is `O(h^6)`
+/// against a degree of freedom of size `O(h^2)`. That is six orders below the
+/// first-order convergence the method itself has, so the rule never enters the
+/// measured rate.
+pub fn triangle_rule() -> [(f64, f64, f64, f64); 7] {
+    let r = 15.0_f64.sqrt();
+    let a1 = (6.0 - r) / 21.0;
+    let b1 = (9.0 + 2.0 * r) / 21.0;
+    let a2 = (6.0 + r) / 21.0;
+    let b2 = (9.0 - 2.0 * r) / 21.0;
+    let w1 = (155.0 - r) / 1200.0;
+    let w2 = (155.0 + r) / 1200.0;
+    [
+        (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0, 9.0 / 40.0),
+        (b1, a1, a1, w1),
+        (a1, b1, a1, w1),
+        (a1, a1, b1, w1),
+        (b2, a2, a2, w2),
+        (a2, b2, a2, w2),
+        (a2, a2, b2, w2),
+    ]
+}
+
+impl TetComplex {
+    /// The flux of a vector field through a face, in the face's canonical
+    /// orientation, by the degree-five rule.
+    ///
+    /// This is the degree of freedom the three-dimensional Stokes solver takes
+    /// for both its velocity and its body force.
+    pub fn face_flux_of<F>(&self, f: usize, field: F) -> f64
+    where
+        F: Fn([f64; 3]) -> [f64; 3],
+    {
+        let [ia, ib, ic] = self.faces[f];
+        let (pa, pb, pc) = (self.vertices[ia], self.vertices[ib], self.vertices[ic]);
+        let a = self.face_area_vector(f);
+        let mut acc = 0.0;
+        for (l0, l1, l2, w) in triangle_rule() {
+            let x = [
+                l0 * pa[0] + l1 * pb[0] + l2 * pc[0],
+                l0 * pa[1] + l1 * pb[1] + l2 * pc[1],
+                l0 * pa[2] + l1 * pb[2] + l2 * pc[2],
+            ];
+            let v = field(x);
+            acc += w * (v[0] * a[0] + v[1] * a[1] + v[2] * a[2]);
+        }
+        acc
+    }
+
+    /// The flux degrees of freedom of a vector field on every face.
+    pub fn flux_dofs<F>(&self, field: F) -> Vec<f64>
+    where
+        F: Fn([f64; 3]) -> [f64; 3] + Copy,
+    {
+        (0..self.n_faces()).map(|f| self.face_flux_of(f, field)).collect()
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
