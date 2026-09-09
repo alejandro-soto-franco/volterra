@@ -83,10 +83,11 @@ use crate::tet_mesh::TetComplex;
 ///
 /// The matrix is symmetric indefinite and free of the viscosity, so one choice
 /// serves every right-hand side on a mesh.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Inversion {
     /// Sparse LU with partial pivoting. Exact, and its memory grows fastest,
     /// which is what sets the ceiling on chamber resolution.
+    #[default]
     Direct,
     /// MINRES against the Riesz map of the natural norms: `H(curl)` for the
     /// vorticity, `H(div)` for the velocity, `L2` for the pressure. The
@@ -103,11 +104,6 @@ pub enum Inversion {
     },
 }
 
-impl Default for Inversion {
-    fn default() -> Self {
-        Self::Direct
-    }
-}
 
 /// The factorisation or the iterative context, whichever the mesh was built for.
 enum Backend {
