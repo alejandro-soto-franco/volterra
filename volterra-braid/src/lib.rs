@@ -30,6 +30,7 @@
 pub mod braidword;
 pub mod defect;
 pub mod disclination;
+pub mod domain;
 pub mod entropy;
 pub mod sphere;
 pub mod synthetic;
@@ -40,8 +41,9 @@ pub use braidword::{BraidWord, Generator, extract_braidword};
 pub use defect::{Defect, detect_defects, detect_defects_winding};
 pub use disclination::{
     curve_points, linking_number, pairwise_linking,
-    Disclination, DisclinationCurve, DisclinationSite, disclination_density,
-    disclination_lines, disclination_sites,
+    Disclination, DisclinationCurve, DisclinationSite, Frenet, SurfaceCurvature, cos_beta_field,
+    disclination_density, disclination_lines, disclination_magnitude, disclination_sites, frenet,
+    level_set_curvature,
 };
 pub use entropy::{
     burau_spectral_radius_minus1, is_exact_regime, paper_burau_matrix,

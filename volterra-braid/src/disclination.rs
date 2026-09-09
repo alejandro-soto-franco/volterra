@@ -34,7 +34,7 @@
 //!
 //! which is nine cross products per site rather than a 2187-term sum.
 
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::{Matrix3, Matrix4, Vector3, Vector4};
 
 /// A disclination line's local character at one site.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -159,8 +159,17 @@ pub fn decompose(d: &[f64; 9]) -> Disclination {
 /// A site sitting on a disclination line, with its grid position.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DisclinationSite {
-    /// Grid position `(i, j, l)`.
+    /// Grid position `(i, j, l)` of the voxel the site was found in.
     pub ijl: (usize, usize, usize),
+    /// The core position in physical units, refined to sub-voxel accuracy.
+    ///
+    /// `s` peaks at the core, so a parabola through the three samples either
+    /// side of the peak, taken in each of the two directions perpendicular to
+    /// the tangent, puts the core between voxels where it belongs. Curvature is
+    /// a second derivative, and differentiating voxel indices measures the
+    /// lattice staircase rather than the line, so this is what the geometry is
+    /// computed from.
+    pub pos: [f64; 3],
     /// The local character there.
     pub disclination: Disclination,
 }
@@ -171,6 +180,17 @@ pub struct DisclinationSite {
 /// normalisation and grid spacing; the threshold is left to the caller here
 /// because `s` scales as the square of a Q gradient, so it carries the field's
 /// units and the grid spacing with it.
+///
+/// # The ridge
+///
+/// A supra-threshold region is a tube several voxels across, so keeping every
+/// voxel in it gives a fat blob whose nearest-neighbour ordering zigzags at the
+/// lattice scale. Only voxels that are a local maximum of `s` in the plane
+/// perpendicular to the local tangent survive, which leaves the tube's axis one
+/// voxel wide, and each survivor's [`pos`](DisclinationSite::pos) is then fitted
+/// between voxels. Sites whose refined positions agree to within half a voxel
+/// are one site, which is what happens along a core sitting exactly between
+/// voxels, where four of them read the same `s`.
 pub fn disclination_sites(
     q: &[[f64; 5]],
     nx: usize,
@@ -180,22 +200,462 @@ pub fn disclination_sites(
     threshold: f64,
 ) -> Vec<DisclinationSite> {
     let density = disclination_density(q, nx, ny, nz, dx);
-    let mut out = Vec::new();
+    let mag = magnitudes(&density);
+    sites_from(&density, &mag, nx, ny, nz, dx, threshold)
+}
+
+/// The body of [`disclination_sites`], against a density and a magnitude field
+/// already computed.
+///
+/// The factorisation runs a singular value decomposition at every voxel, so a
+/// caller wanting the sites and the field they were read from computes the
+/// density once and comes here, rather than paying for it twice.
+fn sites_from(
+    density: &[[f64; 9]],
+    mag: &[f64],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+    threshold: f64,
+) -> Vec<DisclinationSite> {
+    // Trilinear sample of `s` at a position in voxel units, clamped at the
+    // faces so a core lying in the first or last slice is still refined.
+    let sample = |p: [f64; 3]| -> f64 {
+        let n = [nx, ny, nz];
+        let mut base = [0usize; 3];
+        let mut frac = [0.0f64; 3];
+        for c in 0..3 {
+            let hi = (n[c] - 1) as f64;
+            let x = p[c].clamp(0.0, hi);
+            let b = x.floor().min(hi - 1.0).max(0.0);
+            base[c] = b as usize;
+            frac[c] = x - b;
+        }
+        let mut acc = 0.0;
+        for di in 0..2 {
+            for dj in 0..2 {
+                for dl in 0..2 {
+                    let w = (if di == 1 { frac[0] } else { 1.0 - frac[0] })
+                        * (if dj == 1 { frac[1] } else { 1.0 - frac[1] })
+                        * (if dl == 1 { frac[2] } else { 1.0 - frac[2] });
+                    let i = (base[0] + di).min(nx - 1);
+                    let j = (base[1] + dj).min(ny - 1);
+                    let l = (base[2] + dl).min(nz - 1);
+                    acc += w * mag[((i * ny) + j) * nz + l];
+                }
+            }
+        }
+        acc
+    };
+
+    // Candidates: supra-threshold, a ridge in both perpendicular directions,
+    // and refined by a parabola through the three samples in each.
+    let mut candidates: Vec<DisclinationSite> = Vec::new();
     for i in 0..nx {
         for j in 0..ny {
             for l in 0..nz {
                 let k = ((i * ny) + j) * nz + l;
                 let disclination = decompose(&density[k]);
-                if disclination.s > threshold {
-                    out.push(DisclinationSite {
-                        ijl: (i, j, l),
-                        disclination,
-                    });
+                if disclination.s <= threshold {
+                    continue;
                 }
+                let (e1, e2) = perpendicular_basis(disclination.tangent);
+                let here = [i as f64, j as f64, l as f64];
+                let s0 = mag[k];
+
+                let mut offset = [0.0f64; 2];
+                let mut on_ridge = true;
+                for (axis, e) in [e1, e2].iter().enumerate() {
+                    let plus = sample(add(here, *e, 1.0));
+                    let minus = sample(add(here, *e, -1.0));
+                    if s0 < plus || s0 < minus {
+                        on_ridge = false;
+                        break;
+                    }
+                    // Peak of the parabola through (-1, minus), (0, s0), (1, plus).
+                    let curv = minus - 2.0 * s0 + plus;
+                    offset[axis] = if curv.abs() > 1e-30 {
+                        (0.5 * (minus - plus) / curv).clamp(-1.0, 1.0)
+                    } else {
+                        0.0
+                    };
+                }
+                if !on_ridge {
+                    continue;
+                }
+
+                let mut pos = [0.0f64; 3];
+                for c in 0..3 {
+                    pos[c] = (here[c] + offset[0] * e1[c] + offset[1] * e2[c]) * dx;
+                }
+                candidates.push(DisclinationSite {
+                    ijl: (i, j, l),
+                    pos,
+                    disclination,
+                });
             }
         }
     }
-    out
+
+    merge_coincident(candidates, dx)
+}
+
+/// Collapse sites whose refined positions agree to within half a voxel.
+///
+/// A core sitting exactly between voxels reads the same `s` at each of the four
+/// around it, so all four pass the ridge test and all four refine to the same
+/// point. The strongest of a coincident group is kept.
+fn merge_coincident(mut sites: Vec<DisclinationSite>, dx: f64) -> Vec<DisclinationSite> {
+    sites.sort_by(|a, b| b.disclination.s.total_cmp(&a.disclination.s));
+
+    let cell = dx.max(1e-30);
+    let key = |p: [f64; 3]| {
+        (
+            (p[0] / cell).floor() as i64,
+            (p[1] / cell).floor() as i64,
+            (p[2] / cell).floor() as i64,
+        )
+    };
+    let mut buckets: std::collections::HashMap<(i64, i64, i64), Vec<usize>> =
+        std::collections::HashMap::new();
+    let mut kept: Vec<DisclinationSite> = Vec::new();
+
+    for s in sites {
+        let (kx, ky, kz) = key(s.pos);
+        let mut coincident = false;
+        'search: for dx_ in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(near) = buckets.get(&(kx + dx_, ky + dy, kz + dz)) {
+                        for &n in near {
+                            let p = kept[n].pos;
+                            let d2: f64 = (0..3).map(|c| (p[c] - s.pos[c]).powi(2)).sum();
+                            if d2 < (0.5 * dx).powi(2) {
+                                coincident = true;
+                                break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !coincident {
+            buckets.entry((kx, ky, kz)).or_default().push(kept.len());
+            kept.push(s);
+        }
+    }
+    kept
+}
+
+/// Two unit vectors completing `t` to a right-handed orthonormal frame.
+fn perpendicular_basis(t: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let t = Vector3::new(t[0], t[1], t[2]);
+    // Cross with whichever axis is least aligned with t, so the result is never
+    // near zero.
+    let lead = (0..3)
+        .min_by(|&a, &b| t[a].abs().total_cmp(&t[b].abs()))
+        .unwrap_or(0);
+    let mut axis = Vector3::zeros();
+    axis[lead] = 1.0;
+    let e1 = t.cross(&axis).normalize();
+    let e2 = t.cross(&e1).normalize();
+    ([e1[0], e1[1], e1[2]], [e2[0], e2[1], e2[2]])
+}
+
+/// `p + scale * e`.
+fn add(p: [f64; 3], e: [f64; 3], scale: f64) -> [f64; 3] {
+    [
+        p[0] + scale * e[0],
+        p[1] + scale * e[1],
+        p[2] + scale * e[2],
+    ]
+}
+
+/// The leading singular value at every site, which is the field an isosurface
+/// is taken of.
+fn magnitudes(density: &[[f64; 9]]) -> Vec<f64> {
+    density.iter().map(|d| decompose(d).s).collect()
+}
+
+/// The disclination density magnitude `s` at every site.
+///
+/// This is the scalar an isosurface is drawn on: it vanishes in the ordered
+/// bulk and peaks on the core, so `{s = c}` is a tube around every disclination
+/// line. Pair it with [`cos_beta_field`] to colour that surface by the winding
+/// character underneath it.
+pub fn disclination_magnitude(
+    q: &[[f64; 5]],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+) -> Vec<f64> {
+    magnitudes(&disclination_density(q, nx, ny, nz, dx))
+}
+
+/// `cos(beta)` at every site, which is `+1` on a `+1/2` wedge, `-1` on a
+/// `-1/2` wedge and `0` on a twist.
+///
+/// Meaningless away from a core, where `s` is small and the factorisation has
+/// nothing to resolve, so read it only on or near the isosurface.
+pub fn cos_beta_field(
+    q: &[[f64; 5]],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+) -> Vec<f64> {
+    disclination_density(q, nx, ny, nz, dx)
+        .iter()
+        .map(|d| decompose(d).cos_beta)
+        .collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The curve's own geometry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The Frenet apparatus along a discrete curve.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frenet {
+    /// Unit tangent at each point.
+    pub tangents: Vec<[f64; 3]>,
+    /// Curvature `|T'|` at each point, in inverse length units.
+    pub curvatures: Vec<f64>,
+    /// Torsion at each point, zero wherever the curve is locally straight.
+    pub torsions: Vec<f64>,
+}
+
+/// Tangent, curvature and torsion along a polyline.
+///
+/// Each point gets a cubic fitted by least squares to the seven points centred
+/// on it, and the derivatives are read off that fit. A cubic is the lowest
+/// degree with a third derivative, which torsion needs, and fitting over a
+/// window rather than differencing neighbours is what keeps the second
+/// derivative usable: refined core positions still land a few hundredths of a
+/// voxel off, and central differences would amplify that by the square of the
+/// spacing.
+///
+/// The three quantities are invariant under reparameterisation, so the fit runs
+/// against the point index and no arclength estimate enters:
+///
+/// ```text
+/// kappa = |r' x r''| / |r'|^3       tau = (r' x r'') . r''' / |r' x r''|^2
+/// ```
+///
+/// Set `closed` for a loop, which wraps the window rather than one-siding it at
+/// the ends. Curves of fewer than five points return tangents alone, since a
+/// cubic through four points has no residual and its third derivative is noise.
+pub fn frenet(points: &[[f64; 3]], closed: bool) -> Frenet {
+    let n = points.len();
+    let mut tangents = vec![[0.0; 3]; n];
+    let mut curvatures = vec![0.0; n];
+    let mut torsions = vec![0.0; n];
+
+    if n < 2 {
+        return Frenet { tangents, curvatures, torsions };
+    }
+    if n < 5 {
+        for i in 0..n {
+            let (a, b) = if i == 0 {
+                (0, 1)
+            } else if i == n - 1 {
+                (n - 2, n - 1)
+            } else {
+                (i - 1, i + 1)
+            };
+            let d = Vector3::new(
+                points[b][0] - points[a][0],
+                points[b][1] - points[a][1],
+                points[b][2] - points[a][2],
+            );
+            let t = if d.norm() > 1e-30 { d.normalize() } else { Vector3::zeros() };
+            tangents[i] = [t[0], t[1], t[2]];
+        }
+        return Frenet { tangents, curvatures, torsions };
+    }
+
+    let width = 7usize.min(n);
+    let half = (width / 2) as isize;
+
+    for i in 0..n {
+        // Window nodes as (offset from this point, position).
+        let mut nodes: Vec<(f64, [f64; 3])> = Vec::with_capacity(width);
+        if closed {
+            for k in -half..=half {
+                let idx = (i as isize + k).rem_euclid(n as isize) as usize;
+                nodes.push((k as f64, points[idx]));
+            }
+        } else {
+            let start = (i as isize - half).clamp(0, n as isize - width as isize);
+            for k in 0..width as isize {
+                nodes.push(((start + k - i as isize) as f64, points[(start + k) as usize]));
+            }
+        }
+
+        // Normal equations for a cubic in the offset.
+        let mut m = Matrix4::zeros();
+        for a in 0..4 {
+            for b in 0..4 {
+                m[(a, b)] = nodes.iter().map(|(t, _)| t.powi((a + b) as i32)).sum();
+            }
+        }
+        let lu = m.lu();
+
+        let mut d1: Vector3<f64> = Vector3::zeros();
+        let mut d2: Vector3<f64> = Vector3::zeros();
+        let mut d3: Vector3<f64> = Vector3::zeros();
+        for c in 0..3 {
+            let rhs = Vector4::from_fn(|a, _| {
+                nodes.iter().map(|(t, p)| t.powi(a as i32) * p[c]).sum()
+            });
+            let Some(coeff) = lu.solve(&rhs) else {
+                continue;
+            };
+            d1[c] = coeff[1];
+            d2[c] = 2.0 * coeff[2];
+            d3[c] = 6.0 * coeff[3];
+        }
+
+        let speed = d1.norm();
+        if speed < 1e-30 {
+            continue;
+        }
+        let t = d1 / speed;
+        tangents[i] = [t[0], t[1], t[2]];
+
+        let cross = d1.cross(&d2);
+        let cross_norm = cross.norm();
+        curvatures[i] = cross_norm / speed.powi(3);
+        // Torsion divides by |r' x r''|^2, which vanishes on a straight
+        // stretch. There the osculating plane is undefined and the torsion with
+        // it, so it is reported as zero rather than as a ratio of noise.
+        if cross_norm > 1e-12 * speed.powi(2) {
+            torsions[i] = cross.dot(&d3) / (cross_norm * cross_norm);
+        }
+    }
+
+    Frenet { tangents, curvatures, torsions }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The isosurface's geometry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The curvature of a level set at one site.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SurfaceCurvature {
+    /// Mean curvature, the average of the two principal curvatures.
+    pub mean: f64,
+    /// Gaussian curvature, their product.
+    pub gaussian: f64,
+}
+
+impl SurfaceCurvature {
+    /// The two principal curvatures, largest first.
+    ///
+    /// `k = H +/- sqrt(H^2 - K)`, with the discriminant clamped at zero, where
+    /// a discretised surface can push it slightly negative.
+    pub fn principal(&self) -> (f64, f64) {
+        let disc = (self.mean * self.mean - self.gaussian).max(0.0).sqrt();
+        (self.mean + disc, self.mean - disc)
+    }
+}
+
+/// The curvature of the level set of `field` passing through one site.
+///
+/// Goldman's implicit-surface formulas, evaluated on the gradient and Hessian
+/// of the field itself, so no surface is meshed and no isosurface value is
+/// named: every level set through the site has the same normal direction, and
+/// the one through it is the one measured.
+///
+/// ```text
+/// K = (g . adj(H) g) / |g|^4        2 M = (g . H g - |g|^2 tr H) / |g|^3
+/// ```
+///
+/// The normal is `g / |g|`, which points the way `field` increases, so the sign
+/// says which side of the surface the field rises towards. `s` peaks on a
+/// disclination core, so the tube around a line reads `+1/(2R)` at its radius
+/// `R`, against the `-1/(2R)` of a cylinder whose field rises outward.
+///
+/// Derivatives are clamped at the faces rather than wrapped, since a level set
+/// reaching a wall is a real feature of a confined run and wrapping would join
+/// it to whatever sits on the far side.
+pub fn level_set_curvature(
+    field: &[f64],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+    ijl: (usize, usize, usize),
+) -> SurfaceCurvature {
+    let at = |i: isize, j: isize, l: isize| -> f64 {
+        let i = i.clamp(0, nx as isize - 1) as usize;
+        let j = j.clamp(0, ny as isize - 1) as usize;
+        let l = l.clamp(0, nz as isize - 1) as usize;
+        field[((i * ny) + j) * nz + l]
+    };
+    let (i, j, l) = (ijl.0 as isize, ijl.1 as isize, ijl.2 as isize);
+    let step = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let shift = |d: usize, n: isize| {
+        (
+            i + n * step[d][0],
+            j + n * step[d][1],
+            l + n * step[d][2],
+        )
+    };
+
+    let centre = at(i, j, l);
+    let mut g = Vector3::zeros();
+    let mut h = Matrix3::zeros();
+    for d in 0..3 {
+        let (pi, pj, pl) = shift(d, 1);
+        let (mi, mj, ml) = shift(d, -1);
+        let (plus, minus) = (at(pi, pj, pl), at(mi, mj, ml));
+        g[d] = (plus - minus) / (2.0 * dx);
+        h[(d, d)] = (plus - 2.0 * centre + minus) / (dx * dx);
+    }
+    for d in 0..3 {
+        for e in d + 1..3 {
+            let off = |sd: isize, se: isize| {
+                at(
+                    i + sd * step[d][0] + se * step[e][0],
+                    j + sd * step[d][1] + se * step[e][1],
+                    l + sd * step[d][2] + se * step[e][2],
+                )
+            };
+            let mixed =
+                (off(1, 1) - off(1, -1) - off(-1, 1) + off(-1, -1)) / (4.0 * dx * dx);
+            h[(d, e)] = mixed;
+            h[(e, d)] = mixed;
+        }
+    }
+
+    let norm = g.norm();
+    if norm < 1e-30 {
+        return SurfaceCurvature { mean: 0.0, gaussian: 0.0 };
+    }
+
+    // Adjugate of a symmetric 3x3, written out so a singular Hessian is fine:
+    // the cylinder's is exactly singular and its Gaussian curvature is zero.
+    let (a, b, c) = (h[(0, 0)], h[(0, 1)], h[(0, 2)]);
+    let (d, e, f) = (h[(1, 1)], h[(1, 2)], h[(2, 2)]);
+    let adj = Matrix3::new(
+        d * f - e * e,
+        c * e - b * f,
+        b * e - c * d,
+        c * e - b * f,
+        a * f - c * c,
+        b * c - a * e,
+        b * e - c * d,
+        b * c - a * e,
+        a * d - b * b,
+    );
+
+    let gaussian = g.dot(&(adj * g)) / norm.powi(4);
+    let mean = (g.dot(&(h * g)) - norm * norm * h.trace()) / (2.0 * norm.powi(3));
+    SurfaceCurvature { mean, gaussian }
 }
 
 /// One connected disclination line.
@@ -203,13 +663,40 @@ pub fn disclination_sites(
 pub struct DisclinationCurve {
     /// The sites making up the line, ordered along it.
     pub sites: Vec<DisclinationSite>,
-    /// Contour length in grid units, summed along the ordered sites.
+    /// Contour length in physical units, summed along the ordered sites.
     pub length: f64,
     /// Site-count-weighted mean of `cos(beta)`: near `+1` a `+1/2` wedge line,
     /// near `-1` a `-1/2` wedge line, near `0` a twist line.
     pub mean_cos_beta: f64,
     /// Whether the two ends meet, within one lattice diagonal.
     pub is_loop: bool,
+    /// Unit tangent at each site, from the fitted curve rather than from the
+    /// density tensor.
+    ///
+    /// [`Disclination::tangent`] is a local reading of the field and this is a
+    /// geometric one. They agree where the line is resolved and part where the
+    /// sampling has lost it, so the two together say how far to trust either.
+    pub tangents: Vec<[f64; 3]>,
+    /// Curvature of the line at each site, in inverse length units.
+    pub curvatures: Vec<f64>,
+    /// Torsion of the line at each site.
+    pub torsions: Vec<f64>,
+    /// Mean of [`curvatures`](Self::curvatures). A planar circular loop reads
+    /// the reciprocal of its radius.
+    pub mean_curvature: f64,
+    /// Mean curvature of the `s` isosurface around this line, averaged over the
+    /// voxels of the tube's own surface.
+    ///
+    /// Positive around a core, since `s` rises inward and the normal follows it,
+    /// and near `1/(2R)` at the tube radius `R`. That makes it much the larger
+    /// of the two curvatures on any line that is not bent on the scale of its
+    /// own core.
+    pub surface_mean_curvature: f64,
+    /// Gaussian curvature of that surface, averaged the same way.
+    ///
+    /// Near zero along a straight stretch, where the tube is a cylinder,
+    /// positive where it caps and negative where the tube bends.
+    pub surface_gaussian_curvature: f64,
 }
 
 /// Assemble supra-threshold sites into connected lines.
@@ -229,17 +716,26 @@ pub fn disclination_lines(
     dx: f64,
     threshold: f64,
 ) -> Vec<DisclinationCurve> {
-    let sites = disclination_sites(q, nx, ny, nz, dx, threshold);
+    let density = disclination_density(q, nx, ny, nz, dx);
+    let mag = magnitudes(&density);
+    let sites = sites_from(&density, &mag, nx, ny, nz, dx, threshold);
     if sites.is_empty() {
         return Vec::new();
     }
+    let mut out = assemble(sites, dx);
+    attach_surface_curvature(&mut out, &mag, nx, ny, nz, dx, threshold);
+    out
+}
 
+/// Group the ridge sites by adjacency, order each group along itself, and read
+/// the geometry of the curve that results.
+fn assemble(sites: Vec<DisclinationSite>, dx: f64) -> Vec<DisclinationCurve> {
     // Index sites by grid position so neighbours are found without an O(n^2)
     // sweep.
-    let key = |ijl: (usize, usize, usize)| (ijl.0 * ny + ijl.1) * nz + ijl.2;
-    let mut at: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut at: std::collections::HashMap<(usize, usize, usize), usize> =
+        std::collections::HashMap::new();
     for (n, s) in sites.iter().enumerate() {
-        at.insert(key(s.ijl), n);
+        at.insert(s.ijl, n);
     }
 
     let mut group = vec![usize::MAX; sites.len()];
@@ -262,16 +758,12 @@ pub fn disclination_lines(
                             continue;
                         }
                         let (ni, nj, nl) = (i as i64 + di, j as i64 + dj, l as i64 + dl);
-                        if ni < 0
-                            || nj < 0
-                            || nl < 0
-                            || ni >= nx as i64
-                            || nj >= ny as i64
-                            || nl >= nz as i64
-                        {
+                        if ni < 0 || nj < 0 || nl < 0 {
                             continue;
                         }
-                        let nk = key((ni as usize, nj as usize, nl as usize));
+                        // A coordinate past the far face is simply absent from
+                        // the map, so no upper bound is needed here.
+                        let nk = (ni as usize, nj as usize, nl as usize);
                         if let Some(&m) = at.get(&nk) {
                             if group[m] == usize::MAX {
                                 group[m] = g;
@@ -285,13 +777,10 @@ pub fn disclination_lines(
         groups.push(members);
     }
 
-    let pos = |n: usize| {
-        let (i, j, l) = sites[n].ijl;
-        [i as f64 * dx, j as f64 * dx, l as f64 * dx]
-    };
+    let pos = |n: usize| sites[n].pos;
     let dist = |a: usize, b: usize| {
-        let (p, q) = (pos(a), pos(b));
-        ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+        let (p, r) = (pos(a), pos(b));
+        ((p[0] - r[0]).powi(2) + (p[1] - r[1]).powi(2) + (p[2] - r[2]).powi(2)).sqrt()
     };
 
     let mut out = Vec::with_capacity(groups.len());
@@ -338,15 +827,194 @@ pub fn disclination_lines(
             .map(|&m| sites[m].disclination.cos_beta)
             .sum::<f64>()
             / order.len() as f64;
+        let ordered: Vec<DisclinationSite> = order.iter().map(|&m| sites[m]).collect();
+        let points: Vec<[f64; 3]> = ordered.iter().map(|s| s.pos).collect();
+        let geometry = frenet(&points, is_loop);
+        let mean_curvature = if geometry.curvatures.is_empty() {
+            0.0
+        } else {
+            geometry.curvatures.iter().sum::<f64>() / geometry.curvatures.len() as f64
+        };
+
         out.push(DisclinationCurve {
-            sites: order.iter().map(|&m| sites[m]).collect(),
+            sites: ordered,
             length,
             mean_cos_beta,
             is_loop,
+            tangents: geometry.tangents,
+            curvatures: geometry.curvatures,
+            torsions: geometry.torsions,
+            mean_curvature,
+            surface_mean_curvature: 0.0,
+            surface_gaussian_curvature: 0.0,
         });
     }
     out.sort_by(|a, b| b.length.total_cmp(&a.length));
     out
+}
+
+/// Assemble the lines at a threshold taken from the field's own interior peak.
+///
+/// `s` scales as the square of a Q gradient, so an absolute threshold depends on
+/// the normalisation and on the grid spacing and transfers between runs poorly.
+/// A fraction of the peak transfers, and the threshold that was used comes back
+/// with the lines so a run can record what it read them at.
+///
+/// The peak is taken two voxels clear of the faces. The derivative stencil
+/// wraps, so a field that is not periodic reads a seam there which has nothing
+/// to do with a disclination, and one such voxel would otherwise set the
+/// threshold for the whole box.
+///
+/// # The floor
+///
+/// A field with no disclination in it still has a largest gradient somewhere, so
+/// the relative rule alone reports lines in the noise of a field that has none,
+/// and reports them with no sign of trouble. What it does show is the threshold
+/// collapsing by orders of magnitude while the order parameter sits at its
+/// equilibrium, which is what happens once a run's defects annihilate.
+///
+/// `floor` is the absolute value below which the answer is that there are no
+/// disclinations, and the threshold returned is the larger of the two. It is in
+/// the units of `s`, which scale as the square of a Q gradient, so a value
+/// transfers between runs only at matched normalisation and grid spacing. Pass
+/// zero for the relative rule alone.
+pub fn disclination_lines_at_fraction(
+    q: &[[f64; 5]],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+    fraction: f64,
+    floor: f64,
+) -> (Vec<DisclinationCurve>, f64) {
+    let density = disclination_density(q, nx, ny, nz, dx);
+    let mag = magnitudes(&density);
+
+    let mut peak = 0.0_f64;
+    if nx > 4 && ny > 4 && nz > 4 {
+        for i in 2..nx - 2 {
+            for j in 2..ny - 2 {
+                for l in 2..nz - 2 {
+                    peak = peak.max(mag[((i * ny) + j) * nz + l]);
+                }
+            }
+        }
+    } else {
+        peak = mag.iter().copied().fold(0.0_f64, f64::max);
+    }
+    let threshold = (fraction * peak).max(floor);
+
+    let sites = sites_from(&density, &mag, nx, ny, nz, dx, threshold);
+    if sites.is_empty() {
+        return (Vec::new(), threshold);
+    }
+    let mut curves = assemble(sites, dx);
+    attach_surface_curvature(&mut curves, &mag, nx, ny, nz, dx, threshold);
+    (curves, threshold)
+}
+
+/// Measure the `s` isosurface around each line and record its curvature.
+///
+/// The surface is taken as the inner face of the supra-threshold region: a
+/// voxel above the threshold with a six-neighbour below it. That shell is one
+/// voxel thick and is what a contour at the same threshold would draw. Each of
+/// its voxels is charged to the line whose nearest site it is nearest to, and
+/// the two curvatures are averaged over the voxels a line collects.
+fn attach_surface_curvature(
+    curves: &mut [DisclinationCurve],
+    mag: &[f64],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    dx: f64,
+    threshold: f64,
+) {
+    if curves.is_empty() {
+        return;
+    }
+    let at = |i: usize, j: usize, l: usize| mag[((i * ny) + j) * nz + l];
+
+    // Sites of every curve, bucketed so the nearest is found without sweeping
+    // all of them for each shell voxel.
+    let cell = 4.0 * dx;
+    let key = |p: [f64; 3]| {
+        (
+            (p[0] / cell).floor() as i64,
+            (p[1] / cell).floor() as i64,
+            (p[2] / cell).floor() as i64,
+        )
+    };
+    let mut buckets: std::collections::HashMap<(i64, i64, i64), Vec<(usize, [f64; 3])>> =
+        std::collections::HashMap::new();
+    for (c, curve) in curves.iter().enumerate() {
+        for s in &curve.sites {
+            buckets.entry(key(s.pos)).or_default().push((c, s.pos));
+        }
+    }
+
+    let mut sums = vec![(0.0f64, 0.0f64, 0usize); curves.len()];
+    for i in 0..nx {
+        for j in 0..ny {
+            for l in 0..nz {
+                if at(i, j, l) <= threshold {
+                    continue;
+                }
+                let outside = [
+                    (i.wrapping_sub(1), j, l),
+                    (i + 1, j, l),
+                    (i, j.wrapping_sub(1), l),
+                    (i, j + 1, l),
+                    (i, j, l.wrapping_sub(1)),
+                    (i, j, l + 1),
+                ]
+                .into_iter()
+                .any(|(a, b, c)| {
+                    a >= nx || b >= ny || c >= nz || at(a, b, c) <= threshold
+                });
+                if !outside {
+                    continue;
+                }
+
+                let here = [i as f64 * dx, j as f64 * dx, l as f64 * dx];
+                let (kx, ky, kz) = key(here);
+                let mut best: Option<(usize, f64)> = None;
+                for radius in 1..=3i64 {
+                    for a in -radius..=radius {
+                        for b in -radius..=radius {
+                            for c in -radius..=radius {
+                                let Some(near) = buckets.get(&(kx + a, ky + b, kz + c)) else {
+                                    continue;
+                                };
+                                for &(curve, p) in near {
+                                    let d2: f64 =
+                                        (0..3).map(|n| (p[n] - here[n]).powi(2)).sum();
+                                    if best.is_none_or(|(_, d)| d2 < d) {
+                                        best = Some((curve, d2));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if best.is_some() {
+                        break;
+                    }
+                }
+                let Some((curve, _)) = best else { continue };
+
+                let k = level_set_curvature(&mag, nx, ny, nz, dx, (i, j, l));
+                sums[curve].0 += k.mean;
+                sums[curve].1 += k.gaussian;
+                sums[curve].2 += 1;
+            }
+        }
+    }
+
+    for (curve, (mean, gaussian, count)) in curves.iter_mut().zip(sums) {
+        if count > 0 {
+            curve.surface_mean_curvature = mean / count as f64;
+            curve.surface_gaussian_curvature = gaussian / count as f64;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -759,10 +1427,7 @@ pub fn linking_number(a: &[[f64; 3]], b: &[[f64; 3]]) -> f64 {
 
 /// The points of a [`DisclinationCurve`] in grid coordinates.
 pub fn curve_points(c: &DisclinationCurve) -> Vec<[f64; 3]> {
-    c.sites
-        .iter()
-        .map(|s| [s.ijl.0 as f64, s.ijl.1 as f64, s.ijl.2 as f64])
-        .collect()
+    c.sites.iter().map(|s| s.pos).collect()
 }
 
 /// Pairwise linking numbers of every pair of closed curves.
