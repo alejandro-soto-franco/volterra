@@ -4,6 +4,79 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [0.5.3] - 2026-09-08
+
+### Added
+
+- **Two curvatures for every disclination line.** A loop is a curve and it is
+  also the axis of an `s` isosurface, so `DisclinationCurve` now reports the
+  curvature and torsion of the line itself and the mean and Gaussian curvature
+  of the tube around it. Across the tube the surface curves on the core radius
+  and along it on the line's own, so the two numbers separate a taut loop from
+  a wandering one, which a count of lines cannot.
+
+  The line's apparatus comes from a cubic fitted by least squares to the seven
+  sites centred on each one, since torsion needs a third derivative. It is
+  second order in the sampling, measured: a helix's curvature and torsion errors
+  both fall by 4.00 at every halving of the spacing, over five refinements. The
+  surface's comes from Goldman's implicit-surface formulas on the density field,
+  so no surface is meshed: a sphere reads `1/r` and `1/r^2`, a cylinder `1/(2r)`
+  and zero.
+
+- **Sub-voxel cores, and a ridge.** Curvature is a second derivative, and
+  differencing voxel indices measures the lattice staircase rather than the
+  line. `DisclinationSite` gains `pos`, fitted between voxels by a parabola
+  through the samples either side of the peak in each direction perpendicular to
+  the tangent. Sites are also thinned to the ridge, so the supra-threshold tube
+  leaves its axis one voxel wide rather than a blob a nearest-neighbour walk
+  zigzags through. A core placed at `x = 9.37` reads back within a quarter of a
+  voxel, where an index can only ever answer 9 or 10.
+
+- **`disclination_lines_at_fraction`**, taking the threshold from the field's own
+  interior peak, floored at an absolute value, and returning it with the lines.
+  `s` scales as the square of a Q gradient, so an absolute threshold alone
+  depends on the normalisation and on the grid spacing and transfers between runs
+  poorly. A fraction alone reports lines in the noise of a field whose defects
+  have annihilated, since `s` has a largest value wherever the field is: a 32^3
+  dry run watched its threshold fall from 6.3e-3 to 3.6e-9 over `t = 20` to
+  `t = 200` while the order parameter sat at 0.499 and the line count stayed near
+  38. `disclination_threshold_floor` is what says there are none, and the
+  threshold used is recorded in every snapshot, so a run states what it read its
+  lines at. Re-read at a floor of `1e-4`, the same frames give 32 lines at
+  `t = 60` and none from `t = 100`, so every line that run reported after its
+  order parameter settled was an artefact.
+
+- **`disclination_magnitude` and `cos_beta_field`**, the two fields a rendered
+  isosurface needs, with Python bindings and a `DisclinationCurve` class beside
+  them. `tools/viz/render_3d.py` draws the density isosurface coloured by
+  `cos(beta)` on the charge convention already in the file: purple at a `-1/2`
+  wedge, green at a twist, yellow at a `+1/2` wedge.
+
+### Changed
+
+- **The 3D runners read their disclinations off the density tensor.** They took
+  them from the voxel-face holonomy path, which `volterra-fd`'s own ground-truth
+  test records returning one line of four vertices on a field where the tensor
+  returns two lines spanning all thirty-two slices. Every line count, length and
+  curvature a 3D run has ever written came from the weaker of the two detectors.
+  `defects_3d` stays exported and tested as the contrast.
+
+- **`total_line_length` is a contour length.** It summed vertex counts, which is
+  the quantity arXiv:2607.10234 reports distributions of only when every line
+  runs axis-aligned.
+
+- **`SnapStats3D` and `BechStats3D`** gain `disclination_threshold`,
+  `n_disclination_loops`, `mean_surface_mean_curvature`,
+  `mean_surface_gaussian_curvature` and `mean_cos_beta`, and lose `n_events`.
+  Event tracking ran on the holonomy path, and a curve-based tracker is separate
+  work; recording a count from the detector that undercounts was the worse of
+  the two options. Every mean is weighted by contour length.
+
+- **`volterra cartesian3d` tracks defects by default**, with `--track-defects`,
+  `--threshold-fraction` and `--threshold-floor` to set it. It passed `false` unconditionally, so a
+  CLI run recorded the mean order parameter and nothing about the state it was
+  in.
+
 ## [0.5.2] - 2026-09-05
 
 ### Added

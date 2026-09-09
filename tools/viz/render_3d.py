@@ -106,6 +106,84 @@ def add_disclination_lines(plotter, lines, tube_radius=0.3):
                              specular=0.3)
 
 
+# Charge colours, on the convention of Head et al., arXiv:2607.10234. A +1/2
+# wedge is yellow and a -1/2 wedge purple, with a twist green between them.
+# The same three make the diverging map that paints a surface by its character,
+# since cos(beta) runs continuously from -1 to +1 through them.
+CHARGE_COLOURS = {
+    "half_plus": "#f1c40f",
+    "half_minus": "#8e44ad",
+    "anti": "#27ae60",
+}
+
+
+def cos_beta_colourmap():
+    """Diverging map for cos(beta): purple at -1, green at 0, yellow at +1."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list(
+        "volterra_cos_beta",
+        [
+            (0.0, CHARGE_COLOURS["half_minus"]),
+            (0.5, CHARGE_COLOURS["anti"]),
+            (1.0, CHARGE_COLOURS["half_plus"]),
+        ],
+    )
+
+
+def scalar_order_colourmap():
+    """The house map for S: green at the melted core, white in the ordered bulk."""
+    from matplotlib.colors import LinearSegmentedColormap
+
+    return LinearSegmentedColormap.from_list(
+        "volterra_s", [(0.0, "#1a9a3a"), (1.0, "#ffffff")]
+    )
+
+
+def disclination_fields(q_flat, nx, ny, nz, dx):
+    """The disclination density `s` and `cos(beta)`, from the Rust implementation.
+
+    Both come out of the same density tensor the line detector uses, so the
+    surface drawn here is the surface whose curvature the run reports. Computing
+    them again in numpy would be a second implementation free to drift from it.
+    """
+    import volterra
+
+    field = volterra.QField3D.from_numpy(q_flat.reshape(nx * ny * nz, 5), nx, ny, nz, dx)
+    s = np.asarray(field.disclination_magnitude()).reshape(nx, ny, nz)
+    cos_beta = np.asarray(field.cos_beta_field()).reshape(nx, ny, nz)
+    return s, cos_beta
+
+
+def add_disclination_isosurface(plotter, grid, density, cos_beta, threshold,
+                                opacity=0.55):
+    """Contour the disclination density and colour the surface by local charge.
+
+    The tube this draws is the one the line runs down the middle of, so its
+    curvature and the line's are two readings of the same object: across the
+    tube the surface curves on the core radius, along it on the line's own.
+    """
+    grid.point_data["disclination_density"] = density.ravel(order="F")
+    grid.point_data["cos_beta"] = cos_beta.ravel(order="F")
+
+    surface = grid.contour([threshold], scalars="disclination_density")
+    if surface.n_points == 0:
+        return None
+
+    plotter.add_mesh(
+        surface,
+        scalars="cos_beta",
+        cmap=cos_beta_colourmap(),
+        clim=(-1.0, 1.0),
+        opacity=opacity,
+        smooth_shading=True,
+        specular=0.4,
+        show_scalar_bar=True,
+        scalar_bar_args={"title": r"$\cos\beta$", "color": "white"},
+    )
+    return surface
+
+
 def render_frame_3d(grid, s_data, threshold, frame_path,
                     disclination_lines=None,
                     camera_position=None, window_size=(1920, 1080)):
@@ -122,7 +200,7 @@ def render_frame_3d(grid, s_data, threshold, frame_path,
                          smooth_shading=True, specular=0.5)
 
     # Semi-transparent volume rendering of S.
-    plotter.add_mesh(grid, scalars="S", cmap="coolwarm",
+    plotter.add_mesh(grid, scalars="S", cmap=scalar_order_colourmap(),
                      opacity="sigmoid_5", show_scalar_bar=True,
                      scalar_bar_args={"title": "Scalar order $S$",
                                       "color": "white"})
