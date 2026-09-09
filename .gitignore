@@ -48,6 +48,14 @@ volterra-fd/examples/*
 !volterra-fd/examples/plot_fig5.py
 !volterra-fd/examples/plot_paper_figures.py
 
+# The umbrella crate is the only one depending on both the spectral and the
+# bounded solver, so the measurement of what a chamber mask costs lives here.
+# The bounded Stokes spec quotes its table, so a reader needs to be able to run
+# it. Anything else dropped in this directory stays ignored.
+!volterra/examples/
+volterra/examples/*
+!volterra/examples/mask_versus_bounded.rs
+
 # The sphere family: the scaling fit across runs, and the film of one run.
 # sphere_panels.py stays ignored, being a still of a single frame.
 !volterra-fd/examples/sphere_scaling.py
