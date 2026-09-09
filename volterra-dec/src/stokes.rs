@@ -575,7 +575,12 @@ impl SurfaceStokes {
             // Discrete harmonic lift of a unit wall value of omega, then the
             // stream function it drives.
             let omega = solver.poisson.solve_with_boundary(&zero, &g, 1e-12);
-            let phi_j = solver.poisson.solve(&omega);
+            // The response basis runs the same two solves the biharmonic does:
+            // the first produces the vorticity and belongs to `poisson`, the
+            // second produces the stream function and belongs to `outer`. On an
+            // unscreened planar domain the two operators coincide, which is why
+            // `poisson` stood here; a screened chamber separates them.
+            let phi_j = solver.outer.solve(&omega);
             let pv: Vec<f64> = phi_j.iter().copied().collect();
             let grad = vertex_gradients(nv, &pv, mesh, &coords, &inv);
             for (i, &bi) in boundary_vertices.iter().enumerate() {
