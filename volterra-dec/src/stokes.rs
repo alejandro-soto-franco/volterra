@@ -527,7 +527,22 @@ impl SurfaceStokes {
         mesh: &Mesh<M, 3, 2>,
         boundary_vertices: &[usize],
     ) -> Result<Self, String> {
-        let mut solver = Self::new_confined(ops, mesh, boundary_vertices)?;
+        Self::new_confined_clamped_screened(ops, mesh, boundary_vertices, Screening::None)
+    }
+
+    /// As [`Self::new_confined_clamped`], for a chamber of finite depth.
+    ///
+    /// The response basis is built against the operators this solver actually
+    /// uses, so a screened chamber rebuilds it at construction. It takes one
+    /// pair of solves per boundary vertex either way, and the per-step
+    /// correction stays a matrix-vector product.
+    pub fn new_confined_clamped_screened<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        mesh: &Mesh<M, 3, 2>,
+        boundary_vertices: &[usize],
+        screening: Screening,
+    ) -> Result<Self, String> {
+        let mut solver = Self::new_confined_screened(ops, mesh, boundary_vertices, screening)?;
         let nv = solver.n_vertices;
         let nb = boundary_vertices.len();
         if nb == 0 {
@@ -603,6 +618,12 @@ impl SurfaceStokes {
             inward,
         });
         Ok(solver)
+    }
+
+    /// The first of the two solves, for a test that needs its iteration count.
+    #[doc(hidden)]
+    pub fn poisson_for_test(&self) -> &PoissonSolver {
+        &self.poisson
     }
 
     /// Whether this solver imposes the clamped wall.
@@ -2065,6 +2086,356 @@ mod tests {
     /// `u . grad Q = (-u_x k sin k x, u_y k cos k y)`. Checking two spacings
     /// pins convergence as well as the constant: a scheme off by a fixed factor
     /// holds its error under refinement, which is what the halving did.
+    /// `I_0` by Abramowitz and Stegun 9.8.1 and 9.8.2, relative error below
+    /// `4e-7` over `[0, 60]`.
+    fn bessel_i0(x: f64) -> f64 {
+        let ax = x.abs();
+        if ax < 3.75 {
+            let t = (x / 3.75) * (x / 3.75);
+            1.0 + t * (3.5156229
+                + t * (3.0899424
+                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+        } else {
+            let t = 3.75 / ax;
+            (ax.exp() / ax.sqrt())
+                * (0.39894228
+                    + t * (0.01328592
+                        + t * (0.00225319
+                            + t * (-0.00157565
+                                + t * (0.00916281
+                                    + t * (-0.02057706
+                                        + t * (0.02635537
+                                            + t * (-0.01647633 + t * 0.00392377))))))))
+        }
+    }
+
+    /// Exact stream function of the SCREENED disc, for the constant source
+    /// `s_src` and `k = 1 / l_s`:
+    ///
+    ///     psi(r) = (S / k^2) [ (I_0(k r) / I_0(k R) - 1) / k^2 + (R^2 - r^2) / 4 ]
+    ///
+    /// The solver inverts `(Delta - k^2) a = source` then `Delta psi = a`, and
+    /// the two Dirichlet solves impose `a(R) = 0` and `psi(R) = 0`. Substituting
+    /// confirms both: `Delta I_0(k r) = k^2 I_0(k r)` makes the first equation
+    /// hold identically, and differentiating twice returns `a`.
+    ///
+    /// Note the argument convention differs from [`psi_exact`], which takes the
+    /// SQUARED radius. This one takes `r`.
+    ///
+    /// The second term is `0/0` at small `k R` and cancels in `f64`, so this is
+    /// evaluated only for `k R >= 0.1`. Measured departure from `psi_exact`:
+    /// `1.8e-3` at `k R = 0.1`, `1.8e-5` at `k R = 0.01`, and `2.2e-2` at
+    /// `k R = 0.001`, where cancellation dominates and the error climbs again.
+    fn psi_screened(r: f64, rad: f64, k: f64, s_src: f64) -> f64 {
+        let k2 = k * k;
+        (s_src / k2)
+            * ((bessel_i0(k * r) / bessel_i0(k * rad) - 1.0) / k2 + (rad * rad - r * r) / 4.0)
+    }
+
+    /// The screened solver reproduces the screened disc, and the unscreened one
+    /// does not.
+    #[test]
+    fn stokes_reproduces_the_screened_manufactured_solution() {
+        let rad = 1.0_f64;
+        let (mesh, bverts) = disc(rad, 240, 0.04);
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+
+        let k = 4.0_f64;
+        let solver = SurfaceStokes::new_confined_screened(
+            &ops, &mesh, &bverts, Screening::Length(1.0 / k),
+        )
+        .unwrap();
+
+        let s_src = -4.0_f64;
+        let source = DVector::from_element(nv, s_src);
+        let (_vel, psi) = solver.stream_and_velocity(&source, &mesh);
+
+        let coords = extract_coords(&mesh);
+        let exact: Vec<f64> = coords
+            .iter()
+            .map(|p| psi_screened((p[0] * p[0] + p[1] * p[1]).sqrt(), rad, k, s_src))
+            .collect();
+
+        let rel = |got: &[f64]| -> f64 {
+            let num: f64 = got.iter().zip(&exact).map(|(a, b)| (a - b) * (a - b)).sum();
+            let den: f64 = exact.iter().map(|b| b * b).sum();
+            (num / den).sqrt()
+        };
+
+        let err = rel(&psi);
+        assert!(err < 0.05, "screened solve, relative L2 error {err:.4}");
+
+        for &b in &bverts {
+            assert!(psi[b].abs() < 1e-8, "psi should vanish on the wall, got {}", psi[b]);
+        }
+
+        // And the UNSCREENED solver must fail it, so the screening is stated
+        // rather than merely satisfied. At k R = 4 the two differ by far more
+        // than the tolerance above.
+        let plain = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
+        let (_v2, psi_plain) = plain.stream_and_velocity(&source, &mesh);
+        let err_plain = rel(&psi_plain);
+        assert!(
+            err_plain > 0.5,
+            "the unscreened solver must not reproduce the screened solution, \
+             relative L2 error {err_plain:.4}"
+        );
+    }
+
+    /// At `k R = 0.1` the screened solution sits within `2e-3` of the unscreened
+    /// one, so the screened solver must reproduce `psi_exact` there.
+    ///
+    /// `k R` stays at `0.1` or above. `psi_screened` cancels catastrophically
+    /// below about `0.05`, so a tighter limit would test `f64` rather than the
+    /// solver.
+    #[test]
+    fn the_screened_solver_tends_to_the_unscreened_one() {
+        let rad = 1.0_f64;
+        let (mesh, bverts) = disc(rad, 240, 0.04);
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+
+        let k = 0.1_f64;
+        let solver = SurfaceStokes::new_confined_screened(
+            &ops, &mesh, &bverts, Screening::Length(1.0 / k),
+        )
+        .unwrap();
+        let source = DVector::from_element(nv, -4.0);
+        let (_vel, psi) = solver.stream_and_velocity(&source, &mesh);
+
+        let coords = extract_coords(&mesh);
+        let exact: Vec<f64> = coords
+            .iter()
+            .map(|p| psi_exact(p[0] * p[0] + p[1] * p[1], rad))
+            .collect();
+        let num: f64 = psi.iter().zip(&exact).map(|(a, b)| (a - b) * (a - b)).sum();
+        let den: f64 = exact.iter().map(|b| b * b).sum();
+        let err = (num / den).sqrt();
+        assert!(err < 0.05, "weak screening should recover psi_exact, error {err:.4}");
+    }
+
+    /// In the Darcy limit the interior vorticity is uniform at `S l_s^2` and the
+    /// peak speed goes as `l_s^2`, so halving `l_s` divides it by four.
+    ///
+    /// A sweep rather than a single pair: a solver wrong by a constant factor
+    /// passes any one ratio, and only the exponent across several points states
+    /// the law.
+    #[test]
+    fn the_screened_peak_speed_scales_as_the_square_of_the_screening_length() {
+        let rad = 1.0_f64;
+        let (mesh, bverts) = disc(rad, 240, 0.04);
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+        let source = DVector::from_element(nv, -4.0);
+
+        // Well inside the Darcy limit, l_s / R from a fortieth to a tenth.
+        let lengths = [0.025_f64, 0.05, 0.1];
+        let peaks: Vec<f64> = lengths
+            .iter()
+            .map(|&ls| {
+                let s = SurfaceStokes::new_confined_screened(
+                    &ops, &mesh, &bverts, Screening::Length(ls),
+                )
+                .unwrap();
+                let (vel, _psi) = s.stream_and_velocity(&source, &mesh);
+                vel.v
+                    .iter()
+                    .map(|u| (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt())
+                    .fold(0.0_f64, f64::max)
+            })
+            .collect();
+
+        for w in 0..lengths.len() - 1 {
+            let p = (peaks[w + 1] / peaks[w]).ln() / (lengths[w + 1] / lengths[w]).ln();
+            assert!(
+                (p - 2.0).abs() < 0.25,
+                "peak speed exponent in l_s should be 2, got {p:.3} between \
+                 l_s = {} and {}",
+                lengths[w],
+                lengths[w + 1]
+            );
+        }
+    }
+
+    /// The clamped wall survives screening, stated as the condition itself.
+    ///
+    /// The clamped plate imposes `psi = 0` AND `dpsi/dn = 0`; the simply
+    /// supported one imposes `psi = 0` and `Delta psi = 0` and leaves the normal
+    /// derivative free. So the discriminating quantity is `dpsi/dn` on the wall,
+    /// and the test compares the clamped solver against the simply supported one
+    /// at identical parameters. Dropping the clamp makes the two agree and the
+    /// assertion fail.
+    ///
+    /// Two things this test deliberately does NOT assert.
+    ///
+    /// The velocity at a boundary vertex is force-zeroed by
+    /// `stream_and_velocity` after recovery, so asserting it vanishes would test
+    /// that zeroing rather than the wall condition. It is measured from `psi`.
+    ///
+    /// The response matrix is rank deficient by construction, on every mesh and
+    /// with or without screening: a combination of the `phi_j` with vanishing
+    /// value and vanishing normal derivative on the wall is a biharmonic field
+    /// with zero Cauchy data, hence zero, so the null space maps to the zero
+    /// stream function and every solution gives the same `psi`. A sweep on
+    /// 2026-09-09 measured `sigma_min` at exactly zero for boundary counts 120,
+    /// 240 and 480 and for every screening length including none, which is what
+    /// `stokes.rs`'s own comment on the least-squares fallback already recorded.
+    /// Asserting a finite condition number therefore asserts something the
+    /// design denies.
+    #[test]
+    fn the_clamped_wall_holds_under_screening() {
+        let rad = 1.0_f64;
+        let (mesh, bverts) = disc(rad, 120, 0.06);
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+        let source = DVector::from_element(nv, -4.0);
+        let screening = Screening::Length(0.1);
+
+        let clamped =
+            SurfaceStokes::new_confined_clamped_screened(&ops, &mesh, &bverts, screening).unwrap();
+        assert!(clamped.is_clamped());
+        let supported =
+            SurfaceStokes::new_confined_screened(&ops, &mesh, &bverts, screening).unwrap();
+        assert!(!supported.is_clamped());
+
+        let (_vc, psi_c) = clamped.stream_and_velocity(&source, &mesh);
+        let (_vs, psi_s) = supported.stream_and_velocity(&source, &mesh);
+
+        let coords = extract_coords(&mesh);
+        let (inv, _n) = gradient_frames(nv, &mesh, &coords);
+
+        // Inward direction at each boundary vertex, the same construction the
+        // clamped correction drives its functional with.
+        let mut acc = vec![[0.0_f64; 3]; nv];
+        let mut cnt = vec![0.0_f64; nv];
+        for &[i0, i1, i2] in &mesh.simplices {
+            let c = [
+                (coords[i0][0] + coords[i1][0] + coords[i2][0]) / 3.0,
+                (coords[i0][1] + coords[i1][1] + coords[i2][1]) / 3.0,
+                (coords[i0][2] + coords[i1][2] + coords[i2][2]) / 3.0,
+            ];
+            for &v in &[i0, i1, i2] {
+                for k in 0..3 {
+                    acc[v][k] += c[k] - coords[v][k];
+                }
+                cnt[v] += 1.0;
+            }
+        }
+
+        let wall_slope = |psi: &[f64]| -> f64 {
+            let grad = vertex_gradients(nv, psi, &mesh, &coords, &inv);
+            bverts
+                .iter()
+                .map(|&b| {
+                    let mut d = acc[b];
+                    if cnt[b] > 0.0 {
+                        for k in 0..3 {
+                            d[k] /= cnt[b];
+                        }
+                    }
+                    let n = norm3(d);
+                    let dir = if n > 1e-30 { scale3(d, 1.0 / n) } else { [0.0; 3] };
+                    dot3(grad[b], dir).abs()
+                })
+                .fold(0.0_f64, f64::max)
+        };
+
+        // psi vanishes on the wall for both, which is the condition they share.
+        for &b in &bverts {
+            assert!(psi_c[b].abs() < 1e-8, "clamped psi on the wall: {}", psi_c[b]);
+            assert!(psi_s[b].abs() < 1e-8, "supported psi on the wall: {}", psi_s[b]);
+        }
+
+        // The normal derivative is what separates them.
+        let scale = psi_s.iter().fold(0.0_f64, |m, v| m.max(v.abs())) / rad;
+        let slope_c = wall_slope(&psi_c) / scale;
+        let slope_s = wall_slope(&psi_s) / scale;
+        assert!(
+            slope_c < 0.1 * slope_s,
+            "the clamp should suppress the wall slope: clamped {slope_c:.4e} against \
+             simply supported {slope_s:.4e}, a ratio of {:.3}",
+            slope_c / slope_s
+        );
+
+        // With no screening the new constructor must agree with the existing one
+        // vertex by vertex.
+        let a = SurfaceStokes::new_confined_clamped_screened(
+            &ops, &mesh, &bverts, Screening::None,
+        )
+        .unwrap();
+        let b = SurfaceStokes::new_confined_clamped(&ops, &mesh, &bverts).unwrap();
+        let (_va, pa) = a.stream_and_velocity(&source, &mesh);
+        let (_vb, pb) = b.stream_and_velocity(&source, &mesh);
+        for i in 0..nv {
+            assert!(
+                (pa[i] - pb[i]).abs() < 1e-12,
+                "the unscreened clamped paths disagree at vertex {i}: {} against {}",
+                pa[i],
+                pb[i]
+            );
+        }
+    }
+
+    /// Two independently constructed screened solvers agree BIT FOR BIT on the
+    /// same input, and the screened operator converges no slower than the
+    /// unscreened one.
+    ///
+    /// The first property is reproducibility: nothing in the construction path
+    /// depends on call order, cached state or an unseeded source. The second is
+    /// the sign of the shift stated so it can fail. Screening adds `k^2 M` to an
+    /// already positive definite stiffness, which moves the spectrum away from
+    /// zero, so the iteration count must not rise. An inverted shift subtracts
+    /// instead, and the count climbs.
+    #[test]
+    fn the_screened_solve_is_reproducible_and_better_conditioned() {
+        let rad = 1.0_f64;
+        let (mesh, bverts) = disc(rad, 120, 0.06);
+        let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+        let nv = mesh.n_vertices();
+        let source = DVector::from_element(nv, -4.0);
+
+        let a = SurfaceStokes::new_confined_screened(
+            &ops, &mesh, &bverts, Screening::Length(0.1),
+        )
+        .unwrap();
+        let b = SurfaceStokes::new_confined_screened(
+            &ops, &mesh, &bverts, Screening::Length(0.1),
+        )
+        .unwrap();
+        let (_va, pa) = a.stream_and_velocity(&source, &mesh);
+        let (_vb, pb) = b.stream_and_velocity(&source, &mesh);
+        for i in 0..nv {
+            assert_eq!(
+                pa[i].to_bits(),
+                pb[i].to_bits(),
+                "two identical solvers disagree at vertex {i}: {} against {}",
+                pa[i],
+                pb[i]
+            );
+        }
+
+        // Same solver, same input, twice: no dependence on call history.
+        let (_va2, pa2) = a.stream_and_velocity(&source, &mesh);
+        for i in 0..nv {
+            assert_eq!(
+                pa[i].to_bits(),
+                pa2[i].to_bits(),
+                "a repeated solve disagreed at vertex {i}"
+            );
+        }
+
+        // Conditioning: the screened first solve converges no slower.
+        let plain = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
+        let (_p1, its_plain) = plain.poisson_for_test().solve_from(&source, None, 1e-10);
+        let (_p2, its_screened) = a.poisson_for_test().solve_from(&source, None, 1e-10);
+        assert!(
+            its_screened <= its_plain,
+            "screening should not slow convergence: {its_screened} iterations screened \
+             against {its_plain} unscreened, which points at an inverted shift"
+        );
+    }
+
     #[test]
     fn advection_recovers_the_directional_derivative_and_converges() {
         let k = 2.0_f64;
