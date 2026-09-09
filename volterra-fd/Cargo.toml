@@ -11,7 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-volterra-core = { workspace = true }
+volterra-core  = { workspace = true }
+volterra-braid = { workspace = true }
 thiserror     = { workspace = true }
 rayon      = { workspace = true }
 serde      = { workspace = true }

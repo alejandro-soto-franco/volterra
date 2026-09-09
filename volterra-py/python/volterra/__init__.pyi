@@ -652,6 +652,34 @@ class QField3D:
         """P = lambda_mid - lambda_min at each vertex, shape (nx*ny*nz,)."""
         ...
 
+    def disclination_magnitude(self) -> npt.NDArray[np.float64]:
+        """Disclination density `s` at each vertex, shape (nx*ny*nz,).
+
+        The field an isosurface is drawn on: it vanishes in the ordered bulk and
+        peaks on a core, so {s = c} is a tube around every disclination line.
+        """
+        ...
+
+    def cos_beta_field(self) -> npt.NDArray[np.float64]:
+        """cos(beta) at each vertex, shape (nx*ny*nz,).
+
+        +1 on a +1/2 wedge, -1 on a -1/2 wedge and 0 on a twist. Read it on the
+        isosurface rather than in the bulk, where s is small and the
+        factorisation has nothing to resolve.
+        """
+        ...
+
+    def disclination_curves(
+        self, fraction: float = 0.25, floor: float = 0.0
+    ) -> tuple[list[DisclinationCurve], float]:
+        """The disclination curves, and the threshold they were read at.
+
+        The threshold is that fraction of the field's own interior peak, and is
+        the value to contour `disclination_magnitude` on to draw the surface the
+        curves run down the middle of.
+        """
+        ...
+
     def mean_s(self) -> float: ...
     def max_norm(self) -> float: ...
     def __len__(self) -> int: ...
@@ -707,20 +735,65 @@ class SnapStats3D:
     time: float
     mean_s: float
     biaxiality_p: float
+    disclination_threshold: float
     n_disclination_lines: int
+    n_disclination_loops: int
     total_line_length: float
     mean_line_curvature: float
-    n_events: int
+    mean_surface_mean_curvature: float
+    mean_surface_gaussian_curvature: float
+    mean_cos_beta: float
 
 class BechStats3D:
     time: float
     mean_s: float
     mean_phi: float
     biaxiality_p: float
+    disclination_threshold: float
     n_disclination_lines: int
+    n_disclination_loops: int
     total_line_length: float
     mean_line_curvature: float
-    n_events: int
+    mean_surface_mean_curvature: float
+    mean_surface_gaussian_curvature: float
+    mean_cos_beta: float
+
+class DisclinationCurve:
+    """One disclination line, read off the disclination density tensor.
+
+    A line and the axis of a tube at once, so it reports two curvatures: its
+    own, and that of the s isosurface around it.
+    """
+
+    @property
+    def points(self) -> npt.NDArray[np.float64]:
+        """Core positions along the line, shape (n, 3), refined to sub-voxel."""
+        ...
+
+    @property
+    def cos_beta(self) -> npt.NDArray[np.float64]:
+        """cos(beta) at each site, shape (n,)."""
+        ...
+
+    @property
+    def curvatures(self) -> npt.NDArray[np.float64]:
+        """Curvature of the line at each site, shape (n,)."""
+        ...
+
+    @property
+    def torsions(self) -> npt.NDArray[np.float64]:
+        """Torsion of the line at each site, shape (n,)."""
+        ...
+
+    length: float
+    is_loop: bool
+    mean_cos_beta: float
+    mean_curvature: float
+    surface_mean_curvature: float
+    surface_gaussian_curvature: float
+
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 class DisclinationLine:
     @property

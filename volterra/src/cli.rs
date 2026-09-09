@@ -116,6 +116,28 @@ pub struct Cartesian3dArgs {
     #[arg(long, default_value_t = 32)]
     pub nz: usize,
 
+    /// Read the disclination lines at every snapshot and record their geometry.
+    ///
+    /// On by default: a 3D run whose statistics omit the disclinations records
+    /// the mean order parameter and nothing else about the state it is in.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub track_defects: bool,
+
+    /// Fraction of the field's own interior peak taken as the isosurface the
+    /// lines are read off.
+    #[arg(long, default_value_t = 0.25)]
+    pub threshold_fraction: f64,
+
+    /// Absolute floor on that threshold, in the units of the disclination
+    /// density.
+    ///
+    /// The fraction alone reports lines in the noise of a field whose defects
+    /// have annihilated. Read the threshold each snapshot records: one falling
+    /// by orders of magnitude while the order parameter holds steady means the
+    /// disclinations have gone and the floor is what says so.
+    #[arg(long)]
+    pub threshold_floor: Option<f64>,
+
     /// Common loop flags.
     #[command(flatten)]
     pub common: CommonArgs,
@@ -291,6 +313,10 @@ fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
     params.nx = args.nx;
     params.ny = args.ny;
     params.nz = args.nz;
+    params.disclination_threshold_fraction = args.threshold_fraction;
+    if args.threshold_floor.is_some() {
+        params.disclination_threshold_floor = args.threshold_floor;
+    }
 
     let q0 = QField3D::random_perturbation(
         params.nx,
@@ -313,7 +339,7 @@ fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
                 args.common.steps,
                 args.common.snap_every,
                 &out,
-                false,
+                args.track_defects,
             );
             stats.len()
         }
@@ -326,7 +352,7 @@ fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
                 args.common.steps,
                 args.common.snap_every,
                 &out,
-                false,
+                args.track_defects,
             );
             stats.len()
         }

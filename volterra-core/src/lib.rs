@@ -409,6 +409,51 @@ pub struct ActiveNematicParams3D {
     /// physical value ≈ ξ_CH = 3 nm for a 1 nm grid.
     #[serde(default = "default_epsilon_ch")]
     pub epsilon_ch: f64,
+
+    /// Fraction of the interior peak of the disclination density taken as the
+    /// isosurface the lines are read off.
+    ///
+    /// `s` scales as the square of a Q gradient, so it depends on the field's
+    /// normalisation and on the grid spacing, and an absolute value transfers
+    /// between runs no better than a Reynolds number does between fluids. A
+    /// fraction of the peak transfers, and the value used is recorded in every
+    /// snapshot's statistics so a run states its own threshold.
+    ///
+    /// The reading is relative, so a field with no disclination in it still
+    /// returns whatever its largest gradient is. Read the count alongside the
+    /// threshold, which falls by orders of magnitude when the defects go.
+    #[serde(default = "default_disclination_threshold_fraction")]
+    pub disclination_threshold_fraction: f64,
+
+    /// Absolute floor on that threshold, below which the answer is that there
+    /// are no disclinations.
+    ///
+    /// The fraction alone reports lines in the noise of a field that has none,
+    /// since `s` has a largest value wherever the field is. A 32^3 dry run
+    /// watched its threshold fall from 6.3e-3 to 3.6e-9 as its defects
+    /// annihilated, while the order parameter sat at 0.499 and the line count
+    /// stayed near 38. The threshold that is used is the larger of this and the
+    /// fraction of the peak.
+    ///
+    /// `None`, the default, scales one from the field's own equilibrium and the
+    /// grid spacing; see [`disclination_floor`](Self::disclination_floor).
+    /// `Some(0.0)` leaves the relative rule alone.
+    #[serde(default)]
+    pub disclination_threshold_floor: Option<f64>,
+}
+
+/// The default floor, as a multiple of `(q_eq / dx)^2`.
+///
+/// A resolved `+1/2` core reads `0.647 (q_eq / dx)^2`, measured, and the same
+/// multiple at every spacing, since `s` is quadratic in a Q gradient and a core
+/// turns the director through a fixed angle over a lattice spacing. An ordered
+/// field's numerical noise sat at `1.8e-7` of that scale. This coefficient is
+/// near the middle of the two in the logarithm: about 2.8 decades below a core
+/// and 3.8 above the noise.
+pub const DEFAULT_DISCLINATION_FLOOR_COEFFICIENT: f64 = 1e-3;
+
+fn default_disclination_threshold_fraction() -> f64 {
+    0.25
 }
 
 fn default_epsilon_ch() -> f64 { 1.0 }
@@ -427,6 +472,35 @@ impl ActiveNematicParams3D {
     /// Effective Landau parameter a_eff = a_landau - zeta_eff / 2.
     pub fn a_eff(&self) -> f64 {
         self.a_landau - self.zeta_eff / 2.0
+    }
+
+    /// The equilibrium scalar order parameter, the positive root of
+    /// `6a + 3b q + 8c q^2 = 0` in the `Q = q (nn - I/3)` convention.
+    ///
+    /// Zero where the quartic has no ordered minimum, which is the isotropic
+    /// state and has no disclination in it to find.
+    pub fn equilibrium_q(&self) -> f64 {
+        let disc = 9.0 * self.b_landau * self.b_landau
+            - 192.0 * self.a_landau * self.c_landau;
+        if disc < 0.0 || self.c_landau == 0.0 {
+            return 0.0;
+        }
+        (-3.0 * self.b_landau + disc.sqrt()) / (16.0 * self.c_landau)
+    }
+
+    /// The floor on the disclination threshold this run should use.
+    ///
+    /// An explicit [`disclination_threshold_floor`] where one is set, and
+    /// otherwise [`DEFAULT_DISCLINATION_FLOOR_COEFFICIENT`] times
+    /// `(q_eq / dx)^2`. Scaling it that way is what makes the default mean the
+    /// same thing on a different grid or at a different normalisation, where a
+    /// bare number would silently mean something else.
+    ///
+    /// [`disclination_threshold_floor`]: Self::disclination_threshold_floor
+    pub fn disclination_floor(&self) -> f64 {
+        self.disclination_threshold_floor.unwrap_or_else(|| {
+            DEFAULT_DISCLINATION_FLOOR_COEFFICIENT * (self.equilibrium_q() / self.dx).powi(2)
+        })
     }
 
     /// Cahn-Hilliard coherence length ξ_CH = sqrt(κ_ch / a_ch).
@@ -580,6 +654,8 @@ impl ActiveNematicParams3D {
             kappa_w: 0.0,
             kappa_bar_g: 0.0,
             epsilon_ch: 1.0,   // = dx for unit tests
+            disclination_threshold_fraction: 0.25,
+            disclination_threshold_floor: None,
         }
     }
 }

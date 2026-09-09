@@ -23,10 +23,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use volterra_core::ActiveNematicParams3D;
-use volterra_core::{QField3D, ScalarField3D};
+use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
 
-use crate::defects_3d::{scan_defects_3d, track_defect_events};
-use cartan_geo::disclination::DisclinationLine;
+use volterra_braid::disclination::{DisclinationCurve, disclination_lines_at_fraction};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Statistics types
@@ -41,15 +40,39 @@ pub struct SnapStats3D {
     pub mean_s: f64,
     /// Spatial mean of the biaxiality parameter P = λ_mid − λ_min.
     pub biaxiality_p: f64,
+    /// The disclination density the lines were read off at this snapshot.
+    ///
+    /// Set as a fraction of the field's own interior peak, so it moves with the
+    /// field. Read the counts below against it: a snapshot whose threshold has
+    /// fallen by orders of magnitude has no disclination left, whatever it
+    /// reports finding.
+    pub disclination_threshold: f64,
     /// Number of connected disclination lines detected.
     pub n_disclination_lines: usize,
-    /// Total disclination line length (in vertex units).
+    /// How many of those close on themselves.
+    pub n_disclination_loops: usize,
+    /// Total disclination line length, in the grid's own length units.
     pub total_line_length: f64,
-    /// Mean Frenet curvature along all disclination lines.
+    /// Length-weighted mean curvature of the lines themselves.
     pub mean_line_curvature: f64,
-    /// Number of topological events (creation / annihilation / reconnection)
-    /// detected since the previous snapshot.
-    pub n_events: usize,
+    /// Length-weighted mean curvature of the `s` isosurface around them.
+    ///
+    /// Positive, since `s` rises towards a core and the surface normal follows
+    /// it, and near `1/(2R)` at the tube radius `R`. That makes it much the
+    /// larger of the two curvatures.
+    pub mean_surface_mean_curvature: f64,
+    /// Length-weighted mean Gaussian curvature of that surface.
+    pub mean_surface_gaussian_curvature: f64,
+    /// Length-weighted mean of `cos(beta)`, which is `+1` on a `+1/2` wedge,
+    /// `-1` on a `-1/2` wedge and `0` on a twist.
+    pub mean_cos_beta: f64,
+    /// Fastest flow anywhere in the box.
+    ///
+    /// Zero in a dry run, which solves no flow, so the field distinguishes the
+    /// two without a second statistics type.
+    pub max_speed: f64,
+    /// Mean speed over the box.
+    pub mean_speed: f64,
 }
 
 /// Per-snapshot statistics for the full BECH run ([`run_bech_3d`]).
@@ -63,14 +86,22 @@ pub struct BechStats3D {
     pub biaxiality_p: f64,
     /// Spatial mean of the lipid concentration φ.
     pub mean_phi: f64,
+    /// The disclination density the lines were read off at this snapshot.
+    pub disclination_threshold: f64,
     /// Number of connected disclination lines detected.
     pub n_disclination_lines: usize,
-    /// Total disclination line length (in vertex units).
+    /// How many of those close on themselves.
+    pub n_disclination_loops: usize,
+    /// Total disclination line length, in the grid's own length units.
     pub total_line_length: f64,
-    /// Mean Frenet curvature along all disclination lines.
+    /// Length-weighted mean curvature of the lines themselves.
     pub mean_line_curvature: f64,
-    /// Number of topological events since the previous snapshot.
-    pub n_events: usize,
+    /// Length-weighted mean curvature of the `s` isosurface around them.
+    pub mean_surface_mean_curvature: f64,
+    /// Length-weighted mean Gaussian curvature of that surface.
+    pub mean_surface_gaussian_curvature: f64,
+    /// Length-weighted mean of `cos(beta)`, the wedge-against-twist character.
+    pub mean_cos_beta: f64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +145,6 @@ pub fn run_dry_active_nematic_3d(
 
     let mut q = q_init.clone();
     let mut stats: Vec<SnapStats3D> = Vec::new();
-    let mut prev_lines: Option<Vec<DisclinationLine>> = None;
 
     let mut physics = Cartesian3DDry { params: p.clone(), step_idx: 0 };
 
@@ -126,23 +156,24 @@ pub fn run_dry_active_nematic_3d(
 
         // Snapshot trigger: when (step+1) % snap_every == 0.
         if snap_every > 0 && (step + 1) % snap_every == 0 {
-            let snap_idx = (step + 1) / snap_every;
+
             let t_snap = (step + 1) as f64 * p.dt;
 
-            let (lines, n_events) = if track_defects {
-                let current = scan_defects_3d(&q);
-                let n_ev = if let Some(ref prev) = prev_lines {
-                    track_defect_events(prev, &current, snap_idx, p.dx).len()
-                } else {
-                    0
-                };
-                prev_lines = Some(current.clone());
-                (current, n_ev)
+            let (lines, threshold) = if track_defects {
+                disclination_lines_at_fraction(
+                    &q.q,
+                    q.nx,
+                    q.ny,
+                    q.nz,
+                    q.dx,
+                    p.disclination_threshold_fraction,
+                    p.disclination_floor(),
+                )
             } else {
-                (Vec::new(), 0)
+                (Vec::new(), 0.0)
             };
 
-            let s = compute_snap_stats(&q, &lines, n_events, t_snap);
+            let s = compute_snap_stats(&q, &lines, threshold, t_snap, None);
             stats.push(s);
 
             let npy_path = out_dir.join(format!("q_{step:06}.npy"));
@@ -159,6 +190,76 @@ pub fn run_dry_active_nematic_3d(
     }
 
     (q, stats)
+}
+
+/// Run the **wet** 3D active nematic: Beris-Edwards coupled to Stokes flow.
+///
+/// Each step solves the steady incompressible Stokes problem driven by the
+/// active stress `-zeta Q`, then advances `Q` in that flow, so a disclination
+/// line is advected and sheared by hydrodynamics its own texture generates. The
+/// dry runner solves no flow at all, and with the activity switched off this one
+/// reproduces it exactly.
+///
+/// Writes `.npy` snapshots of `Q` and of the velocity, and a `stats.json` whose
+/// records now report the flow as well as the lines.
+///
+/// # Returns
+///
+/// `(q_final, velocity_final, stats)`.
+pub fn run_wet_active_nematic_3d(
+    q_init: &QField3D,
+    p: &ActiveNematicParams3D,
+    n_steps: usize,
+    snap_every: usize,
+    out_dir: &Path,
+    track_defects: bool,
+) -> (QField3D, VelocityField3D, Vec<SnapStats3D>) {
+    use crate::sim_impls::cartesian3d::{Cartesian3DWet, WetState3D};
+    use volterra_core::sim::PhysicsStep;
+    use volterra_core::sim::snapshot::write_npy;
+
+    let mut st = WetState3D {
+        q: q_init.clone(),
+        vel: VelocityField3D::zeros(q_init.nx, q_init.ny, q_init.nz, q_init.dx),
+    };
+    let mut stats: Vec<SnapStats3D> = Vec::new();
+    let mut physics = Cartesian3DWet { params: p.clone(), step_idx: 0 };
+
+    for step in 0..n_steps {
+        physics.step(&mut st, 0.0);
+
+        if snap_every > 0 && (step + 1) % snap_every == 0 {
+            let t_snap = (step + 1) as f64 * p.dt;
+            let (lines, threshold) = if track_defects {
+                disclination_lines_at_fraction(
+                    &st.q.q,
+                    st.q.nx,
+                    st.q.ny,
+                    st.q.nz,
+                    st.q.dx,
+                    p.disclination_threshold_fraction,
+                    p.disclination_floor(),
+                )
+            } else {
+                (Vec::new(), 0.0)
+            };
+            stats.push(compute_snap_stats(&st.q, &lines, threshold, t_snap, Some(&st.vel)));
+
+            let flat: Vec<f64> = st.q.q.iter().flat_map(|a| a.iter().copied()).collect();
+            if let Err(e) = write_npy(&out_dir.join(format!("q_{step:06}.npy")), &flat, p.nx, p.ny, p.nz, 5) {
+                eprintln!("[runner_3d] warn: failed to write the Q snapshot: {e}");
+            }
+            let flow: Vec<f64> = st.vel.u.iter().flat_map(|a| a.iter().copied()).collect();
+            if let Err(e) = write_npy(&out_dir.join(format!("u_{step:06}.npy")), &flow, p.nx, p.ny, p.nz, 3) {
+                eprintln!("[runner_3d] warn: failed to write the velocity snapshot: {e}");
+            }
+        }
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(&stats) {
+        let _ = std::fs::write(out_dir.join("stats.json"), json);
+    }
+    (st.q, st.vel, stats)
 }
 
 /// Run the **full BECH** 3D model: Beris-Edwards + Stokes + Cahn-Hilliard.
@@ -204,7 +305,6 @@ pub fn run_bech_3d(
         vel: VelocityField3D::zeros(p.nx, p.ny, p.nz, p.dx),
     };
     let mut stats: Vec<BechStats3D> = Vec::new();
-    let mut prev_lines: Option<Vec<DisclinationLine>> = None;
 
     let mut physics = Cartesian3DBech { params: p.clone(), step_idx: 0 };
 
@@ -215,23 +315,24 @@ pub fn run_bech_3d(
 
         // Snapshot trigger.
         if snap_every > 0 && (step + 1) % snap_every == 0 {
-            let snap_idx = (step + 1) / snap_every;
+
             let t_snap = (step + 1) as f64 * p.dt;
 
-            let (lines, n_events) = if track_defects {
-                let current = scan_defects_3d(&st.q);
-                let n_ev = if let Some(ref prev) = prev_lines {
-                    track_defect_events(prev, &current, snap_idx, p.dx).len()
-                } else {
-                    0
-                };
-                prev_lines = Some(current.clone());
-                (current, n_ev)
+            let (lines, threshold) = if track_defects {
+                disclination_lines_at_fraction(
+                    &st.q.q,
+                    st.q.nx,
+                    st.q.ny,
+                    st.q.nz,
+                    st.q.dx,
+                    p.disclination_threshold_fraction,
+                    p.disclination_floor(),
+                )
             } else {
-                (Vec::new(), 0)
+                (Vec::new(), 0.0)
             };
 
-            let s = compute_bech_stats(&st.q, &st.phi, &lines, n_events, t_snap);
+            let s = compute_bech_stats(&st.q, &st.phi, &lines, threshold, t_snap);
             stats.push(s);
 
             // Write Q snapshot.
@@ -268,58 +369,107 @@ pub fn run_bech_3d(
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The aggregates both runners report over a set of disclination lines.
+///
+/// Every mean is weighted by contour length, so a line that runs the depth of
+/// the box counts for more than a two-voxel fragment beside it.
+struct LineGeometry {
+    n_lines: usize,
+    n_loops: usize,
+    total_length: f64,
+    curvature: f64,
+    surface_mean: f64,
+    surface_gaussian: f64,
+    cos_beta: f64,
+}
+
+impl LineGeometry {
+    fn of(lines: &[DisclinationCurve]) -> Self {
+        let total_length: f64 = lines.iter().map(|c| c.length).sum();
+        let weighted = |f: fn(&DisclinationCurve) -> f64| {
+            if total_length > 0.0 {
+                lines.iter().map(|c| c.length * f(c)).sum::<f64>() / total_length
+            } else {
+                0.0
+            }
+        };
+        Self {
+            n_lines: lines.len(),
+            n_loops: lines.iter().filter(|c| c.is_loop).count(),
+            total_length,
+            curvature: weighted(|c| c.mean_curvature),
+            surface_mean: weighted(|c| c.surface_mean_curvature),
+            surface_gaussian: weighted(|c| c.surface_gaussian_curvature),
+            cos_beta: weighted(|c| c.mean_cos_beta),
+        }
+    }
+}
+
 /// Compute [`SnapStats3D`] from the current Q-field and disclination lines.
 fn compute_snap_stats(
     q: &QField3D,
-    lines: &[DisclinationLine],
-    n_events: usize,
+    lines: &[DisclinationCurve],
+    threshold: f64,
     time: f64,
+    vel: Option<&VelocityField3D>,
 ) -> SnapStats3D {
-    let mean_s = q.mean_s();
-    let biaxiality_p = q.biaxiality_p().iter().sum::<f64>() / q.len() as f64;
-    let total_length: f64 = lines.iter().map(|l| l.vertices.len() as f64).sum();
-    let mean_curv = if total_length > 0.0 {
-        lines.iter().flat_map(|l| l.curvatures.iter()).sum::<f64>() / total_length
-    } else {
-        0.0
-    };
+    let g = LineGeometry::of(lines);
+    let (max_speed, mean_speed) = speeds(vel);
     SnapStats3D {
         time,
-        mean_s,
-        biaxiality_p,
-        n_disclination_lines: lines.len(),
-        total_line_length: total_length,
-        mean_line_curvature: mean_curv,
-        n_events,
+        mean_s: q.mean_s(),
+        biaxiality_p: q.biaxiality_p().iter().sum::<f64>() / q.len() as f64,
+        disclination_threshold: threshold,
+        n_disclination_lines: g.n_lines,
+        n_disclination_loops: g.n_loops,
+        total_line_length: g.total_length,
+        mean_line_curvature: g.curvature,
+        mean_surface_mean_curvature: g.surface_mean,
+        mean_surface_gaussian_curvature: g.surface_gaussian,
+        mean_cos_beta: g.cos_beta,
+        max_speed,
+        mean_speed,
     }
+}
+
+/// The fastest and mean speed of a flow, or zeros where there is none.
+fn speeds(vel: Option<&VelocityField3D>) -> (f64, f64) {
+    let Some(v) = vel else { return (0.0, 0.0) };
+    if v.u.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mut max = 0.0_f64;
+    let mut sum = 0.0_f64;
+    for u in &v.u {
+        let s = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+        max = max.max(s);
+        sum += s;
+    }
+    (max, sum / v.u.len() as f64)
 }
 
 /// Compute [`BechStats3D`] from the current Q, φ, and disclination lines.
 fn compute_bech_stats(
     q: &QField3D,
     phi: &ScalarField3D,
-    lines: &[DisclinationLine],
-    n_events: usize,
+    lines: &[DisclinationCurve],
+    threshold: f64,
     time: f64,
 ) -> BechStats3D {
-    let mean_s = q.mean_s();
-    let biaxiality_p = q.biaxiality_p().iter().sum::<f64>() / q.len() as f64;
-    let mean_phi = phi.mean();
-    let total_length: f64 = lines.iter().map(|l| l.vertices.len() as f64).sum();
-    let mean_curv = if total_length > 0.0 {
-        lines.iter().flat_map(|l| l.curvatures.iter()).sum::<f64>() / total_length
-    } else {
-        0.0
-    };
+    let g = LineGeometry::of(lines);
     BechStats3D {
         time,
-        mean_s,
-        biaxiality_p,
-        mean_phi,
-        n_disclination_lines: lines.len(),
-        total_line_length: total_length,
-        mean_line_curvature: mean_curv,
-        n_events,
+        mean_s: q.mean_s(),
+        biaxiality_p: q.biaxiality_p().iter().sum::<f64>() / q.len() as f64,
+        mean_phi: phi.mean(),
+        disclination_threshold: threshold,
+        n_disclination_lines: g.n_lines,
+        n_disclination_loops: g.n_loops,
+        total_line_length: g.total_length,
+        mean_line_curvature: g.curvature,
+        mean_surface_mean_curvature: g.surface_mean,
+        mean_surface_gaussian_curvature: g.surface_gaussian,
+        mean_cos_beta: g.cos_beta,
     }
 }
 
@@ -331,7 +481,7 @@ fn compute_bech_stats(
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_core::{QField3D, ScalarField3D};
+    use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
 
     /// Smoke test: 5 steps of dry active turbulence on a tiny grid, no crash.
     #[test]

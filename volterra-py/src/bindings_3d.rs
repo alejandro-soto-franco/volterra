@@ -16,6 +16,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
+use volterra_braid::disclination::{
+    DisclinationCurve, cos_beta_field, disclination_lines_at_fraction, disclination_magnitude,
+};
 use volterra_fd::{BechStats3D, SnapStats3D};
 use cartan_geo::{DisclinationLine, DisclinationEvent, EventKind, DisclinationCharge, Sign};
 
@@ -80,6 +83,8 @@ impl PyActiveNematicParams3D {
             a_landau, c_landau, b_landau,
             lambda: lambda_,
             noise_amp, chi_a, b0, omega_b,
+            disclination_threshold_fraction: 0.25,
+            disclination_threshold_floor: None,
             epsilon_a: epsilon_a.unwrap_or(0.0),
             e0: e0.unwrap_or(0.0),
             omega_e: omega_e.unwrap_or(0.0),
@@ -258,6 +263,48 @@ impl PyQField3D {
     fn biaxiality<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let p = self.inner.biaxiality_p();
         Array1::from_vec(p).into_pyarray(py)
+    }
+
+    /// Disclination density magnitude `s` at each vertex, shape (nx*ny*nz,).
+    ///
+    /// The field an isosurface is drawn on: it vanishes in the ordered bulk and
+    /// peaks on a core, so `{s = c}` is a tube around every disclination line.
+    /// Reshape in Python to (nx, ny, nz).
+    fn disclination_magnitude<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        let s = disclination_magnitude(
+            &self.inner.q, self.inner.nx, self.inner.ny, self.inner.nz, self.inner.dx,
+        );
+        Array1::from_vec(s).into_pyarray(py)
+    }
+
+    /// `cos(beta)` at each vertex, shape (nx*ny*nz,).
+    ///
+    /// `+1` on a `+1/2` wedge, `-1` on a `-1/2` wedge and `0` on a twist, so
+    /// colouring the `s` isosurface by it shows the character along a line.
+    /// Meaningless away from a core, where `s` is small and the factorisation
+    /// has nothing to resolve, so read it on the surface rather than in the bulk.
+    fn cos_beta_field<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        let b = cos_beta_field(
+            &self.inner.q, self.inner.nx, self.inner.ny, self.inner.nz, self.inner.dx,
+        );
+        Array1::from_vec(b).into_pyarray(py)
+    }
+
+    /// The disclination curves, at a threshold taken from the field's own
+    /// interior peak.
+    ///
+    /// Returns the curves and the threshold they were read at, which is the
+    /// value to contour `disclination_magnitude` on to draw the same surface.
+    #[pyo3(signature = (fraction = 0.25, floor = 0.0))]
+    fn disclination_curves(&self, fraction: f64, floor: f64) -> (Vec<PyDisclinationCurve>, f64) {
+        let (curves, threshold) = disclination_lines_at_fraction(
+            &self.inner.q, self.inner.nx, self.inner.ny, self.inner.nz, self.inner.dx, fraction,
+            floor,
+        );
+        (
+            curves.into_iter().map(|inner| PyDisclinationCurve { inner }).collect(),
+            threshold,
+        )
     }
 
     #[getter] fn nx(&self) -> usize { self.inner.nx }
@@ -445,12 +492,20 @@ impl PySnapStats3D {
     #[getter] fn biaxiality_p(&self) -> f64 { self.inner.biaxiality_p }
     /// Number of connected disclination lines detected.
     #[getter] fn n_disclination_lines(&self) -> usize { self.inner.n_disclination_lines }
-    /// Total disclination line length in vertex units.
+    /// How many of those close on themselves.
+    #[getter] fn n_disclination_loops(&self) -> usize { self.inner.n_disclination_loops }
+    /// Total disclination line length, in the grid's own length units.
     #[getter] fn total_line_length(&self) -> f64 { self.inner.total_line_length }
-    /// Mean Frenet curvature along all disclination lines.
+    /// The disclination density the lines were read off at.
+    #[getter] fn disclination_threshold(&self) -> f64 { self.inner.disclination_threshold }
+    /// Length-weighted mean curvature of the lines themselves.
     #[getter] fn mean_line_curvature(&self) -> f64 { self.inner.mean_line_curvature }
-    /// Number of topological events since the previous snapshot.
-    #[getter] fn n_events(&self) -> usize { self.inner.n_events }
+    /// Length-weighted mean curvature of the s isosurface around them.
+    #[getter] fn mean_surface_mean_curvature(&self) -> f64 { self.inner.mean_surface_mean_curvature }
+    /// Length-weighted mean Gaussian curvature of that surface.
+    #[getter] fn mean_surface_gaussian_curvature(&self) -> f64 { self.inner.mean_surface_gaussian_curvature }
+    /// Length-weighted mean of cos(beta), the wedge-against-twist character.
+    #[getter] fn mean_cos_beta(&self) -> f64 { self.inner.mean_cos_beta }
 
     fn __repr__(&self) -> String {
         format!(
@@ -484,12 +539,20 @@ impl PyBechStats3D {
     #[getter] fn mean_phi(&self) -> f64 { self.inner.mean_phi }
     /// Number of connected disclination lines detected.
     #[getter] fn n_disclination_lines(&self) -> usize { self.inner.n_disclination_lines }
-    /// Total disclination line length in vertex units.
+    /// How many of those close on themselves.
+    #[getter] fn n_disclination_loops(&self) -> usize { self.inner.n_disclination_loops }
+    /// Total disclination line length, in the grid's own length units.
     #[getter] fn total_line_length(&self) -> f64 { self.inner.total_line_length }
-    /// Mean Frenet curvature along all disclination lines.
+    /// The disclination density the lines were read off at.
+    #[getter] fn disclination_threshold(&self) -> f64 { self.inner.disclination_threshold }
+    /// Length-weighted mean curvature of the lines themselves.
     #[getter] fn mean_line_curvature(&self) -> f64 { self.inner.mean_line_curvature }
-    /// Number of topological events since the previous snapshot.
-    #[getter] fn n_events(&self) -> usize { self.inner.n_events }
+    /// Length-weighted mean curvature of the s isosurface around them.
+    #[getter] fn mean_surface_mean_curvature(&self) -> f64 { self.inner.mean_surface_mean_curvature }
+    /// Length-weighted mean Gaussian curvature of that surface.
+    #[getter] fn mean_surface_gaussian_curvature(&self) -> f64 { self.inner.mean_surface_gaussian_curvature }
+    /// Length-weighted mean of cos(beta), the wedge-against-twist character.
+    #[getter] fn mean_cos_beta(&self) -> f64 { self.inner.mean_cos_beta }
 
     fn __repr__(&self) -> String {
         format!(
@@ -726,6 +789,81 @@ fn run_bech_3d_py(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Register 3D binding classes and runner functions into the volterra Python module.
+// ─────────────────────────────────────────────────────────────────────────────
+// PyDisclinationCurve
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One disclination line, read off the disclination density tensor.
+///
+/// A line and the axis of a tube at once, so it reports two curvatures: its own,
+/// and that of the `s` isosurface around it.
+#[pyclass(name = "DisclinationCurve", from_py_object)]
+#[derive(Clone)]
+pub struct PyDisclinationCurve {
+    pub(crate) inner: DisclinationCurve,
+}
+
+#[pymethods]
+impl PyDisclinationCurve {
+    /// Core positions along the line, shape (n, 3), in the grid's length units
+    /// and refined to sub-voxel accuracy.
+    #[getter]
+    fn points<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray2<f64>> {
+        let mut arr = Array2::<f64>::zeros((self.inner.sites.len(), 3));
+        for (n, s) in self.inner.sites.iter().enumerate() {
+            for c in 0..3 {
+                arr[[n, c]] = s.pos[c];
+            }
+        }
+        arr.into_pyarray(py)
+    }
+
+    /// `cos(beta)` at each site, shape (n,). Colour the line by this.
+    #[getter]
+    fn cos_beta<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        let v: Vec<f64> = self.inner.sites.iter().map(|s| s.disclination.cos_beta).collect();
+        Array1::from_vec(v).into_pyarray(py)
+    }
+
+    /// Curvature of the line at each site, shape (n,).
+    #[getter]
+    fn curvatures<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from_vec(self.inner.curvatures.clone()).into_pyarray(py)
+    }
+
+    /// Torsion of the line at each site, shape (n,).
+    #[getter]
+    fn torsions<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        Array1::from_vec(self.inner.torsions.clone()).into_pyarray(py)
+    }
+
+    /// Contour length, in the grid's own length units.
+    #[getter] fn length(&self) -> f64 { self.inner.length }
+    /// Whether the two ends meet, which is what makes the line a loop.
+    #[getter] fn is_loop(&self) -> bool { self.inner.is_loop }
+    /// Mean of `cos(beta)` along the line.
+    #[getter] fn mean_cos_beta(&self) -> f64 { self.inner.mean_cos_beta }
+    /// Mean curvature of the line. A planar circular loop reads 1/r.
+    #[getter] fn mean_curvature(&self) -> f64 { self.inner.mean_curvature }
+    /// Mean curvature of the `s` isosurface around the line, positive around a
+    /// core and near 1/(2R) at the tube radius R.
+    #[getter] fn surface_mean_curvature(&self) -> f64 { self.inner.surface_mean_curvature }
+    /// Gaussian curvature of that surface, near zero along a straight stretch.
+    #[getter] fn surface_gaussian_curvature(&self) -> f64 { self.inner.surface_gaussian_curvature }
+
+    fn __len__(&self) -> usize { self.inner.sites.len() }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DisclinationCurve(n={}, length={:.3}, is_loop={}, mean_cos_beta={:+.3}, \
+             line_curvature={:.4}, surface_curvature={:.4})",
+            self.inner.sites.len(), self.inner.length, self.inner.is_loop,
+            self.inner.mean_cos_beta, self.inner.mean_curvature,
+            self.inner.surface_mean_curvature,
+        )
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyActiveNematicParams3D>()?;
     m.add_class::<PyQField3D>()?;
@@ -734,6 +872,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySnapStats3D>()?;
     m.add_class::<PyBechStats3D>()?;
     m.add_class::<PyDisclinationLine>()?;
+    m.add_class::<PyDisclinationCurve>()?;
     m.add_class::<PyDisclinationEvent>()?;
     m.add_function(wrap_pyfunction!(run_dry_active_nematic_3d_py, m)?)?;
     m.add_function(wrap_pyfunction!(run_bech_3d_py, m)?)?;

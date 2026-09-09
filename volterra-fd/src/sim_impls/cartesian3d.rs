@@ -78,6 +78,63 @@ pub struct BechState3D {
     pub vel: VelocityField3D,
 }
 
+/// The state a wet run advances: the tensor field and the flow it drives.
+#[derive(Debug, Clone)]
+pub struct WetState3D {
+    /// Q-tensor field.
+    pub q: QField3D,
+    /// Velocity from the most recent Stokes solve.
+    pub vel: VelocityField3D,
+}
+
+/// 3D wet active nematic: Stokes, then Beris-Edwards in the flow it found.
+///
+/// The dry stepper solves no flow and advects nothing. This one solves the
+/// steady Stokes problem driven by the active stress `-zeta Q` at every step and
+/// hands the velocity to the Beris-Edwards right-hand side, so the texture is
+/// advected and sheared by a flow its own activity generates. Switching the
+/// activity off returns the dry stepper exactly, which is what
+/// `tests/wet_3d.rs` asserts.
+///
+/// Lipids are absent, which is the difference from [`Cartesian3DBech`]: this is
+/// the two-field problem rather than the three-field one.
+pub struct Cartesian3DWet {
+    /// Physics parameters.
+    pub params: ActiveNematicParams3D,
+    /// Current step counter.
+    pub step_idx: usize,
+}
+
+impl PhysicsStep for Cartesian3DWet {
+    type Field = WetState3D;
+
+    fn step(&mut self, st: &mut WetState3D, _t: f64) -> StepStats {
+        let step = self.step_idx;
+        let p = &self.params;
+        let t = step as f64 * p.dt;
+
+        let (vel, _pressure) = stokes_solve_3d(&st.q, p);
+        let rhs = beris_edwards_rhs_3d(&st.q, Some(&vel), p, t);
+        st.q = EulerIntegrator3D.step(&st.q, p.dt, &rhs);
+
+        if p.noise_amp > 0.0 {
+            let amp = p.noise_amp * p.dt.sqrt();
+            let mut noise = LangevinNoise::per_step_seed(step, 0xdead_beef_cafe_5678);
+            for k in 0..st.q.len() {
+                let mut samples = [0.0f64; 5];
+                noise.fill5(&mut samples);
+                for c in 0..5 {
+                    st.q.q[k][c] += amp * samples[c];
+                }
+            }
+        }
+
+        st.vel = vel;
+        self.step_idx += 1;
+        StepStats::default().with_order_param(st.q.mean_s())
+    }
+}
+
 /// 3D BECH runner: Stokes + Euler Beris-Edwards + Langevin noise + CH-ETD.
 ///
 /// Noise convention: one `LangevinNoise::per_step_seed(step, 0xdead_beef_cafe_5678)`
