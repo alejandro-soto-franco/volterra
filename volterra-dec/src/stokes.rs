@@ -7,7 +7,7 @@
 use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
 use nalgebra::DVector;
-use volterra_core::ActiveNematicParams;
+use volterra_core::{ActiveNematicParams, Screening};
 
 use std::cell::RefCell;
 
@@ -205,16 +205,45 @@ impl SurfaceStokes {
         mesh: &Mesh<M, 3, 2>,
         boundary_vertices: &[usize],
     ) -> Result<Self, String> {
+        Self::new_confined_screened(ops, mesh, boundary_vertices, Screening::None)
+    }
+
+    /// As [`Self::new_confined`], with the Hele-Shaw wall drag of a chamber of
+    /// finite depth.
+    ///
+    /// The biharmonic factors as `self.outer.solve(&self.poisson.solve(source))`,
+    /// so `poisson` produces the vorticity and `outer` produces the stream
+    /// function. The drag acts on the vorticity, which puts the shift
+    /// `-1 / l_s^2` on `poisson` alone and leaves `outer` the plain Dirichlet
+    /// Laplacian a planar domain already gives it.
+    ///
+    /// With no screening this calls `with_dirichlet` directly rather than
+    /// passing a zero shift, so the unscreened path is the code it always was
+    /// and cannot drift through `apply_shift`.
+    pub fn new_confined_screened<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        mesh: &Mesh<M, 3, 2>,
+        boundary_vertices: &[usize],
+        screening: Screening,
+    ) -> Result<Self, String> {
         let n_vertices = ops.laplace_beltrami.rows();
-        let poisson = PoissonSolver::with_dirichlet(ops, boundary_vertices)?;
         let coords = extract_coords(mesh);
+        let inv_sq = screening.inverse_square();
+        let poisson = if inv_sq == 0.0 {
+            PoissonSolver::with_dirichlet(ops, boundary_vertices)?
+        } else {
+            let shift = vec![-inv_sq; n_vertices];
+            PoissonSolver::with_dirichlet_shifted(ops, boundary_vertices, &shift, &coords)?
+        };
         let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
         let s1 = ops.hodge.star1();
         let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
         let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
         let e1_frames = compute_tangent_frames_stokes(&normals);
         // A confined domain is planar here, so the angle defect vanishes and
-        // the outer factor is the same Dirichlet operator as the inner one.
+        // the outer factor is the plain Dirichlet Laplacian. Unscreened it is
+        // the same operator as the inner one, which is why the two were once
+        // interchangeable; a screened chamber separates them.
         let outer = PoissonSolver::with_dirichlet(ops, boundary_vertices)?;
         Ok(Self {
             poisson,
