@@ -76,6 +76,47 @@ pub enum VError {
 /// ```
 ///
 /// The coherent transfer window is zeta_one < zeta_eff < zeta_star.
+/// Hele-Shaw wall drag for a chamber of finite depth.
+///
+/// Depth-averaging Stokes over a gap of height `h` with no-slip on both faces
+/// leaves a drag `12 eta / h^2` on the depth-averaged velocity. Taking the curl
+/// puts it on the vorticity, so the surface biharmonic gains one factor and the
+/// screening length is `l_s = h / sqrt(12)`.
+///
+/// `None` is the default and reproduces every result computed before this type
+/// existed. It is the setting in which the operator matches the one the
+/// 2026-08-19 correction established.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Screening {
+    /// An unbounded-depth two-dimensional fluid, with no wall drag.
+    None,
+    /// A chamber of finite depth, with the screening length `l_s` in the same
+    /// units as the mesh coordinates.
+    Length(f64),
+}
+
+impl Default for Screening {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl Screening {
+    /// From a chamber depth `h`, in the same units as the mesh coordinates.
+    pub fn from_depth(h: f64) -> Self {
+        Self::Length(h / 12.0_f64.sqrt())
+    }
+
+    /// `1 / l_s^2`, which is the magnitude of the shift the Poisson solver
+    /// takes, and zero where there is no screening.
+    pub fn inverse_square(&self) -> f64 {
+        match self {
+            Self::None => 0.0,
+            Self::Length(l) => 1.0 / (l * l),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveNematicParams {
     // ── Grid ──────────────────────────────────────────────────────────────
@@ -98,6 +139,9 @@ pub struct ActiveNematicParams {
     pub zeta_eff: f64,
     /// Fluid viscosity η.
     pub eta: f64,
+    /// Hele-Shaw wall drag from the chamber depth. Absent by default.
+    #[serde(default)]
+    pub screening: Screening,
     /// Landau coefficient a (< 0 for the ordered nematic without activity).
     /// Effective driving is a_eff = a - zeta_eff/2.
     pub a_landau: f64,
@@ -305,6 +349,7 @@ impl ActiveNematicParams {
             gamma_r: 1.0,
             zeta_eff: 2.0,
             eta: 1.0,
+            screening: Screening::None,
             a_landau: -0.5,
             c_landau: 4.5,
             lambda: 0.7,
@@ -734,6 +779,32 @@ mod tests {
         p.zeta_eff = 3.0;
         // a_eff = -1.0 - 1.5 = -2.5
         assert!((p.a_eff() - (-2.5)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn screening_is_absent_by_default_and_hele_shaw_when_set() {
+        assert_eq!(Screening::default(), Screening::None);
+        assert_eq!(Screening::None.inverse_square(), 0.0);
+        assert_eq!(ActiveNematicParams::default_test().screening, Screening::None);
+
+        // `l_s = h / sqrt(12)`, so `1 / l_s^2 = 12 / h^2`.
+        let h = 50e-3_f64;
+        let want = 12.0 / (h * h);
+        let got = Screening::from_depth(h).inverse_square();
+        assert!((got - want).abs() / want < 1e-12, "got {got}, want {want}");
+
+        // A params file written before this field existed still loads. The case
+        // is built by serialising the current struct and removing the one key,
+        // so it states the property without restating a field list that would
+        // rot beside the struct.
+        let mut v: serde_json::Value =
+            serde_json::to_value(ActiveNematicParams::default_test()).unwrap();
+        v.as_object_mut()
+            .unwrap()
+            .remove("screening")
+            .expect("the key is present to remove");
+        let back: ActiveNematicParams = serde_json::from_value(v).unwrap();
+        assert_eq!(back.screening, Screening::None);
     }
 
     #[test]

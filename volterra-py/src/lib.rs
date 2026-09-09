@@ -24,7 +24,7 @@ mod braid;
 mod confined_run;
 mod mesh;
 
-use volterra_core::ActiveNematicParams;
+use volterra_core::{ActiveNematicParams, Screening};
 use volterra_core::{QField2D, ScalarField2D, VelocityField2D};
 use volterra_fd::{
     BechStats, DefectInfo, SnapStats,
@@ -80,6 +80,11 @@ impl PyActiveNematicParams {
             a_landau, c_landau, lambda: lambda_, k_l, gamma_l, xi_l, noise_amp,
             chi_ms, kappa_ch, a_ch, b_ch, m_l,
             zeta_field: None,
+            // The Python constructor takes no chamber depth, so a run driven
+            // from it is the unbounded-depth two-dimensional fluid it always
+            // was. Exposing the depth is a binding change this task does not
+            // make.
+            screening: Screening::None,
         };
         p.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: p })
