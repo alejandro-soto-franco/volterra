@@ -153,6 +153,41 @@ def compute_vorticity(vel, verts, tris, normals):
     return omega
 
 
+
+def vorticity_direction(omega, eps=None, relative=1e-3):
+    """Regularised direction of a vorticity field, matching volterra_dec::vorticity.
+
+    ``d = w / sqrt(w**2 + eps**2)`` for a scalar field, or the same with the
+    magnitude for a vector field. Defined at a null, where it returns zero, so a
+    plot needs no mask and no guarded division.
+
+    The magnitude is the null indicator: ``|d|`` runs from 0 on a null curve to 1
+    in a strong region, which is what an alpha channel wants. Colour by ``d`` and
+    fade by ``|d|`` and the null curves appear as the places the colour drains
+    out, rather than as whatever ``0/0`` happened to produce.
+
+    ``eps`` defaults to ``relative`` times the field's root mean square, so it
+    follows a rescaling of the problem. Pass ``eps`` outright when two fields
+    have to share one colour scale.
+
+    ``w / (abs(w) + eps)`` is the other common guard. It avoids the division too
+    and its second derivative jumps by ``4 / eps**2`` across a null, which draws
+    a crease along every null curve. The square-root form is smooth.
+    """
+    omega = np.asarray(omega, dtype=float)
+    vector = omega.ndim > 1
+    mag = np.linalg.norm(omega, axis=-1) if vector else np.abs(omega)
+    if eps is None:
+        rms = float(np.sqrt(np.mean(mag ** 2))) if mag.size else 0.0
+        eps = max(abs(relative) * rms, np.finfo(float).tiny)
+    den = np.sqrt(mag ** 2 + eps ** 2)
+    # An infinite entry gives inf/inf; nan_to_num maps it back to the sign, and
+    # errstate keeps numpy from warning about a case that is already handled.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = omega / den[..., None] if vector else omega / den
+    return np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=-1.0)
+
+
 # ─── Triangle locator (BVH) ──────────────────────────────────────────────────
 
 class TriangleLocator:

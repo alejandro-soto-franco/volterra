@@ -53,6 +53,7 @@ pub mod evolving_domain;
 pub mod ichol;
 pub mod poisson;
 pub mod stokes;
+pub mod vorticity;
 pub mod tracers;
 pub mod helfrich;
 pub mod molecular_field_dec;
