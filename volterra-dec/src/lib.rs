@@ -53,6 +53,8 @@ pub mod evolving_domain;
 pub mod ichol;
 pub mod poisson;
 pub mod stokes;
+pub mod tet_mesh;
+pub mod mimetic;
 pub mod vorticity;
 pub mod tracers;
 pub mod helfrich;
