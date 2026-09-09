@@ -167,7 +167,7 @@ fn main() {
     println!("  h/a    ny   dy/dx   solved U    U / (g h^2/12eta)   1 - 0.63 h/a   dp/dz / g");
     let a = 1.0;
     let dlen = 0.4;
-    let mut run = |h: f64, nx: usize, ny: usize, nz: usize| {
+    let run = |h: f64, nx: usize, ny: usize, nz: usize| {
         let mesh = box_mesh(nx, ny, nz, a, h, dlen).unwrap();
         let exact =
             mesh.flux_dofs(|x: [f64; 3]| [0.0, 0.0, duct_profile(x[0], x[1], a, h, 1.0, 1.0)]);

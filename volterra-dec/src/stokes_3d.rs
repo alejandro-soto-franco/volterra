@@ -270,12 +270,10 @@ impl BoundedStokes3D {
         // to sum to zero over the boundary.
         let div_bc = matvec(&self.d2, &u_bc);
         let net: f64 = div_bc.iter().sum();
-        let scale: f64 = u_bc
-            .iter()
-            .zip(0..nf)
-            .map(|(x, f)| x.abs().max(0.0) * if self.mesh.is_boundary_face(f) { 1.0 } else { 0.0 })
-            .sum::<f64>()
-            .max(f64::MIN_POSITIVE);
+        // `u_bc` is already zero on every interior face, so the sum is over the
+        // boundary alone. The floor keeps an all-zero wall, whose net flux is
+        // exactly zero, from comparing against a zero scale.
+        let scale: f64 = u_bc.iter().map(|x| x.abs()).sum::<f64>().max(f64::MIN_POSITIVE);
         if net.abs() > 1e-10 * scale {
             return Err(Stokes3DError::IncompatibleBoundaryFlux { net, scale });
         }
@@ -285,7 +283,7 @@ impl BoundedStokes3D {
 
         // Row w: the eliminated columns of `d1^T M2`.
         let m2_ubc = matvec(&self.m2, &u_bc);
-        let y = matvec_transpose(&self.d1, &m2_ubc, self.n_w);
+        let y = matvec_transpose(&self.d1, &m2_ubc);
         for e in 0..self.n_w {
             rhs[(e, 0)] = -y[e];
         }
@@ -477,8 +475,8 @@ pub fn matvec(m: &CsMat<f64>, x: &[f64]) -> Vec<f64> {
 }
 
 /// Dense mat-vec against the transpose of a sparse matrix.
-pub fn matvec_transpose(m: &CsMat<f64>, x: &[f64], cols: usize) -> Vec<f64> {
-    let mut y = vec![0.0; cols];
+pub fn matvec_transpose(m: &CsMat<f64>, x: &[f64]) -> Vec<f64> {
+    let mut y = vec![0.0; m.cols()];
     for (v, (r, c)) in m.iter() {
         y[c] += v * x[r];
     }
