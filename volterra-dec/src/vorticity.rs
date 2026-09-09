@@ -93,19 +93,27 @@ pub fn rms_3d(omega: &[[f64; 3]]) -> f64 {
 /// for every input including infinities.
 pub fn direction_2d(omega: &[f64], eps: Epsilon) -> Vec<f64> {
     let e = eps.resolve(rms_2d(omega));
-    let e2 = e * e;
     omega
         .iter()
         .map(|&w| {
-            // An exact zero is a null and answers zero. Taking the fallback
-            // below would answer `0.0_f64.signum()`, which is 1.0 in Rust, and
-            // `e2` underflows to zero for a field with no vorticity anywhere,
-            // so this branch is reached rather than hypothetical.
+            // An exact zero is a null and answers zero. Falling through would
+            // answer `0.0_f64.signum()`, which is 1.0 in Rust, and the
+            // regularisation underflows to zero for a field with no vorticity anywhere, so
+            // this branch is reached rather than hypothetical.
             if w == 0.0 {
                 return 0.0;
             }
-            let d = w / (w * w + e2).sqrt();
-            if d.is_finite() { d } else { w.signum() }
+            if !w.is_finite() {
+                return w.signum();
+            }
+            // Scale before squaring. `w * w` overflows to infinity above about
+            // 1.34e154, which would give `w / inf = 0.0`; that is finite, so no
+            // fallback fires and a huge vorticity would read as a null, the one
+            // value reserved for its opposite. Dividing through by the larger of
+            // the two magnitudes is exact and cannot overflow.
+            let m = w.abs().max(e);
+            let (wn, en) = (w / m, e / m);
+            wn / (wn * wn + en * en).sqrt()
         })
         .collect()
 }
@@ -116,18 +124,30 @@ pub fn direction_2d(omega: &[f64], eps: Epsilon) -> Vec<f64> {
 /// input.
 pub fn direction_3d(omega: &[[f64; 3]], eps: Epsilon) -> Vec<[f64; 3]> {
     let e = eps.resolve(rms_3d(omega));
-    let e2 = e * e;
     omega
         .iter()
         .map(|w| {
-            let mag2 = w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
-            let den = (mag2 + e2).sqrt();
-            let mut out = [0.0; 3];
-            for k in 0..3 {
-                let d = w[k] / den;
-                out[k] = if d.is_finite() { d } else { 0.0 };
+            let mag = (w[0].abs()).max(w[1].abs()).max(w[2].abs());
+            if mag == 0.0 {
+                return [0.0; 3];
             }
-            out
+            if !mag.is_finite() {
+                // An infinite component keeps its sign, matching `direction_2d`.
+                // Answering the zero vector would report the strongest possible
+                // vorticity as a null.
+                let mut out = [0.0; 3];
+                for k in 0..3 {
+                    out[k] = if w[k].is_infinite() { w[k].signum() } else { 0.0 };
+                }
+                return out;
+            }
+            // Scale by the largest component before squaring, for the overflow
+            // reason `direction_2d` records.
+            let m = mag.max(e);
+            let (a, b, c) = (w[0] / m, w[1] / m, w[2] / m);
+            let en = e / m;
+            let den = (a * a + b * b + c * c + en * en).sqrt();
+            [a / den, b / den, c / den]
         })
         .collect()
 }
@@ -160,16 +180,6 @@ pub fn nulls_3d(direction: &[[f64; 3]], threshold: f64) -> Vec<usize> {
 mod tests {
     use super::*;
 
-    /// The form this module rejects, kept so the tests can state the difference
-    /// against it rather than assert smoothness of the chosen one alone.
-    fn absolute_form(w: f64, e: f64) -> f64 {
-        w / (w.abs() + e)
-    }
-
-    fn sqrt_form(w: f64, e: f64) -> f64 {
-        w / (w * w + e * e).sqrt()
-    }
-
     /// A null evaluates, and nothing in the field is NaN or infinite.
     ///
     /// This is the division by zero the regularisation exists for: the middle
@@ -196,36 +206,41 @@ mod tests {
 
     /// Far from a null the direction is the unit direction, to the accuracy the
     /// module documents: `eps^2 / 2 |w|^2`.
+    ///
+    /// Drives `direction_2d` itself. An earlier version measured the local
+    /// `sqrt_form` helper, which left the test passing for any shipped
+    /// implementation at all.
     #[test]
     fn the_direction_recovers_the_unit_direction_away_from_a_null() {
         let e = 0.1_f64;
-        for &w in &[1.0_f64, -1.0, 10.0, -50.0] {
-            let d = sqrt_form(w, e);
+        let omega = vec![1.0_f64, -1.0, 10.0, -50.0];
+        let got = direction_2d(&omega, Epsilon::Absolute(e));
+        for (i, &w) in omega.iter().enumerate() {
             let want = w.signum();
             let bound = e * e / (2.0 * w * w);
             assert!(
-                (d - want).abs() <= bound * 1.001,
-                "at w={w} the direction is {d}, off the unit direction by more than {bound:.3e}"
+                (got[i] - want).abs() <= bound * 1.001,
+                "at w={w} the direction is {}, off the unit direction by more than {bound:.3e}",
+                got[i]
             );
         }
     }
 
-    /// Scaling the field and the regularisation together leaves the direction
-    /// alone, which is what makes a relative epsilon the sensible default.
+    /// A vorticity too large to square still reads as a direction.
+    ///
+    /// `w * w` overflows to infinity above about `1.34e154`, which gives
+    /// `w / inf = 0.0`. That is finite, so no fallback fires, and the strongest
+    /// possible vorticity would report the one value reserved for a null.
     #[test]
-    fn the_direction_is_invariant_under_a_shared_rescaling() {
-        let omega: Vec<f64> = vec![-2.0, -0.5, 0.0, 0.25, 3.0];
-        let a = direction_2d(&omega, Epsilon::Relative(1e-3));
-        let scaled: Vec<f64> = omega.iter().map(|w| w * 1e6).collect();
-        let b = direction_2d(&scaled, Epsilon::Relative(1e-3));
-        for i in 0..omega.len() {
-            assert!(
-                (a[i] - b[i]).abs() < 1e-12,
-                "entry {i} moved under rescaling: {} against {}",
-                a[i],
-                b[i]
-            );
-        }
+    fn a_vorticity_too_large_to_square_is_not_read_as_a_null() {
+        let big = 1e200_f64;
+        let d = direction_2d(&[big, -big], Epsilon::Absolute(1.0));
+        assert!((d[0] - 1.0).abs() < 1e-12, "a huge positive vorticity gave {}", d[0]);
+        assert!((d[1] + 1.0).abs() < 1e-12, "a huge negative vorticity gave {}", d[1]);
+
+        let d3 = direction_3d(&[[big, 0.0, 0.0]], Epsilon::Absolute(1.0));
+        let m = (d3[0][0] * d3[0][0] + d3[0][1] * d3[0][1] + d3[0][2] * d3[0][2]).sqrt();
+        assert!((m - 1.0).abs() < 1e-12, "a huge vector vorticity gave magnitude {m}");
     }
 
     /// The square-root form has a continuous second derivative across a null and
@@ -235,44 +250,42 @@ mod tests {
     /// either and states nothing. The difference lives on the two sides: for
     /// `w / (|w| + eps)` the second derivative approaches `-2/eps^2` from above
     /// and `+2/eps^2` from below, a jump of `4/eps^2` that puts a crease along
-    /// every null curve of a streamline plot or an isosurface. For the
-    /// square-root form the second derivative is `-3 eps^2 w (w^2+eps^2)^{-5/2}`,
-    /// which passes through zero continuously.
+    /// every null curve of a streamline plot or an isosurface.
+    ///
+    /// The measured side is `direction_2d` ITSELF, sampled through the shipped
+    /// function, so replacing it with the absolute form makes this test fail.
+    /// An earlier version compared two local helpers and bound nothing.
     #[test]
     fn the_square_root_form_is_smooth_where_the_absolute_form_kinks() {
         let e = 1e-2_f64;
         let h = e * 1e-3;
-        let second = |f: &dyn Fn(f64, f64) -> f64, x: f64| {
-            (f(x + h, e) - 2.0 * f(x, e) + f(x - h, e)) / (h * h)
+
+        // Second difference of the SHIPPED function at `x`, evaluated through
+        // one call so the epsilon resolution is the shipped one too.
+        let shipped_second = |x: f64| {
+            let d = direction_2d(&[x + h, x, x - h], Epsilon::Absolute(e));
+            (d[0] - 2.0 * d[1] + d[2]) / (h * h)
+        };
+        let absolute_second = |x: f64| {
+            let f = |w: f64| w / (w.abs() + e);
+            (f(x + h) - 2.0 * f(x) + f(x - h)) / (h * h)
         };
 
-        let sq_hi = second(&sqrt_form, 2.0 * h);
-        let sq_lo = second(&sqrt_form, -2.0 * h);
-        let ab_hi = second(&absolute_form, 2.0 * h);
-        let ab_lo = second(&absolute_form, -2.0 * h);
-
-        let sq_jump = (sq_hi - sq_lo).abs();
-        let ab_jump = (ab_hi - ab_lo).abs();
+        let sq_jump = (shipped_second(2.0 * h) - shipped_second(-2.0 * h)).abs();
+        let ab_jump = (absolute_second(2.0 * h) - absolute_second(-2.0 * h)).abs();
 
         // The absolute form's jump is the analytic `4 / eps^2`, which is the
-        // discriminating quantity; without it this test states nothing about
-        // the chosen form.
+        // discriminating quantity; without it this test states nothing.
         let scale = 1.0 / (e * e);
         assert!(
             ab_jump > 3.0 * scale,
             "the absolute form must jump by about 4/eps^2 = {:.3e}, measured {ab_jump:.3e}",
             4.0 * scale
         );
-
-        // The square-root form's second derivative is `-3 eps^2 w (w^2+eps^2)^{-5/2}`,
-        // which is small near the null and vanishes at it, so the two forms are
-        // compared against each other. An absolute bound would encode the
-        // sample offset instead of the property.
         assert!(
             sq_jump < ab_jump / 100.0,
-            "the square-root form should barely move where the absolute form jumps: \
-             {sq_jump:.4e} against {ab_jump:.4e}, a ratio of {:.3e}",
-            sq_jump / ab_jump
+            "the shipped direction should barely move where the absolute form jumps: \
+             {sq_jump:.4e} against {ab_jump:.4e}"
         );
     }
 

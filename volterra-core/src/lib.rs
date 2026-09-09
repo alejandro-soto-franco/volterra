@@ -86,19 +86,14 @@ pub enum VError {
 /// `None` is the default and reproduces every result computed before this type
 /// existed. It is the setting in which the operator matches the one the
 /// 2026-08-19 correction established.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum Screening {
     /// An unbounded-depth two-dimensional fluid, with no wall drag.
+    #[default]
     None,
     /// A chamber of finite depth, with the screening length `l_s` in the same
     /// units as the mesh coordinates.
     Length(f64),
-}
-
-impl Default for Screening {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl Screening {

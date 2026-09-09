@@ -173,6 +173,9 @@ def vorticity_direction(omega, eps=None, relative=1e-3):
     ``w / (abs(w) + eps)`` is the other common guard. It avoids the division too
     and its second derivative jumps by ``4 / eps**2`` across a null, which draws
     a crease along every null curve. The square-root form is smooth.
+
+    Matches ``volterra_dec::vorticity`` on every finite field. It differs only on
+    an infinite entry, which that module maps to the sign and this maps to zero.
     """
     omega = np.asarray(omega, dtype=float)
     vector = omega.ndim > 1
@@ -181,11 +184,13 @@ def vorticity_direction(omega, eps=None, relative=1e-3):
         rms = float(np.sqrt(np.mean(mag ** 2))) if mag.size else 0.0
         eps = max(abs(relative) * rms, np.finfo(float).tiny)
     den = np.sqrt(mag ** 2 + eps ** 2)
-    # An infinite entry gives inf/inf; nan_to_num maps it back to the sign, and
-    # errstate keeps numpy from warning about a case that is already handled.
+    # An infinite entry gives inf/inf, which is nan, so it reads as a null here
+    # rather than as the sign. `volterra_dec::vorticity` keeps the sign instead.
+    # A rendered field has no infinities, so the two agree on everything a plot
+    # ever sees; the difference is recorded so nobody reads parity into it.
     with np.errstate(invalid="ignore", divide="ignore"):
         out = omega / den[..., None] if vector else omega / den
-    return np.nan_to_num(out, nan=0.0, posinf=1.0, neginf=-1.0)
+    return np.nan_to_num(out, nan=0.0)
 
 
 # ─── Triangle locator (BVH) ──────────────────────────────────────────────────

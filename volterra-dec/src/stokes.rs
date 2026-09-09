@@ -229,6 +229,15 @@ impl SurfaceStokes {
         let n_vertices = ops.laplace_beltrami.rows();
         let coords = extract_coords(mesh);
         let inv_sq = screening.inverse_square();
+        // A zero or negative screening length gives an infinite shift and an
+        // all-NaN assembly that would otherwise return Ok, so the run reports
+        // success and every field downstream is NaN.
+        if !inv_sq.is_finite() {
+            return Err(format!(
+                "screening length must be positive and finite, {screening:?} gives \
+                 an inverse square of {inv_sq}"
+            ));
+        }
         let poisson = if inv_sq == 0.0 {
             PoissonSolver::with_dirichlet(ops, boundary_vertices)?
         } else {
@@ -620,12 +629,6 @@ impl SurfaceStokes {
         Ok(solver)
     }
 
-    /// The first of the two solves, for a test that needs its iteration count.
-    #[doc(hidden)]
-    pub fn poisson_for_test(&self) -> &PoissonSolver {
-        &self.poisson
-    }
-
     /// Whether this solver imposes the clamped wall.
     /// Condition number of the clamped wall's boundary response matrix, or
     /// `None` for a simply supported wall, which needs no such solve.
@@ -703,7 +706,9 @@ impl SurfaceStokes {
     /// The stream function of a vorticity source, with no mesh needed.
     ///
     /// Solves `Delta (Delta + 2K) psi = er * source`, the surface biharmonic,
-    /// as the two sequential Poisson solves it factors into. This is the entry
+    /// as the two sequential Poisson solves it factors into. Under screening the
+    /// first factor becomes `(Delta - 1 / l_s^2)`, set on the solver at
+    /// construction, and this entry point is unchanged by that. This is the entry
     /// point for a caller that has already formed its own vorticity, and it is
     /// what the trait backend uses.
     pub fn stream_from_vorticity(&self, source: &DVector<f64>, er: f64) -> DVector<f64> {
@@ -1541,6 +1546,53 @@ mod tests {
     use cartan_dec::mesh::FlatMesh;
     use cartan_manifolds::euclidean::Euclidean;
 
+    /// `I_0` by Abramowitz and Stegun 9.8.1 and 9.8.2, relative error below
+    /// `4e-7` over `[0, 60]`.
+    fn bessel_i0(x: f64) -> f64 {
+        let ax = x.abs();
+        if ax < 3.75 {
+            let t = (x / 3.75) * (x / 3.75);
+            1.0 + t * (3.5156229
+                + t * (3.0899424
+                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+        } else {
+            let t = 3.75 / ax;
+            (ax.exp() / ax.sqrt())
+                * (0.39894228
+                    + t * (0.01328592
+                        + t * (0.00225319
+                            + t * (-0.00157565
+                                + t * (0.00916281
+                                    + t * (-0.02057706
+                                        + t * (0.02635537
+                                            + t * (-0.01647633 + t * 0.00392377))))))))
+        }
+    }
+
+    /// Exact stream function of the SCREENED disc, for the constant source
+    /// `s_src` and `k = 1 / l_s`:
+    ///
+    ///     psi(r) = (S / k^2) [ (I_0(k r) / I_0(k R) - 1) / k^2 + (R^2 - r^2) / 4 ]
+    ///
+    /// The solver inverts `(Delta - k^2) a = source` then `Delta psi = a`, and
+    /// the two Dirichlet solves impose `a(R) = 0` and `psi(R) = 0`. Substituting
+    /// confirms both: `Delta I_0(k r) = k^2 I_0(k r)` makes the first equation
+    /// hold identically, and differentiating twice returns `a`.
+    ///
+    /// Note the argument convention differs from [`psi_exact`], which takes the
+    /// SQUARED radius. This one takes `r`.
+    ///
+    /// The second term is `0/0` at small `k R` and cancels in `f64`, so this is
+    /// evaluated only for `k R >= 0.1`. Measured departure from `psi_exact`:
+    /// `1.8e-3` at `k R = 0.1`, `1.8e-5` at `k R = 0.01`, and `2.2e-2` at
+    /// `k R = 0.001`, where cancellation dominates and the error climbs again.
+    fn psi_screened(r: f64, rad: f64, k: f64, s_src: f64) -> f64 {
+        let k2 = k * k;
+        (s_src / k2)
+            * ((bessel_i0(k * r) / bessel_i0(k * rad) - 1.0) / k2 + (rad * rad - r * r) / 4.0)
+    }
+
+
     #[test]
     fn stokes_zero_activity_zero_velocity() {
         let mesh = FlatMesh::unit_square_grid(4);
@@ -2073,65 +2125,6 @@ mod tests {
     /// with magnitude `|dpsi/dr| = |R^2 r / 2 - r^3 / 4|`, which peaks at
     /// `r = R sqrt(2/3)` with value `R^3 / (6 sqrt(6)) * 2`, that is 0.27217 at
     /// `R = 1`.
-    /// Advection must return `u . grad Q`, not a fixed fraction of it.
-    ///
-    /// [`advect_q`] used to accumulate `(u . e_hat)(dQ/d|e|)` over the incident
-    /// edges and divide by the valence. That is `u^T A_v grad Q` with
-    /// `A_v = (1/n) sum_e e_hat e_hat^T`. On an isotropic fan `A_v = I/2` in the
-    /// plane, so the result was exactly HALF the answer, and on a real fan `A_v`
-    /// is anisotropic and stays that way under refinement, which makes the
-    /// scheme inconsistent rather than merely inaccurate.
-    ///
-    /// Constant `u` and `Q = (cos k x, sin k y)` give the exact value
-    /// `u . grad Q = (-u_x k sin k x, u_y k cos k y)`. Checking two spacings
-    /// pins convergence as well as the constant: a scheme off by a fixed factor
-    /// holds its error under refinement, which is what the halving did.
-    /// `I_0` by Abramowitz and Stegun 9.8.1 and 9.8.2, relative error below
-    /// `4e-7` over `[0, 60]`.
-    fn bessel_i0(x: f64) -> f64 {
-        let ax = x.abs();
-        if ax < 3.75 {
-            let t = (x / 3.75) * (x / 3.75);
-            1.0 + t * (3.5156229
-                + t * (3.0899424
-                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
-        } else {
-            let t = 3.75 / ax;
-            (ax.exp() / ax.sqrt())
-                * (0.39894228
-                    + t * (0.01328592
-                        + t * (0.00225319
-                            + t * (-0.00157565
-                                + t * (0.00916281
-                                    + t * (-0.02057706
-                                        + t * (0.02635537
-                                            + t * (-0.01647633 + t * 0.00392377))))))))
-        }
-    }
-
-    /// Exact stream function of the SCREENED disc, for the constant source
-    /// `s_src` and `k = 1 / l_s`:
-    ///
-    ///     psi(r) = (S / k^2) [ (I_0(k r) / I_0(k R) - 1) / k^2 + (R^2 - r^2) / 4 ]
-    ///
-    /// The solver inverts `(Delta - k^2) a = source` then `Delta psi = a`, and
-    /// the two Dirichlet solves impose `a(R) = 0` and `psi(R) = 0`. Substituting
-    /// confirms both: `Delta I_0(k r) = k^2 I_0(k r)` makes the first equation
-    /// hold identically, and differentiating twice returns `a`.
-    ///
-    /// Note the argument convention differs from [`psi_exact`], which takes the
-    /// SQUARED radius. This one takes `r`.
-    ///
-    /// The second term is `0/0` at small `k R` and cancels in `f64`, so this is
-    /// evaluated only for `k R >= 0.1`. Measured departure from `psi_exact`:
-    /// `1.8e-3` at `k R = 0.1`, `1.8e-5` at `k R = 0.01`, and `2.2e-2` at
-    /// `k R = 0.001`, where cancellation dominates and the error climbs again.
-    fn psi_screened(r: f64, rad: f64, k: f64, s_src: f64) -> f64 {
-        let k2 = k * k;
-        (s_src / k2)
-            * ((bessel_i0(k * r) / bessel_i0(k * rad) - 1.0) / k2 + (rad * rad - r * r) / 4.0)
-    }
-
     /// The screened solver reproduces the screened disc, and the unscreened one
     /// does not.
     #[test]
@@ -2357,24 +2350,129 @@ mod tests {
              simply supported {slope_s:.4e}, a ratio of {:.3}",
             slope_c / slope_s
         );
+    }
 
-        // With no screening the new constructor must agree with the existing one
-        // vertex by vertex.
-        let a = SurfaceStokes::new_confined_clamped_screened(
-            &ops, &mesh, &bverts, Screening::None,
-        )
-        .unwrap();
-        let b = SurfaceStokes::new_confined_clamped(&ops, &mesh, &bverts).unwrap();
-        let (_va, pa) = a.stream_and_velocity(&source, &mesh);
-        let (_vb, pb) = b.stream_and_velocity(&source, &mesh);
-        for i in 0..nv {
-            assert!(
-                (pa[i] - pb[i]).abs() < 1e-12,
-                "the unscreened clamped paths disagree at vertex {i}: {} against {}",
-                pa[i],
-                pb[i]
-            );
-        }
+    /// `I_1` by Abramowitz and Stegun 9.8.3 and 9.8.4, relative error below
+    /// `5e-7` over `[0, 60]`.
+    fn bessel_i1(x: f64) -> f64 {
+        let ax = x.abs();
+        let r = if ax < 3.75 {
+            let t = (x / 3.75) * (x / 3.75);
+            ax * (0.5
+                + t * (0.87890594
+                    + t * (0.51498869
+                        + t * (0.15084934
+                            + t * (0.02658733 + t * (0.00301532 + t * 0.00032411))))))
+        } else {
+            let t = 3.75 / ax;
+            let a = 0.02282967 + t * (-0.02895312 + t * (0.01787654 - t * 0.00420059));
+            let b = 0.39894228
+                + t * (-0.03988024
+                    + t * (-0.00362018 + t * (0.00163801 + t * (-0.01031555 + t * a))));
+            (ax.exp() / ax.sqrt()) * b
+        };
+        if x >= 0.0 { r } else { -r }
+    }
+
+    /// Exact stream function of the CLAMPED screened disc.
+    ///
+    /// The clamped plate chooses the wall values of the vorticity so the normal
+    /// derivative vanishes, rather than setting them to zero, so the
+    /// intermediate is `a(r) = -S/k^2 + A I_0(k r)` with `A` fixed by
+    /// `psi'(R) = 0` instead of by `a(R) = 0`:
+    ///
+    ///     A      = S R / (2 k I_1(k R))
+    ///     psi(r) = -S r^2 / (4 k^2) + (A / k^2) I_0(k r) + C
+    ///     C      =  S R^2 / (4 k^2) - (A / k^2) I_0(k R)
+    ///
+    /// Both conditions were checked to machine zero at `k` of 0.5, 1, 4 and 10,
+    /// and the `k -> 0` limit approaches the clamped plate `S (R^2 - r^2)^2 / 64`
+    /// at second order, measured at 2.8e-3, 6.9e-4 and 1.7e-4 for `k` of 0.2,
+    /// 0.1 and 0.05.
+    fn psi_clamped_screened(r: f64, rad: f64, k: f64, s_src: f64) -> f64 {
+        let k2 = k * k;
+        let a = s_src * rad / (2.0 * k * bessel_i1(k * rad));
+        let c = s_src * rad * rad / (4.0 * k2) - (a / k2) * bessel_i0(k * rad);
+        -s_src * r * r / (4.0 * k2) + (a / k2) * bessel_i0(k * r) + c
+    }
+
+    /// The clamped screened solve CONVERGES to the clamped screened disc.
+    ///
+    /// This is the test that gives the response basis something to be wrong
+    /// against. `clamp` solves against the same `phi_j` it then corrects with,
+    /// so a wall-slope measurement verifies the linear solve and passes for any
+    /// basis of adequate rank. Only an independent closed form catches a basis
+    /// built through the wrong operator, which is what taking the
+    /// stream-function solve through `poisson` rather than `outer` would give
+    /// once a chamber has a depth.
+    ///
+    /// It asserts the RATE, not a tolerance. The clamped path is about an order
+    /// less accurate than the simply supported one: the pre-existing
+    /// `stokes_velocity_matches_the_clamped_solution` allows 12 per cent, and
+    /// `examples/clamped_convergence.rs` measured this comparison at
+    ///
+    /// ```text
+    ///   h      k = 1      k = 2      k = 4
+    ///  0.080   2.543e-1   2.454e-1   2.288e-1
+    ///  0.040   1.126e-1   1.076e-1   9.801e-2     ratio 2.26  2.28  2.33
+    ///  0.020   5.801e-2   5.519e-2   4.973e-2     ratio 1.94  1.95  1.97
+    /// ```
+    ///
+    /// First order in `h`, at every screening length. A tolerance chosen to sit
+    /// just above 1.076e-1 would encode this mesh; the halving is the property,
+    /// and a wrong closed form plateaus rather than halving.
+    #[test]
+    fn the_clamped_screened_solve_converges_to_its_closed_form() {
+        let rad = 1.0_f64;
+        let k = 2.0_f64;
+        let s_src = -4.0_f64;
+
+        let err_at = |n_b: usize, h: f64, clamped: bool| -> f64 {
+            let (mesh, bverts) = disc(rad, n_b, h);
+            let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
+            let nv = mesh.n_vertices();
+            let screening = Screening::Length(1.0 / k);
+            let solver = if clamped {
+                SurfaceStokes::new_confined_clamped_screened(&ops, &mesh, &bverts, screening)
+            } else {
+                SurfaceStokes::new_confined_screened(&ops, &mesh, &bverts, screening)
+            }
+            .unwrap();
+            let source = DVector::from_element(nv, s_src);
+            let (_v, psi) = solver.stream_and_velocity(&source, &mesh);
+            let coords = extract_coords(&mesh);
+            let exact: Vec<f64> = coords
+                .iter()
+                .map(|p| psi_clamped_screened((p[0] * p[0] + p[1] * p[1]).sqrt(), rad, k, s_src))
+                .collect();
+            let num: f64 = psi.iter().zip(&exact).map(|(a, b)| (a - b) * (a - b)).sum();
+            let den: f64 = exact.iter().map(|b| b * b).sum();
+            (num / den).sqrt()
+        };
+
+        let coarse = err_at(120, 0.08, true);
+        let fine = err_at(240, 0.04, true);
+        assert!(
+            coarse / fine > 1.7,
+            "halving h should roughly halve the error: {coarse:.4e} at h=0.08 against \
+             {fine:.4e} at h=0.04, a ratio of {:.2}",
+            coarse / fine
+        );
+        assert!(
+            fine < 0.15,
+            "the measured error at h=0.04 was 1.076e-1; {fine:.4e} is outside the band \
+             that measurement supports"
+        );
+
+        // The simply supported solver satisfies a different wall condition, so it
+        // must NOT converge to this solution. Without this the test would pass
+        // for a solver that ignored the clamp entirely.
+        let supported_fine = err_at(240, 0.04, false);
+        assert!(
+            supported_fine > 2.0 * fine,
+            "the simply supported solver must stay far from the clamped solution: \
+             {supported_fine:.4e} against the clamped {fine:.4e}"
+        );
     }
 
     /// Two independently constructed screened solvers agree BIT FOR BIT on the
@@ -2427,8 +2525,8 @@ mod tests {
 
         // Conditioning: the screened first solve converges no slower.
         let plain = SurfaceStokes::new_confined(&ops, &mesh, &bverts).unwrap();
-        let (_p1, its_plain) = plain.poisson_for_test().solve_from(&source, None, 1e-10);
-        let (_p2, its_screened) = a.poisson_for_test().solve_from(&source, None, 1e-10);
+        let (_p1, its_plain) = plain.poisson.solve_from(&source, None, 1e-10);
+        let (_p2, its_screened) = a.poisson.solve_from(&source, None, 1e-10);
         assert!(
             its_screened <= its_plain,
             "screening should not slow convergence: {its_screened} iterations screened \
@@ -2436,6 +2534,19 @@ mod tests {
         );
     }
 
+    /// Advection must return `u . grad Q`, not a fixed fraction of it.
+    ///
+    /// [`advect_q`] used to accumulate `(u . e_hat)(dQ/d|e|)` over the incident
+    /// edges and divide by the valence. That is `u^T A_v grad Q` with
+    /// `A_v = (1/n) sum_e e_hat e_hat^T`. On an isotropic fan `A_v = I/2` in the
+    /// plane, so the result was exactly HALF the answer, and on a real fan `A_v`
+    /// is anisotropic and stays that way under refinement, which makes the
+    /// scheme inconsistent rather than merely inaccurate.
+    ///
+    /// Constant `u` and `Q = (cos k x, sin k y)` give the exact value
+    /// `u . grad Q = (-u_x k sin k x, u_y k cos k y)`. Checking two spacings
+    /// pins convergence as well as the constant: a scheme off by a fixed factor
+    /// holds its error under refinement, which is what the halving did.
     #[test]
     fn advection_recovers_the_directional_derivative_and_converges() {
         let k = 2.0_f64;

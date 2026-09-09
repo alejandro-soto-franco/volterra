@@ -979,11 +979,16 @@ mod tests {
         // when it runs out of iterations, so a solve that never converged
         // reaches the assertions above as a wrong field with no signal.
         let (_x, its) = solver.solve_from(&rhs, None, 1e-10);
-        let max_iter = 10 * nv + 100;
+        // The internal cap is `10 n + 100`, which is 21350 here. Half of that
+        // fails only on total breakdown, so the bound is `n / 10`: a screened
+        // operator is `S + k^2 M`, strictly more definite than the unshifted
+        // stiffness, and the incomplete Cholesky preconditions it well, so the
+        // real count sits far below even this.
         assert!(
-            its < max_iter / 2,
-            "the screened solve took {its} iterations against a cap of {max_iter}, \
-             which means it is at or near non-convergence"
+            its < nv / 10,
+            "the screened solve took {its} iterations on {nv} vertices, against an \
+             internal cap of {}; convergence has degraded",
+            10 * nv + 100
         );
 
         // A negative shift with Dirichlet rows is strictly positive definite,
