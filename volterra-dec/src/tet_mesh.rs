@@ -467,6 +467,170 @@ pub fn box_mesh(
     prism_extrude(&v, &t, lz, nz)
 }
 
+impl TetComplex {
+    /// Barycentric coordinates of a point with respect to a cell, in the cell's
+    /// stored vertex order.
+    ///
+    /// All four are non-negative exactly when the point lies in the closed cell,
+    /// so this is both the containment test and the linear interpolation weight.
+    pub fn barycentric(&self, t: usize, x: [f64; 3]) -> [f64; 4] {
+        let v = self.tets[t];
+        let p0 = self.vertices[v[0]];
+        let a = sub(self.vertices[v[1]], p0);
+        let b = sub(self.vertices[v[2]], p0);
+        let c = sub(self.vertices[v[3]], p0);
+        let r = sub(x, p0);
+        let det = dot(a, cross(b, c));
+        if det == 0.0 {
+            return [0.0; 4];
+        }
+        let l1 = dot(r, cross(b, c)) / det;
+        let l2 = dot(a, cross(r, c)) / det;
+        let l3 = dot(a, cross(b, r)) / det;
+        [1.0 - l1 - l2 - l3, l1, l2, l3]
+    }
+}
+
+/// A box meshed by [`box_mesh`], kept alongside its own dimensions so a point
+/// can be located in constant time.
+///
+/// The mesh is structured, so the cell a point falls in is arithmetic rather
+/// than a search: `box_mesh` lays the rectangle's triangles out as
+/// `2 (j nx + i) + s` with `s` naming the lower or upper triangle, and
+/// `prism_extrude` lays the tetrahedra out as `tri (3 layers) + layer * 3 + k`.
+/// A tree over a hundred thousand cells buys nothing against that.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StructuredBox {
+    /// Cell divisions along each axis.
+    pub nx: usize,
+    pub ny: usize,
+    pub nz: usize,
+    /// Extent along each axis, with the box occupying `[0, lx] x [0, ly] x [0, lz]`.
+    pub lx: f64,
+    pub ly: f64,
+    pub lz: f64,
+}
+
+impl StructuredBox {
+    /// The divisions and extents of a box.
+    pub fn new(nx: usize, ny: usize, nz: usize, lx: f64, ly: f64, lz: f64) -> Self {
+        Self { nx, ny, nz, lx, ly, lz }
+    }
+
+    /// Build the complex this descriptor names.
+    pub fn build(&self) -> Result<TetComplex, TetMeshError> {
+        box_mesh(self.nx, self.ny, self.nz, self.lx, self.ly, self.lz)
+    }
+
+    /// The three tetrahedra of the prism over triangle `tri` in layer `layer`.
+    fn prism_tets(&self, tri: usize, layer: usize) -> [usize; 3] {
+        let base = tri * (3 * self.nz) + layer * 3;
+        [base, base + 1, base + 2]
+    }
+
+    /// The cell a point falls in, or `None` when it lies outside the box by more
+    /// than a rounding error.
+    ///
+    /// The arithmetic names one cell of the grid; the six tetrahedra over it are
+    /// tested by barycentric coordinate, and a point on a shared face lands in
+    /// whichever is tried first. A point that misses them all, which happens only
+    /// when it sits within a rounding error of a cell wall, falls back to the
+    /// twenty-six neighbouring cells before the search gives up.
+    pub fn locate(&self, mesh: &TetComplex, x: [f64; 3]) -> Option<usize> {
+        let tol = -1e-9;
+        let fi = x[0] / self.lx * self.nx as f64;
+        let fj = x[1] / self.ly * self.ny as f64;
+        let fl = x[2] / self.lz * self.nz as f64;
+        let clamp = |f: f64, n: usize| (f.floor().max(0.0) as usize).min(n - 1);
+        let (ci, cj, cl) = (clamp(fi, self.nx), clamp(fj, self.ny), clamp(fl, self.nz));
+
+        for radius in 0..2 {
+            for di in -(radius as i64)..=(radius as i64) {
+                for dj in -(radius as i64)..=(radius as i64) {
+                    for dl in -(radius as i64)..=(radius as i64) {
+                        if radius == 1 && di == 0 && dj == 0 && dl == 0 {
+                            continue;
+                        }
+                        let i = ci as i64 + di;
+                        let j = cj as i64 + dj;
+                        let l = cl as i64 + dl;
+                        if i < 0 || j < 0 || l < 0 {
+                            continue;
+                        }
+                        let (i, j, l) = (i as usize, j as usize, l as usize);
+                        if i >= self.nx || j >= self.ny || l >= self.nz {
+                            continue;
+                        }
+                        let tri = 2 * (j * self.nx + i);
+                        for t in self
+                            .prism_tets(tri, l)
+                            .into_iter()
+                            .chain(self.prism_tets(tri + 1, l))
+                        {
+                            if mesh.barycentric(t, x).iter().all(|&b| b >= tol) {
+                                return Some(t);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+/// A structured triangulation of the annulus `r_inner <= r <= r_outer`, on an
+/// `n_theta by n_r` polar grid.
+///
+/// Extruded, this is a chamber with a pillar through it, whose first Betti
+/// number is one. That is the topology the bounded Stokes solver's pressure
+/// pinning does not by itself account for, so it is what the harmonic
+/// measurement runs on.
+///
+/// The grid closes in `theta`, so the ring of quadrilaterals is conforming and
+/// the inner and outer circles are the only boundaries in the plane.
+pub fn annulus_triangulation(
+    n_theta: usize,
+    n_r: usize,
+    r_inner: f64,
+    r_outer: f64,
+) -> (Vec<[f64; 2]>, Vec<[usize; 3]>) {
+    assert!(n_theta >= 3, "an annulus needs at least three sectors");
+    assert!(n_r >= 1, "an annulus needs at least one radial band");
+    assert!(0.0 < r_inner && r_inner < r_outer, "radii must be ordered and positive");
+    let mut v = Vec::with_capacity(n_theta * (n_r + 1));
+    for j in 0..=n_r {
+        let r = r_inner + (r_outer - r_inner) * j as f64 / n_r as f64;
+        for i in 0..n_theta {
+            let a = std::f64::consts::TAU * i as f64 / n_theta as f64;
+            v.push([r * a.cos(), r * a.sin()]);
+        }
+    }
+    let idx = |i: usize, j: usize| j * n_theta + (i % n_theta);
+    let mut t = Vec::with_capacity(2 * n_theta * n_r);
+    for j in 0..n_r {
+        for i in 0..n_theta {
+            t.push([idx(i, j), idx(i + 1, j), idx(i + 1, j + 1)]);
+            t.push([idx(i, j), idx(i + 1, j + 1), idx(i, j + 1)]);
+        }
+    }
+    (v, t)
+}
+
+/// A tetrahedral mesh of an annular chamber of depth `lz`: a slab with a pillar
+/// through it.
+pub fn pillar_mesh(
+    n_theta: usize,
+    n_r: usize,
+    n_z: usize,
+    r_inner: f64,
+    r_outer: f64,
+    lz: f64,
+) -> Result<TetComplex, TetMeshError> {
+    let (v, t) = annulus_triangulation(n_theta, n_r, r_inner, r_outer);
+    prism_extrude(&v, &t, lz, n_z)
+}
+
 /// A degree-five, seven-point quadrature rule on the reference triangle, in
 /// barycentric coordinates with weights summing to one.
 ///

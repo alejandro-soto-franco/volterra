@@ -379,3 +379,74 @@ fn an_incompatible_boundary_flux_is_rejected() {
         volterra_dec::stokes_3d::Stokes3DError::IncompatibleBoundaryFlux { .. }
     ));
 }
+
+/// A chamber with a pillar leaves no harmonic mode, so the pressure pinning is
+/// the whole of the solver's null space.
+///
+/// The homogeneous reduced system forces `w = 0` through `w^T M1 w = 0`, and
+/// what is left is `d2 u = 0` together with `d1^T M2 u = 0` tested over every
+/// edge, the boundary ones included. The second condition states both `div` of
+/// the dual and the vanishing of the tangential trace, so the space is the
+/// harmonic fields with full Dirichlet data, which is trivial on any domain
+/// whatever its Betti numbers are. The first draft of the spec listed a pillar
+/// as an open gap on the strength of the first Betti number alone.
+///
+/// Measured on a slab with a pillar through it, whose Euler characteristic is
+/// zero: the nullity is zero at every refinement, and the smallest retained
+/// singular value is 2.5e-2 to 8.0e-2 of the largest, so the rank is not a
+/// question of tolerance.
+#[test]
+fn a_chamber_with_a_pillar_leaves_no_harmonic_mode() {
+    use nalgebra::DMatrix;
+    use volterra_dec::tet_mesh::pillar_mesh;
+
+    let mesh = pillar_mesh(8, 2, 1, 0.3, 1.0, 0.5).unwrap();
+    let chi = mesh.n_vertices() as i64 - mesh.n_edges() as i64 + mesh.n_faces() as i64
+        - mesh.n_tets() as i64;
+    assert_eq!(chi, 0, "the pillar chamber should be a solid torus");
+
+    let d1 = mesh.d1();
+    let d2 = mesh.d2();
+    let m2 = assemble_star(&mesh, 2).unwrap();
+    let free: Vec<usize> = (0..mesh.n_faces())
+        .filter(|&f| !mesh.is_boundary_face(f))
+        .collect();
+    let mut slot = vec![usize::MAX; mesh.n_faces()];
+    for (i, &f) in free.iter().enumerate() {
+        slot[f] = i;
+    }
+    let mut a = DMatrix::<f64>::zeros(mesh.n_tets() + mesh.n_edges(), free.len());
+    for (v, (t, f)) in d2.iter() {
+        if slot[f] != usize::MAX {
+            a[(t, slot[f])] += v;
+        }
+    }
+    for (v, (g, f)) in m2.iter() {
+        if slot[f] == usize::MAX {
+            continue;
+        }
+        if let Some(row) = d1.outer_view(g) {
+            for (e, &s) in row.iter() {
+                a[(mesh.n_tets() + e, slot[f])] += s * v;
+            }
+        }
+    }
+    let mut sv: Vec<f64> = a.singular_values().iter().cloned().collect();
+    sv.sort_by(|p, q| q.partial_cmp(p).unwrap());
+    let top = sv[0];
+    let rank = sv.iter().filter(|&&x| x > 1e-10 * top * a.nrows() as f64).count();
+    assert_eq!(free.len() - rank, 0, "harmonic dimension is not zero");
+    assert!(
+        sv[rank - 1] / top > 1e-3,
+        "the smallest retained singular value is {} of the largest, so the rank is a \
+         question of tolerance rather than a measurement",
+        sv[rank - 1] / top
+    );
+
+    // The solver itself factorises and solves on the same chamber.
+    let nf = mesh.n_faces();
+    let f = mesh.flux_dofs(|x: [f64; 3]| [0.3 * x[2], -0.4, 0.2 * x[0]]);
+    let solver = BoundedStokes3D::new(mesh).unwrap();
+    let flow = solver.solve(&f, &vec![0.0; nf], 1.0).unwrap();
+    assert!(flow.divergence_residual < 1e-16, "divergence {}", flow.divergence_residual);
+}
