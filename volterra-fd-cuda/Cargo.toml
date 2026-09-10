@@ -22,9 +22,9 @@ name = "volterra-fd-cuda"
 path = "src/main.rs"
 
 [dependencies]
-cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git" }
-cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git" }
-cuda-core = { git = "https://github.com/NVlabs/cuda-oxide.git" }
+cuda-device = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "bad4d05559c188cdcfb3469d1497c5b9c3c303fa" }
+cuda-host = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "bad4d05559c188cdcfb3469d1497c5b9c3c303fa" }
+cuda-core = { git = "https://github.com/NVlabs/cuda-oxide.git", rev = "bad4d05559c188cdcfb3469d1497c5b9c3c303fa" }
 
 # The CPU reference every kernel is checked against, and the boundary and
 # parameter construction both sides share.
