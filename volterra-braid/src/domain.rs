@@ -246,16 +246,21 @@ impl Domain3 for CartesianDomain {
 /// [`disclination_density`](crate::disclination::disclination_density), which it
 /// reproduces exactly on a [`CartesianDomain`]. The contraction is the same
 /// nine cross products per site; only the derivatives come from elsewhere.
-pub fn disclination_density_on<D: Domain3 + ?Sized>(
-    domain: &D,
-    q: &[[f64; 5]],
-) -> Vec<[f64; 9]> {
-    assert_eq!(q.len(), domain.len(), "the field and the domain disagree in size");
+pub fn disclination_density_on<D: Domain3 + ?Sized>(domain: &D, q: &[[f64; 5]]) -> Vec<[f64; 9]> {
+    assert_eq!(
+        q.len(),
+        domain.len(),
+        "the field and the domain disagree in size"
+    );
     let mut out = vec![[0.0_f64; 9]; q.len()];
-    for site in 0..domain.len() {
+    for (site, entry) in out.iter_mut().enumerate() {
         let grad = domain.q_gradients(q, site);
         let g = |mu: usize, alpha: usize| {
-            Vector3::new(grad[0][(mu, alpha)], grad[1][(mu, alpha)], grad[2][(mu, alpha)])
+            Vector3::new(
+                grad[0][(mu, alpha)],
+                grad[1][(mu, alpha)],
+                grad[2][(mu, alpha)],
+            )
         };
         let mut d = [0.0_f64; 9];
         for i_row in 0..3 {
@@ -270,7 +275,7 @@ pub fn disclination_density_on<D: Domain3 + ?Sized>(
                 d[i_row * 3 + j_col] = row[j_col];
             }
         }
-        out[site] = d;
+        *entry = d;
     }
     out
 }

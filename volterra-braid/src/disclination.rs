@@ -99,7 +99,11 @@ pub fn disclination_density(
 
                 // g[mu][alpha] holds the three derivatives of Q_{mu alpha}.
                 let g = |mu: usize, alpha: usize| {
-                    Vector3::new(grad[0][(mu, alpha)], grad[1][(mu, alpha)], grad[2][(mu, alpha)])
+                    Vector3::new(
+                        grad[0][(mu, alpha)],
+                        grad[1][(mu, alpha)],
+                        grad[2][(mu, alpha)],
+                    )
                 };
 
                 let mut d = [0.0_f64; 9];
@@ -256,10 +260,14 @@ fn sites_from(
         for j in 0..ny {
             for l in 0..nz {
                 let k = ((i * ny) + j) * nz + l;
-                let disclination = decompose(&density[k]);
-                if disclination.s <= threshold {
+                // `mag[k]` is this voxel's leading singular value, already
+                // computed. Testing it first keeps the decomposition for the
+                // few supra-threshold voxels rather than running a second
+                // singular value decomposition over the whole grid.
+                if mag[k] <= threshold {
                     continue;
                 }
+                let disclination = decompose(&density[k]);
                 let (e1, e2) = perpendicular_basis(disclination.tangent);
                 let here = [i as f64, j as f64, l as f64];
                 let s0 = mag[k];
@@ -399,13 +407,7 @@ pub fn disclination_magnitude(
 ///
 /// Meaningless away from a core, where `s` is small and the factorisation has
 /// nothing to resolve, so read it only on or near the isosurface.
-pub fn cos_beta_field(
-    q: &[[f64; 5]],
-    nx: usize,
-    ny: usize,
-    nz: usize,
-    dx: f64,
-) -> Vec<f64> {
+pub fn cos_beta_field(q: &[[f64; 5]], nx: usize, ny: usize, nz: usize, dx: f64) -> Vec<f64> {
     disclination_density(q, nx, ny, nz, dx)
         .iter()
         .map(|d| decompose(d).cos_beta)
@@ -454,10 +456,14 @@ pub fn frenet(points: &[[f64; 3]], closed: bool) -> Frenet {
     let mut torsions = vec![0.0; n];
 
     if n < 2 {
-        return Frenet { tangents, curvatures, torsions };
+        return Frenet {
+            tangents,
+            curvatures,
+            torsions,
+        };
     }
     if n < 5 {
-        for i in 0..n {
+        for (i, tangent) in tangents.iter_mut().enumerate() {
             let (a, b) = if i == 0 {
                 (0, 1)
             } else if i == n - 1 {
@@ -470,10 +476,18 @@ pub fn frenet(points: &[[f64; 3]], closed: bool) -> Frenet {
                 points[b][1] - points[a][1],
                 points[b][2] - points[a][2],
             );
-            let t = if d.norm() > 1e-30 { d.normalize() } else { Vector3::zeros() };
-            tangents[i] = [t[0], t[1], t[2]];
+            let t = if d.norm() > 1e-30 {
+                d.normalize()
+            } else {
+                Vector3::zeros()
+            };
+            *tangent = [t[0], t[1], t[2]];
         }
-        return Frenet { tangents, curvatures, torsions };
+        return Frenet {
+            tangents,
+            curvatures,
+            torsions,
+        };
     }
 
     let width = 7usize.min(n);
@@ -490,7 +504,10 @@ pub fn frenet(points: &[[f64; 3]], closed: bool) -> Frenet {
         } else {
             let start = (i as isize - half).clamp(0, n as isize - width as isize);
             for k in 0..width as isize {
-                nodes.push(((start + k - i as isize) as f64, points[(start + k) as usize]));
+                nodes.push((
+                    (start + k - i as isize) as f64,
+                    points[(start + k) as usize],
+                ));
             }
         }
 
@@ -507,9 +524,8 @@ pub fn frenet(points: &[[f64; 3]], closed: bool) -> Frenet {
         let mut d2: Vector3<f64> = Vector3::zeros();
         let mut d3: Vector3<f64> = Vector3::zeros();
         for c in 0..3 {
-            let rhs = Vector4::from_fn(|a, _| {
-                nodes.iter().map(|(t, p)| t.powi(a as i32) * p[c]).sum()
-            });
+            let rhs =
+                Vector4::from_fn(|a, _| nodes.iter().map(|(t, p)| t.powi(a as i32) * p[c]).sum());
             let Some(coeff) = lu.solve(&rhs) else {
                 continue;
             };
@@ -536,7 +552,11 @@ pub fn frenet(points: &[[f64; 3]], closed: bool) -> Frenet {
         }
     }
 
-    Frenet { tangents, curvatures, torsions }
+    Frenet {
+        tangents,
+        curvatures,
+        torsions,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -598,13 +618,7 @@ pub fn level_set_curvature(
     };
     let (i, j, l) = (ijl.0 as isize, ijl.1 as isize, ijl.2 as isize);
     let step = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let shift = |d: usize, n: isize| {
-        (
-            i + n * step[d][0],
-            j + n * step[d][1],
-            l + n * step[d][2],
-        )
-    };
+    let shift = |d: usize, n: isize| (i + n * step[d][0], j + n * step[d][1], l + n * step[d][2]);
 
     let centre = at(i, j, l);
     let mut g = Vector3::zeros();
@@ -625,8 +639,7 @@ pub fn level_set_curvature(
                     l + sd * step[d][2] + se * step[e][2],
                 )
             };
-            let mixed =
-                (off(1, 1) - off(1, -1) - off(-1, 1) + off(-1, -1)) / (4.0 * dx * dx);
+            let mixed = (off(1, 1) - off(1, -1) - off(-1, 1) + off(-1, -1)) / (4.0 * dx * dx);
             h[(d, e)] = mixed;
             h[(e, d)] = mixed;
         }
@@ -634,7 +647,10 @@ pub fn level_set_curvature(
 
     let norm = g.norm();
     if norm < 1e-30 {
-        return SurfaceCurvature { mean: 0.0, gaussian: 0.0 };
+        return SurfaceCurvature {
+            mean: 0.0,
+            gaussian: 0.0,
+        };
     }
 
     // Adjugate of a symmetric 3x3, written out so a singular Hessian is fine:
@@ -821,7 +837,15 @@ fn assemble(sites: Vec<DisclinationSite>, dx: f64) -> Vec<DisclinationCurve> {
             current = next;
         }
 
-        let is_loop = order.len() > 2 && dist(order[0], current) <= dx * 3.0_f64.sqrt();
+        // A loop's contour closes, so its length takes the segment from the last
+        // site back to the first. Leaving it out biases every loop short by
+        // about one segment, which the derived radius and the 2 pi / l circle
+        // reference both inherit.
+        let closing = dist(order[0], current);
+        let is_loop = order.len() > 2 && closing <= dx * 3.0_f64.sqrt();
+        if is_loop {
+            length += closing;
+        }
         let mean_cos_beta = order
             .iter()
             .map(|&m| sites[m].disclination.cos_beta)
@@ -913,6 +937,12 @@ pub fn disclination_lines_at_fraction(
     (curves, threshold)
 }
 
+/// Curve sites bucketed by integer cell, as `(curve index, position)`.
+///
+/// The bucket cell is four voxels wide, so the nearest site to a shell voxel is
+/// found from a handful of cells rather than from every site on every curve.
+type CellBuckets = std::collections::HashMap<(i64, i64, i64), Vec<(usize, [f64; 3])>>;
+
 /// Measure the `s` isosurface around each line and record its curvature.
 ///
 /// The surface is taken as the inner face of the supra-threshold region: a
@@ -944,8 +974,7 @@ fn attach_surface_curvature(
             (p[2] / cell).floor() as i64,
         )
     };
-    let mut buckets: std::collections::HashMap<(i64, i64, i64), Vec<(usize, [f64; 3])>> =
-        std::collections::HashMap::new();
+    let mut buckets: CellBuckets = std::collections::HashMap::new();
     for (c, curve) in curves.iter().enumerate() {
         for s in &curve.sites {
             buckets.entry(key(s.pos)).or_default().push((c, s.pos));
@@ -968,9 +997,7 @@ fn attach_surface_curvature(
                     (i, j, l + 1),
                 ]
                 .into_iter()
-                .any(|(a, b, c)| {
-                    a >= nx || b >= ny || c >= nz || at(a, b, c) <= threshold
-                });
+                .any(|(a, b, c)| a >= nx || b >= ny || c >= nz || at(a, b, c) <= threshold);
                 if !outside {
                     continue;
                 }
@@ -986,8 +1013,7 @@ fn attach_surface_curvature(
                                     continue;
                                 };
                                 for &(curve, p) in near {
-                                    let d2: f64 =
-                                        (0..3).map(|n| (p[n] - here[n]).powi(2)).sum();
+                                    let d2: f64 = (0..3).map(|n| (p[n] - here[n]).powi(2)).sum();
                                     if best.is_none_or(|(_, d)| d2 < d) {
                                         best = Some((curve, d2));
                                     }
@@ -1001,7 +1027,7 @@ fn attach_surface_curvature(
                 }
                 let Some((curve, _)) = best else { continue };
 
-                let k = level_set_curvature(&mag, nx, ny, nz, dx, (i, j, l));
+                let k = level_set_curvature(mag, nx, ny, nz, dx, (i, j, l));
                 sums[curve].0 += k.mean;
                 sums[curve].1 += k.gaussian;
                 sums[curve].2 += 1;
@@ -1068,9 +1094,8 @@ mod disclination_tests {
     /// on, where the nematic sits well inside the box. Here it means the
     /// outermost layer carries an artefact, so the tests read the interior.
     fn interior(n: usize) -> impl Iterator<Item = (usize, usize, usize)> {
-        (1..n - 1).flat_map(move |i| {
-            (1..n - 1).flat_map(move |j| (1..n - 1).map(move |l| (i, j, l)))
-        })
+        (1..n - 1)
+            .flat_map(move |i| (1..n - 1).flat_map(move |j| (1..n - 1).map(move |l| (i, j, l))))
     }
 
     /// The interior site of largest `s`, which is the one nearest the core.
@@ -1101,7 +1126,11 @@ mod disclination_tests {
         assert!(d.s > 0.0, "no disclination found");
         // The line runs along z, so the tangent is +-z; the sign convention
         // makes it +z.
-        assert!(d.tangent[2].abs() > 0.99, "tangent {:?} is not along z", d.tangent);
+        assert!(
+            d.tangent[2].abs() > 0.99,
+            "tangent {:?} is not along z",
+            d.tangent
+        );
         // A wedge rotates about its own tangent.
         assert!(
             d.cos_beta.abs() > 0.99,
@@ -1160,7 +1189,10 @@ mod disclination_tests {
         // Walk out along x from the core towards the edge.
         let near = at(mid, mid);
         let far = at(mid + 6, mid);
-        assert!(near > far, "s did not decay outward: {near} at core, {far} away");
+        assert!(
+            near > far,
+            "s did not decay outward: {near} at core, {far} away"
+        );
     }
 
     #[test]
@@ -1211,7 +1243,11 @@ mod disclination_tests {
             }
         }
         let d = peak(&q, n);
-        assert!(d.tangent[0].abs() > 0.99, "tangent {:?} is not along x", d.tangent);
+        assert!(
+            d.tangent[0].abs() > 0.99,
+            "tangent {:?} is not along x",
+            d.tangent
+        );
     }
 
     #[test]
@@ -1293,8 +1329,7 @@ mod disclination_tests {
                 for l in 0..n {
                     let (x, y) = (i as f64, j as f64 - cy);
                     let theta = 0.5 * y.atan2(x - c1) - 0.5 * y.atan2(x - c2);
-                    q[((i * n) + j) * n + l] =
-                        uniaxial([theta.cos(), theta.sin(), 0.0], 0.556);
+                    q[((i * n) + j) * n + l] = uniaxial([theta.cos(), theta.sin(), 0.0], 0.556);
                 }
             }
         }
@@ -1329,8 +1364,7 @@ mod disclination_tests {
                         let x = i as f64 - centre;
                         let y = j as f64 - centre;
                         let theta = 0.5 * y.atan2(x);
-                        q[((i * n) + j) * n + l] =
-                            uniaxial([theta.cos(), theta.sin(), 0.0], q_mag);
+                        q[((i * n) + j) * n + l] = uniaxial([theta.cos(), theta.sin(), 0.0], q_mag);
                     }
                 }
             }
@@ -1493,10 +1527,7 @@ mod linking_tests {
         let a = circle(0.0, 0.0, 0.0, 1.0, 600);
         let b = circle_xz(1.0, 0.0, 0.0, 1.0, 600);
         let lk = linking_number(&a, &b);
-        assert!(
-            (lk.abs() - 1.0).abs() < 1e-2,
-            "expected |Lk| = 1, got {lk}"
-        );
+        assert!((lk.abs() - 1.0).abs() < 1e-2, "expected |Lk| = 1, got {lk}");
         let mut rev = b.clone();
         rev.reverse();
         assert!(
