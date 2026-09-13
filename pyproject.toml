@@ -46,3 +46,29 @@ dev = [
 
 [tool.pyrefly]
 # Full Pyrefly type checking rather than the degraded basic preset.
+
+# braid_tracker_v2.py and compare_cgpo.py are sibling scripts imported by
+# other oracle scripts via a plain `import`, resolved at run time because
+# each script adds its own directory to sys.path before importing. Pyrefly
+# does not follow that, so it needs the directories on its own search path.
+search-path = ["volterra-braid/oracle", "volterra-braid/oracle/concurrence"]
+
+project-excludes = [
+    "**/.venv/**",
+    "**/target/**",
+    "**/.worktrees/**",
+    # A CFDPython-tutorial notebook converted to a script wholesale, kept as
+    # the external reference this project's DEC solver is measured against.
+    # Its numba `prange` loops do not type-check under any stub (numba-stubs
+    # types `prange` as non-iterable) and its `get_ipython()` call is guarded
+    # by a bare `except NameError` for the non-notebook case, which is itself
+    # not a name Pyrefly can resolve outside IPython.
+    "volterra-braid/oracle/concurrence/flow_solver_run.py",
+    # Numba-accelerated one-off scripts that regenerate the Rust reference
+    # fixtures under volterra-fd/tests/ref/*.txt. numba is not a project
+    # dependency, and its stubs also type `nb.prange` as non-iterable.
+    "volterra-fd/tests/ref/dump_step.py",
+    "volterra-fd/tests/ref/dump_step_debug.py",
+    "volterra-fd/tests/ref/dump_step_p.py",
+    "volterra-fd/tests/ref/dump_step_p2.py",
+]

@@ -224,7 +224,7 @@ for k, st in enumerate(steps):
     th = 0.5 * np.arctan2(q[GI, GJ, 1], q[GI, GJ, 0])
     ctr = np.stack([XC[GI], YC[GJ]], -1).reshape(-1, 2)
     dv = np.stack([np.cos(th), np.sin(th)], -1).reshape(-1, 2) * (GLEN / 2)
-    A.add_collection(LineCollection(np.stack([ctr - dv, ctr + dv], 1),
+    A.add_collection(LineCollection(list(np.stack([ctr - dv, ctr + dv], 1)),
                                     colors="#000000", linewidths=0.5, zorder=2))
     pos, neg = now[now[:, 4] > 0], now[now[:, 4] < 0]
     A.scatter(pos[:, 2], pos[:, 3], s=46, facecolor="#d81e05", edgecolor="#000000",

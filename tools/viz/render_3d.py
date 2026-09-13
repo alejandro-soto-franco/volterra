@@ -84,7 +84,7 @@ def add_disclination_lines(plotter, lines, tube_radius=0.3):
 
         # Build a PyVista polyline from the vertices.
         n_pts = len(verts)
-        cells = np.zeros(n_pts + 1, dtype=np.int64)
+        cells = np.zeros(n_pts + 1, dtype=int)
         cells[0] = n_pts
         cells[1:] = np.arange(n_pts)
         polyline = pv.PolyData(verts, lines=cells)
@@ -190,7 +190,7 @@ def render_frame_3d(grid, s_data, threshold, frame_path,
     """Render a 3D frame with S isosurface and optional disclination lines."""
     grid.point_data["S"] = s_data.ravel(order="F")
 
-    plotter = pv.Plotter(off_screen=True, window_size=window_size)
+    plotter = pv.Plotter(off_screen=True, window_size=list(window_size))
     plotter.set_background("#1a1a2e")
 
     # S isosurface (reveals defect cores as tube-like structures).

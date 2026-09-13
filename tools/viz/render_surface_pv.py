@@ -466,7 +466,7 @@ def build_streamlines_polydata(verts, normals, e1, e2, q1, q2, tris,
 
         n_pts = len(pts_offset)
         all_points.append(pts_offset)
-        line = np.zeros(n_pts + 1, dtype=np.int64)
+        line = np.zeros(n_pts + 1, dtype=int)
         line[0] = n_pts
         line[1:] = np.arange(offset, offset + n_pts)
         all_lines.append(line)
@@ -488,7 +488,7 @@ def render_frame(verts, faces, tris, q1, q2, vel, frame_path,
     s_norm = np.clip(s / max(s_ref, 1e-6), 0.0, 1.0)
 
     # ── Left panel: director field with S colouring ──
-    plotter = pv.Plotter(off_screen=True, window_size=window_size,
+    plotter = pv.Plotter(off_screen=True, window_size=list(window_size),
                          shape=(1, 2), border=False)
     plotter.subplot(0, 0)
     plotter.set_background("#0a0a0a")

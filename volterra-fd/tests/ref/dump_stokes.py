@@ -189,6 +189,7 @@ p_rhs = rhs.copy()   # save before iteration
 p_work = p.copy()
 p_target_rel_change = 1e-15   # tiny: won't trigger early exit in N_ITERS steps
 
+rel_change = 0.0
 for iteration in range(N_ITERS):
     p_aux = p_work.copy()
     relax_pressure_inner_loop(p_work, p_aux, rhs, bounds)

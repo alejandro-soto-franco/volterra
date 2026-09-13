@@ -51,7 +51,9 @@ def load_q_dec(path, nv):
 def render_polyscope(verts, tris, q1, q2, frame_path,
                      screenshot_width=1920, screenshot_height=1080):
     """Render one frame using Polyscope (off-screen)."""
-    import polyscope as ps
+    # Optional rendering backend, not a project dependency: installed only on
+    # a machine that uses this particular render path.
+    import polyscope as ps  # pyrefly: ignore[missing-import]
 
     ps.init()
     ps.set_program_name("volterra")

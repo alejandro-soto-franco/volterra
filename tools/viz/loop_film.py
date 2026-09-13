@@ -24,7 +24,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path.home() / ".claude/skills/comparison-panel-video"))
-from panelkit import apply_style, encode, render_frames  # noqa: E402
+# panelkit lives outside the repository, in a Claude skill directory added to
+# sys.path above at run time, so it has no fixed location a search path can
+# name across checkouts.
+from panelkit import apply_style, encode, render_frames  # noqa: E402  # pyrefly: ignore[missing-import]
 
 CHARACTER_MAP = "viridis"
 # The scalar order parameter has its own convention in this project: white where
@@ -117,7 +120,7 @@ def render_panels(frames, margin, axis_radius, stride=4, size=(1700, 1700)):
         grid.point_data["density"] = interior(fr["density"], margin, axis_radius).ravel(order="F")
         grid.point_data["character"] = fr["character"].ravel(order="F")
 
-        plotter = pv.Plotter(off_screen=True, window_size=size)
+        plotter = pv.Plotter(off_screen=True, window_size=list(size))
         plotter.set_background("#ffffff")
 
         # The nematic, rendered as a volume rather than a shell, so the texture
@@ -128,7 +131,7 @@ def render_panels(frames, margin, axis_radius, stride=4, size=(1700, 1700)):
             grid.point_data["order"] = interior(order, margin, axis_radius, fill=1.0).ravel(order="F")
             plotter.add_volume(
                 grid, scalars="order", cmap=order_map(),
-                opacity=[0.62, 0.34, 0.17, 0.08, 0.03, 0.0],
+                opacity=np.array([0.62, 0.34, 0.17, 0.08, 0.03, 0.0]),
                 clim=(0.0, 1.0), shade=False, show_scalar_bar=False,
             )
 
@@ -181,7 +184,11 @@ def render_panels(frames, margin, axis_radius, stride=4, size=(1700, 1700)):
 
         plotter.add_mesh(grid.outline(), color="#000000", line_width=1.2)
         plotter.camera_position = camera
-        images.append(plotter.screenshot(return_img=True))
+        # `return_img=True` always returns the array; the `| None` case in
+        # the stub covers only `return_img=False`.
+        img = plotter.screenshot(return_img=True)
+        assert img is not None
+        images.append(img)
         plotter.close()
         if k % 10 == 0:
             print(f"  panel {k}/{len(frames)}")
@@ -222,6 +229,9 @@ def series(frames):
             for key in ("length", "curvature", "reference", "displacement"):
                 out[key].append(np.nan)
             continue
+        # `ring` is set only alongside `previous` and `origin`, in the same
+        # `if loops:` branch above, so both are arrays here.
+        assert previous is not None and origin is not None
         out["length"].append(ring["length"])
         out["curvature"].append(ring["mean_curvature"])
         out["reference"].append(2 * np.pi / ring["length"])
@@ -256,12 +266,16 @@ def build(run_dir: Path, out: Path, margin: int, axis_radius: float, stride: int
     ax_curv = fig.add_subplot(gs[1, 0])
     ax_char = fig.add_subplot(gs[2, 0])
     ax_3d = fig.add_subplot(gs[:, 1])
-    bar_ax = fig.add_axes([0.50, 0.048, 0.44, 0.016])
+    bar_ax = fig.add_axes((0.50, 0.048, 0.44, 0.016))
     bar = fig.colorbar(cm.ScalarMappable(norm=Normalize(-1, 1), cmap=CHARACTER_MAP),
                        cax=bar_ax, orientation="horizontal")
     bar.set_ticks([-1, 0, 1])
     bar.set_ticklabels([r"$-1$, triradius", r"$0$, twist", r"$+1$, comet"])
-    bar.outline.set_edgecolor("#000000")
+    # matplotlib-stubs types Colorbar.outline as the Spines container class
+    # (a MutableMapping) rather than the single Spine instance matplotlib
+    # actually assigns at runtime, so its __getattr__ fallback resolves
+    # set_edgecolor to a Spine value instead of the real bound method.
+    bar.outline.set_edgecolor("#000000")  # pyrefly: ignore[not-callable]
     bar_ax.set_title(r"winding character $\cos\beta$", fontsize=13, pad=6)
 
     total = len(frames) + HOLD_SECONDS * FPS

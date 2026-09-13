@@ -78,7 +78,7 @@ def render_volume(meta, density, character, flow, margin, axis_radius, size=(160
     grid.point_data["density"] = interior(density, margin, axis_radius).ravel(order="F")
     grid.point_data["character"] = character.ravel(order="F")
 
-    plotter = pv.Plotter(off_screen=True, window_size=size)
+    plotter = pv.Plotter(off_screen=True, window_size=list(size))
     plotter.set_background(PAPER)
 
     surface = grid.contour([meta["threshold"]], scalars="density")
@@ -229,7 +229,11 @@ def compose(meta, panel, out_path: Path, has_flow: bool):
         r"$+1$, comet",
     ])
     bar.ax.tick_params(labelsize=10)
-    bar.outline.set_edgecolor(INK)
+    # matplotlib-stubs types Colorbar.outline as the Spines container class
+    # (a MutableMapping) rather than the single Spine instance matplotlib
+    # actually assigns at runtime, so its __getattr__ fallback resolves
+    # set_edgecolor to a Spine value instead of the real bound method.
+    bar.outline.set_edgecolor(INK)  # pyrefly: ignore[not-callable]
     cax.set_title(
         r"winding character $\cos\beta = \hat{\Omega}\cdot\hat{T}$",
         fontsize=12, pad=8,

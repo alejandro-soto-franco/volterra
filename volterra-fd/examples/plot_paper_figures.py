@@ -79,7 +79,7 @@ def director_inset(fig, host, rect, run, step, cfg):
     th = 0.5 * np.arctan2(q[gi, gj, 1], q[gi, gj, 0])
     ctr = np.stack([gi + 0.5, gj + 0.5], -1).reshape(-1, 2).astype(float)
     d = np.stack([np.cos(th), np.sin(th)], -1).reshape(-1, 2) * 1.5
-    ax.add_collection(LineCollection(np.stack([ctr - d, ctr + d], 1),
+    ax.add_collection(LineCollection(list(np.stack([ctr - d, ctr + d], 1)),
                                      colors="#000000", linewidths=0.35))
     drows = [[float(v) for v in l.split(",")]
              for l in (run / "defects.csv").read_text().splitlines()[1:] if l.strip()]

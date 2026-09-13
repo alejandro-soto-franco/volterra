@@ -29,7 +29,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from scipy.spatial import cKDTree
+# scipy.spatial imports its compiled _ckdtree extension under its own
+# `# type: ignore`, so no stub set resolves the name here either.
+from scipy.spatial import cKDTree  # pyrefly: ignore[missing-module-attribute]
 
 # The standing film style, the same block the CGPO videos use. usetex is NOT
 # set here: it comes from ~/.config/matplotlib/matplotlibrc, so every frame goes
@@ -273,7 +275,7 @@ def main():
         L = 0.021
         segs = np.stack([np.stack([sx - L * dx, sy - L * dy], 1),
                          np.stack([sx + L * dx, sy + L * dy], 1)], 1)
-        rods.set_segments(segs)
+        rods.set_segments(list(segs))
 
         pts = W[:, fi, :]
         depth = (pts * d).sum(1)

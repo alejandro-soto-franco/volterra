@@ -139,7 +139,7 @@ def render_frame(q1, q2, dx, frame_idx, output_path, title=None,
     fig, ax = plt.subplots(1, 1, figsize=(6, 6))
 
     # Scalar order colourmap: dark green (S=0) to white (S=1)
-    extent = [0, ny * dx, 0, nx * dx]
+    extent = (0.0, ny * dx, 0.0, nx * dx)
     s_norm = np.clip(s / max(s_range[1], 1e-6), 0.0, 1.0)
     im = ax.imshow(s_norm, origin="lower", extent=extent, cmap=S_CMAP,
                    vmin=0.0, vmax=1.0, interpolation="bilinear")
