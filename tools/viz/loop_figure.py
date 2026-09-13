@@ -52,9 +52,12 @@ def interior(field: np.ndarray, margin: int, axis_radius: float = 0.0) -> np.nda
     caption rather than quietly removed.
     """
     out = field.copy()
-    out[:margin] = out[-margin:] = 0.0
-    out[:, :margin] = out[:, -margin:] = 0.0
-    out[:, :, :margin] = out[:, :, -margin:] = 0.0
+    # `out[-0:]` is the whole array, so a zero margin would blank the field
+    # rather than leave it alone.
+    if margin > 0:
+        out[:margin] = out[-margin:] = 0.0
+        out[:, :margin] = out[:, -margin:] = 0.0
+        out[:, :, :margin] = out[:, :, -margin:] = 0.0
     if axis_radius > 0.0:
         n = out.shape[0]
         c = (n - 1) / 2.0

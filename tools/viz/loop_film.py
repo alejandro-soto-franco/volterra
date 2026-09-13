@@ -47,11 +47,14 @@ def load_frames(run_dir: Path):
         meta = json.loads(m.read_text())
         n = meta["n"]
         order_path = run_dir / f"order_{tag}.npy"
+        director_path = run_dir / f"director_{tag}.npy"
         frames.append({
             "meta": meta,
             "density": np.load(run_dir / f"density_{tag}.npy").reshape(n, n, n),
             "character": np.load(run_dir / f"cos_beta_{tag}.npy").reshape(n, n, n),
             "order": np.load(order_path).reshape(n, n, n) if order_path.exists() else None,
+            "director": (np.load(director_path).reshape(n, n, n, 3)
+                         if director_path.exists() else None),
         })
     return frames
 
@@ -65,9 +68,12 @@ def interior(field, margin, axis_radius, fill=0.0):
     fully opaque: filling a mask with it wraps the box in an opaque shell.
     """
     out = field.copy()
-    out[:margin] = out[-margin:] = fill
-    out[:, :margin] = out[:, -margin:] = fill
-    out[:, :, :margin] = out[:, :, -margin:] = fill
+    # `out[-0:]` is the whole array, so a zero margin would blank the field
+    # rather than leave it alone.
+    if margin > 0:
+        out[:margin] = out[-margin:] = fill
+        out[:, :margin] = out[:, -margin:] = fill
+        out[:, :, :margin] = out[:, :, -margin:] = fill
     if axis_radius > 0:
         n = out.shape[0]
         c = (n - 1) / 2.0
@@ -83,7 +89,7 @@ def order_map():
     return LinearSegmentedColormap.from_list("volterra_s", [ORDER_LOW, ORDER_HIGH])
 
 
-def render_panels(frames, flow, margin, axis_radius, size=(1700, 1700)):
+def render_panels(frames, margin, axis_radius, stride=4, size=(1700, 1700)):
     """One 3D image per frame, from one camera that is set once.
 
     Every image is checked for the same pixel extent before any of them is
@@ -150,19 +156,28 @@ def render_panels(frames, flow, margin, axis_radius, size=(1700, 1700)):
                              cmap=CHARACTER_MAP, clim=(-1.0, 1.0), smooth_shading=True,
                              specular=0.4, show_scalar_bar=False)
 
-        if flow is not None and k < len(flow):
-            grid.point_data["flow"] = flow[k].reshape(-1, 3, order="F")
-            seed = pv.Sphere(radius=0.30 * n * dx, center=(centre, centre, centre),
-                             theta_resolution=6, phi_resolution=5)
-            try:
-                streams = grid.streamlines_from_source(
-                    seed, vectors="flow", max_length=0.45 * n * dx,
-                    integration_direction="both")
-            except Exception:
-                streams = None
-            if streams is not None and streams.n_points > 2:
-                plotter.add_mesh(streams.tube(radius=0.09 * dx), color=FLOW,
-                                 opacity=0.35, smooth_shading=True, show_scalar_bar=False)
+        # The nematic itself, as rods. A director is apolar, so the glyph is a
+        # cylinder rather than an arrow and the sign the eigensolver returns
+        # does not matter. Coloured on the house convention for S, white where
+        # the nematic is ordered and green where it melts, so a core reads as a
+        # patch of green rods. White rods stay legible against white because the
+        # lighting shades them.
+        if fr["director"] is not None and fr["order"] is not None:
+            step = max(1, stride)
+            sl = slice(margin, n - margin, step)
+            idx = np.mgrid[sl, sl, sl].reshape(3, -1).T.astype(float)
+            keep = np.hypot(idx[:, 0] - (n - 1) / 2.0, idx[:, 1] - (n - 1) / 2.0) >= axis_radius
+            idx = idx[keep]
+            ii, jj, ll = idx[:, 0].astype(int), idx[:, 1].astype(int), idx[:, 2].astype(int)
+            rods = pv.PolyData(idx * dx)
+            rods.point_data["director"] = fr["director"][ii, jj, ll]
+            rods.point_data["order"] = np.clip(
+                fr["order"][ii, jj, ll] / max(fr["order"].max(), 1e-12), 0.0, 1.0)
+            glyphs = rods.glyph(orient="director", scale=False, factor=2.4 * step * dx,
+                                geom=pv.Cylinder(radius=0.12, height=1.0, resolution=10))
+            plotter.add_mesh(glyphs, scalars="order", cmap=order_map(), clim=(0.0, 1.0),
+                             smooth_shading=True, specular=0.35, opacity=0.85,
+                             show_scalar_bar=False)
 
         plotter.add_mesh(grid.outline(), color="#000000", line_width=1.2)
         plotter.camera_position = camera
@@ -214,7 +229,8 @@ def series(frames):
     return {k: np.asarray(v, dtype=float) for k, v in out.items()}
 
 
-def build(run_dir: Path, out: Path, margin: int, axis_radius: float, preview: bool):
+def build(run_dir: Path, out: Path, margin: int, axis_radius: float, stride: int,
+          preview: bool):
     import matplotlib as mpl
 
     mpl.use("Agg")
@@ -227,11 +243,8 @@ def build(run_dir: Path, out: Path, margin: int, axis_radius: float, preview: bo
     frames = load_frames(run_dir)
     if not frames:
         raise SystemExit(f"no frames in {run_dir}")
-    flow_files = sorted(run_dir.glob("u_*.npy"))
-    n = frames[0]["meta"]["n"]
-    flow = [np.load(f).reshape(n, n, n, 3) for f in flow_files] if flow_files else None
 
-    images = render_panels(frames, flow, margin, axis_radius)
+    images = render_panels(frames, margin, axis_radius, stride)
     data = series(frames)
     steps = np.arange(len(frames), dtype=float)
 
@@ -266,9 +279,9 @@ def build(run_dir: Path, out: Path, margin: int, axis_radius: float, preview: bo
         # room for and the house style does not take.
         ax_3d.legend(
             handles=[
-                Line2D([], [], color="#000000", alpha=0.45, lw=2.0,
-                       label="flow, streamlines of the Stokes solution"),
-                Patch(facecolor=ORDER_LOW, edgecolor="#000000", alpha=0.55,
+                Patch(facecolor="#e8eaec", edgecolor="#000000",
+                      label="director, one rod every four voxels"),
+                Patch(facecolor=ORDER_LOW, edgecolor="#000000",
                       label=r"melted nematic, low $S$"),
             ],
             loc="upper left", bbox_to_anchor=(0.01, 0.99), fontsize=12,
@@ -310,11 +323,13 @@ def main():
     ap.add_argument("--frames-dir", type=Path, default=None)
     ap.add_argument("--margin", type=int, default=3)
     ap.add_argument("--axis-radius", type=float, default=9.0)
+    ap.add_argument("--stride", type=int, default=4,
+                    help="draw a rod every this many voxels")
     ap.add_argument("--preview", action="store_true")
     args = ap.parse_args()
 
     fig, total, draw = build(args.run_dir, args.out, args.margin, args.axis_radius,
-                             args.preview)
+                             args.stride, args.preview)
     frames_dir = args.frames_dir or args.out.parent / "frames"
     render_frames(fig, total, draw, frames_dir, preview=args.preview)
     if not args.preview:

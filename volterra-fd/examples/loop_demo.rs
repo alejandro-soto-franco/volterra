@@ -13,7 +13,9 @@
 
 use std::path::Path;
 
-use volterra_braid::disclination::{cos_beta_field, disclination_lines_at_fraction, disclination_magnitude};
+use volterra_braid::disclination::{
+    cos_beta_field, disclination_lines_at_fraction, disclination_magnitude,
+};
 use volterra_core::{ActiveNematicParams3D, QField3D, VelocityField3D};
 use volterra_fd::runner_3d::{run_dry_active_nematic_3d, run_wet_active_nematic_3d};
 
@@ -43,7 +45,11 @@ fn seed_loop(n: usize, r: f64, q_eq: f64) -> Vec<[f64; 5]> {
                 let (x, y, z) = (i as f64 - c, j as f64 - c, l as f64 - c);
                 let rho = (x * x + y * y).sqrt();
                 let half = 0.5 * z.atan2(rho - r);
-                let e = if rho > 1e-9 { [x / rho, y / rho] } else { [1.0, 0.0] };
+                let e = if rho > 1e-9 {
+                    [x / rho, y / rho]
+                } else {
+                    [1.0, 0.0]
+                };
                 let dir = [half.cos() * e[0], half.cos() * e[1], half.sin()];
                 q[((i * n) + j) * n + l] = uniaxial(dir, q_eq);
             }
@@ -78,11 +84,7 @@ fn seed_twisted_loop(n: usize, r: f64, q_eq: f64) -> Vec<[f64; 5]> {
 
                 // The rotation axis, tilted out of the tangent by phi.
                 let (cp, sp) = (phi.cos(), phi.sin());
-                let omega = normalise([
-                    cp * tangent[0] + sp * 0.0,
-                    cp * tangent[1] + sp * 0.0,
-                    sp,
-                ]);
+                let omega = normalise([cp * tangent[0] + sp * 0.0, cp * tangent[1] + sp * 0.0, sp]);
 
                 // A reference director perpendicular to the axis.
                 let dot = e_rho[0] * omega[0] + e_rho[1] * omega[1] + e_rho[2] * omega[2];
@@ -126,9 +128,7 @@ fn rodrigues(v: [f64; 3], k: [f64; 3], angle: f64) -> [f64; 3] {
 
 fn write_npy(path: &Path, data: &[f64], n: usize) -> std::io::Result<()> {
     use std::io::Write;
-    let header = format!(
-        "{{'descr': '<f8', 'fortran_order': False, 'shape': ({n}, {n}, {n}), }}"
-    );
+    let header = format!("{{'descr': '<f8', 'fortran_order': False, 'shape': ({n}, {n}, {n}), }}");
     let mut pad = header.len() + 11;
     while pad % 64 != 0 {
         pad += 1;
@@ -147,9 +147,8 @@ fn write_npy(path: &Path, data: &[f64], n: usize) -> std::io::Result<()> {
 /// A `(n, n, n, 3)` array, for a vector field.
 fn write_vector_npy(path: &Path, data: &[[f64; 3]], n: usize) -> std::io::Result<()> {
     use std::io::Write;
-    let header = format!(
-        "{{'descr': '<f8', 'fortran_order': False, 'shape': ({n}, {n}, {n}, 3), }}"
-    );
+    let header =
+        format!("{{'descr': '<f8', 'fortran_order': False, 'shape': ({n}, {n}, {n}, 3), }}");
     let mut pad = header.len() + 11;
     while pad % 64 != 0 {
         pad += 1;
@@ -222,7 +221,11 @@ fn read_npy_f64(path: &Path) -> std::io::Result<Vec<f64>> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    let out = Path::new(args.get(1).map(String::as_str).unwrap_or("output/loop_demo"));
+    let out = Path::new(
+        args.get(1)
+            .map(String::as_str)
+            .unwrap_or("output/loop_demo"),
+    );
     let n: usize = args.get(2).map_or(64, |s| s.parse().unwrap());
     let radius: f64 = args.get(3).map_or(16.0, |s| s.parse().unwrap());
     let steps: usize = args.get(4).map_or(400, |s| s.parse().unwrap());
@@ -235,13 +238,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Snapshot interval. Equal to `steps` gives one frame at the end; smaller
     // gives a series a film can be cut from.
     let snap: usize = args.get(7).map_or(steps, |s| s.parse().unwrap());
+    // The elastic constant, the activity and the step. The defaults leave the
+    // core and the active length under one voxel, which is what a resolved run
+    // has to move away from.
+    let k_r: f64 = args.get(8).map_or(1.0, |s| s.parse().unwrap());
+    let zeta: f64 = args.get(9).map_or(2.0, |s| s.parse().unwrap());
+    let dt: f64 = args.get(10).map_or(0.01, |s| s.parse().unwrap());
     std::fs::create_dir_all(out)?;
 
     let mut p = ActiveNematicParams3D::default_test();
     p.nx = n;
     p.ny = n;
     p.nz = n;
+    p.k_r = k_r;
+    p.zeta_eff = zeta;
+    p.dt = dt;
     let q_eq = p.equilibrium_q();
+
+    // The two lengths a disclination lives on, against the mesh. The core is
+    // sqrt(K / 2|a|) and the active instability's wavelength is sqrt(K / zeta);
+    // where either falls under a voxel, what breaks the loop is a lattice mode
+    // rather than the physics. The explicit elastic step needs
+    // dt < dx^2 / (6 Gamma K) in three dimensions.
+    let xi = (p.k_r / (2.0 * p.a_landau.abs())).sqrt();
+    let l_d = (p.k_r / p.zeta_eff).sqrt();
+    let dt_max = p.dx * p.dx / (6.0 * p.gamma_r * p.k_r);
+    println!(
+        "core xi = {:.2} voxels, active length = {:.2} voxels, dt = {} against a limit of {:.4}",
+        xi / p.dx,
+        l_d / p.dx,
+        p.dt,
+        dt_max
+    );
+    if xi < 2.0 * p.dx || l_d < 2.0 * p.dx {
+        println!("  WARNING: under two voxels, so the breakup is a mesh artefact");
+    }
+    if p.dt > 0.5 * dt_max {
+        println!("  WARNING: dt is over half the explicit limit");
+    }
 
     let mut field = QField3D::zeros(n, n, n, p.dx);
     field.q = match kind {
@@ -266,8 +300,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "after {steps} steps: S = {:.4}, threshold = {:.3e}, {} lines of which {} closed, \
              fastest flow {:.4e}, mean flow {:.4e}",
-            s.mean_s, s.disclination_threshold, s.n_disclination_lines, s.n_disclination_loops,
-            s.max_speed, s.mean_speed
+            s.mean_s,
+            s.disclination_threshold,
+            s.n_disclination_lines,
+            s.n_disclination_loops,
+            s.max_speed,
+            s.mean_speed
         );
     }
 
@@ -284,10 +322,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_npy(&out.join("cos_beta.npy"), &beta, n)?;
 
     let (curves, threshold) = disclination_lines_at_fraction(
-        &evolved.q, n, n, n, p.dx, p.disclination_threshold_fraction, p.disclination_floor(),
+        &evolved.q,
+        n,
+        n,
+        n,
+        p.dx,
+        p.disclination_threshold_fraction,
+        p.disclination_floor(),
     );
 
-    std::fs::write(out.join("curves.json"), curves_json(&curves, threshold, n, p.dx))?;
+    std::fs::write(
+        out.join("curves.json"),
+        curves_json(&curves, threshold, n, p.dx),
+    )?;
 
     for (c, curve) in curves.iter().enumerate() {
         println!(
@@ -301,7 +348,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             curve.surface_mean_curvature
         );
     }
-    println!("wrote density.npy, cos_beta.npy and curves.json to {}", out.display());
+    println!(
+        "wrote density.npy, cos_beta.npy and curves.json to {}",
+        out.display()
+    );
 
     // The same three products for every frame the runner wrote, so a film reads
     // the measured quantities per frame rather than interpolating between two.
@@ -310,15 +360,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|f| {
                 f.extension().is_some_and(|x| x == "npy")
-                    && f.file_name().is_some_and(|s| s.to_string_lossy().starts_with("q_"))
+                    && f.file_name()
+                        .is_some_and(|s| s.to_string_lossy().starts_with("q_"))
             })
             .collect();
         frames.sort();
         println!("deriving fields for {} frames", frames.len());
         for (k, frame) in frames.iter().enumerate() {
             let flat = read_npy_f64(frame)?;
-            let qf: Vec<[f64; 5]> =
-                flat.chunks_exact(5).map(|c| [c[0], c[1], c[2], c[3], c[4]]).collect();
+            let qf: Vec<[f64; 5]> = flat
+                .chunks_exact(5)
+                .map(|c| [c[0], c[1], c[2], c[3], c[4]])
+                .collect();
             let s = disclination_magnitude(&qf, n, n, n, p.dx);
             let b = cos_beta_field(&qf, n, n, n, p.dx);
             write_npy(&out.join(format!("density_{k:04}.npy")), &s, n)?;
@@ -327,12 +380,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // everywhere rather than only on the isosurface.
             let mut frame_q = QField3D::zeros(n, n, n, p.dx);
             frame_q.q = qf.clone();
-            write_npy(&out.join(format!("order_{k:04}.npy")), &frame_q.scalar_order_s(), n)?;
+            write_npy(
+                &out.join(format!("order_{k:04}.npy")),
+                &frame_q.scalar_order_s(),
+                n,
+            )?;
+            // The director, for rod glyphs. A nematic rod is apolar, so only the
+            // axis matters and the sign the eigensolver happens to return does
+            // not.
+            write_vector_npy(
+                &out.join(format!("director_{k:04}.npy")),
+                &frame_q.director(),
+                n,
+            )?;
             write_npy(&out.join(format!("cos_beta_{k:04}.npy")), &b, n)?;
             let (cs, th) = disclination_lines_at_fraction(
-                &qf, n, n, n, p.dx, p.disclination_threshold_fraction, p.disclination_floor(),
+                &qf,
+                n,
+                n,
+                n,
+                p.dx,
+                p.disclination_threshold_fraction,
+                p.disclination_floor(),
             );
-            std::fs::write(out.join(format!("curves_{k:04}.json")), curves_json(&cs, th, n, p.dx))?;
+            std::fs::write(
+                out.join(format!("curves_{k:04}.json")),
+                curves_json(&cs, th, n, p.dx),
+            )?;
         }
         println!("wrote {} frames of derived fields", frames.len());
     }
