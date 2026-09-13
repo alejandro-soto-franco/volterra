@@ -348,8 +348,14 @@ def braid_detect_defects_winding(
     nx: int,
     ny: int,
     mask: Sequence[bool],
+    dual: bool = False,
 ) -> list[tuple[float, float, int]]:
-    """Detect defects by the director's holonomy. No threshold to choose."""
+    """Detect defects by the director's winding. No threshold to choose.
+
+    `dual` averages `Q` over each 2 by 2 block first and reads the contours
+    round the grid nodes rather than the cells, which is the setting for a
+    field whose cores sit on grid points.
+    """
     ...
 
 def braid_word_from_frames(

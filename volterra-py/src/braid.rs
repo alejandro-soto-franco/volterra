@@ -17,7 +17,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use volterra_braid::{
-    BraidWord, Defect, detect_defects, detect_defects_winding, topological_entropy,
+    BraidWord, Defect, Lattice, detect_defects, detect_defects_winding_on, topological_entropy,
 };
 
 fn frames_to_defects(frames: Vec<Vec<(f64, f64, i64)>>) -> Vec<Vec<Defect>> {
@@ -165,27 +165,47 @@ fn braid_detect_defects(
         .collect()
 }
 
-/// Detect defects by the director's holonomy on a row-major `nx * ny` grid.
+/// Detect defects by the director's winding on an `nx * ny` grid.
 ///
-/// Sums the wrapped director increments round each plaquette, so a `+1/2` core
+/// Sums the wrapped director increments round each contour, so a `+1/2` core
 /// returns a half turn and a `-1/2` core minus that. There is no threshold to
 /// choose: the sum is a topological quantity and takes one of a few values.
 ///
-/// `mask` marks the cells inside the domain; a plaquette is read only where all
-/// four of its corners are in.
+/// **Memory layout.** `qxx[x * ny + y]` and `qxy[x * ny + y]` give the two
+/// independent components at grid cell `(x, y)`, so the flat arrays run with
+/// `x` as the slow index. A numpy array indexed `[row, column]` is transposed
+/// with respect to this: pass `numpy.ascontiguousarray(field.T).ravel()`, and
+/// `mask` in the same layout. Feeding the untransposed array returns positions
+/// with the axes swapped and, on any field that is not symmetric, the wrong
+/// defects.
+///
+/// `mask` marks the cells inside the domain; a contour is read only where all
+/// of its corners are in.
+///
+/// `dual` chooses the contour lattice. The default contours enclose the points
+/// at `(x + 1/2, y + 1/2)`, and a core sitting on a grid node then shares its
+/// singular corner between the contours around it, which reads twice the
+/// charge. With `dual=True` the components are averaged over each 2 by 2 block
+/// first and the contours enclose the grid nodes, which is the setting for a
+/// field whose cores sit on grid points, such as an analytic test field. A
+/// solver's own output has cores in general position and wants the default.
 ///
 /// Returns one `(x, y, charge)` triple per detected defect, charge in half
-/// units.
+/// units: `+1` is a `+1/2` disclination and `+2` an integer `+1` core. Before
+/// September 2026 this returned the sign alone, so an integer core came back
+/// as a half.
 #[pyfunction]
-#[pyo3(signature = (qxx, qxy, nx, ny, mask))]
+#[pyo3(signature = (qxx, qxy, nx, ny, mask, dual = false))]
 fn braid_detect_defects_winding(
     qxx: Vec<f64>,
     qxy: Vec<f64>,
     nx: usize,
     ny: usize,
     mask: Vec<bool>,
+    dual: bool,
 ) -> Vec<(f64, f64, i64)> {
-    detect_defects_winding(&qxx, &qxy, nx, ny, &mask)
+    let lattice = if dual { Lattice::Dual } else { Lattice::Primal };
+    detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, lattice)
         .into_iter()
         .map(|d| (d.pos[0], d.pos[1], d.charge as i64))
         .collect()

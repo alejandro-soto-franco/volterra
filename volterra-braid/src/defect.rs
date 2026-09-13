@@ -17,7 +17,10 @@
 pub struct Defect {
     /// Position `[x, y]` (grid-index units; cluster centroid).
     pub pos: [f64; 2],
-    /// Charge sign, `+1` or `-1`.
+    /// Charge in half units: `+1` is a `+1/2` disclination, `-2` an integer
+    /// `-1` core. `detect_defects_winding` sums the winding over the cluster,
+    /// so it reports an integer core as such. `detect_defects` reads only the
+    /// sign of the saddle-splay density and emits `+1` or `-1` alone.
     pub charge: i8,
 }
 
@@ -233,7 +236,81 @@ pub fn detect_defects_winding(
     ny: usize,
     mask: &[bool],
 ) -> Vec<Defect> {
+    detect_defects_winding_on(qxx, qxy, nx, ny, mask, Lattice::Primal)
+}
+
+/// Which lattice the winding contours are drawn on.
+///
+/// A contour reads the director at its four corners, and a core sitting on one
+/// of those corners has no director to read, so the four wrapped differences
+/// cancel and the core is missed or its charge halved. The two conventions put
+/// their sample points half a cell apart, so a core unreadable on one is
+/// generic on the other.
+///
+/// `Primal` samples the grid cells themselves and encloses the points at
+/// `(x + 1/2, y + 1/2)`. `Dual` averages `Q` over each 2 by 2 block first and
+/// encloses the grid nodes `(x, y)`, which is the convention to use for a
+/// field whose cores sit on grid points, such as an analytic test field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lattice {
+    /// Contours over the grid cells.
+    Primal,
+    /// Contours over the cell centres, enclosing the grid nodes.
+    Dual,
+}
+
+/// Detect defects by the director's winding on a stated contour lattice.
+pub fn detect_defects_winding_on(
+    qxx: &[f64],
+    qxy: &[f64],
+    nx: usize,
+    ny: usize,
+    mask: &[bool],
+    lattice: Lattice,
+) -> Vec<Defect> {
     use std::f64::consts::PI;
+
+    // On the dual lattice every corner value is the mean of Q over a 2 by 2
+    // block, the mask is the conjunction over that block, and the grid loses
+    // one cell in each direction. The offset puts a reported position back in
+    // the caller's own index frame.
+    // The primal lattice is the caller's own grid, so it borrows rather than
+    // taking three full-grid copies on a path that never writes to them.
+    type Grid<'a> = (
+        std::borrow::Cow<'a, [f64]>,
+        std::borrow::Cow<'a, [f64]>,
+        std::borrow::Cow<'a, [bool]>,
+        usize,
+        usize,
+        f64,
+    );
+    let (qxx, qxy, mask, nx, ny, offset): Grid = match lattice {
+        Lattice::Primal => (qxx.into(), qxy.into(), mask.into(), nx, ny, 0.0),
+        Lattice::Dual => {
+            if nx < 2 || ny < 2 {
+                return Vec::new();
+            }
+            let (dx, dy) = (nx - 1, ny - 1);
+            let mut bxx = vec![0.0; dx * dy];
+            let mut bxy = vec![0.0; dx * dy];
+            let mut bmask = vec![false; dx * dy];
+            for x in 0..dx {
+                for y in 0..dy {
+                    let corners = [
+                        x * ny + y,
+                        (x + 1) * ny + y,
+                        x * ny + y + 1,
+                        (x + 1) * ny + y + 1,
+                    ];
+                    bxx[x * dy + y] = corners.iter().map(|&i| qxx[i]).sum::<f64>() / 4.0;
+                    bxy[x * dy + y] = corners.iter().map(|&i| qxy[i]).sum::<f64>() / 4.0;
+                    bmask[x * dy + y] = corners.iter().all(|&i| mask[i]);
+                }
+            }
+            (bxx.into(), bxy.into(), bmask.into(), dx, dy, 0.5)
+        }
+    };
+    let (qxx, qxy, mask) = (&*qxx, &*qxy, &*mask);
 
     let idx = |x: usize, y: usize| x * ny + y;
     let phi = |x: usize, y: usize| 0.5 * qxy[idx(x, y)].atan2(qxx[idx(x, y)]);
@@ -284,9 +361,11 @@ pub fn detect_defects_winding(
             let mut stack = vec![(x, y)];
             visited[idx(x, y)] = true;
             let (mut sx, mut sy, mut count) = (0.0f64, 0.0f64, 0usize);
+            let mut total: i32 = 0;
             while let Some((cx, cy)) = stack.pop() {
                 sx += cx as f64 + 0.5;
                 sy += cy as f64 + 0.5;
+                total += charge[idx(cx, cy)] as i32;
                 count += 1;
                 for (dx, dy) in [
                     (1i64, 0i64),
@@ -312,8 +391,8 @@ pub fn detect_defects_winding(
                 }
             }
             defects.push(Defect {
-                pos: [sx / count as f64, sy / count as f64],
-                charge: sign,
+                pos: [sx / count as f64 + offset, sy / count as f64 + offset],
+                charge: total.clamp(i8::MIN as i32, i8::MAX as i32) as i8,
             });
         }
     }
@@ -322,8 +401,8 @@ pub fn detect_defects_winding(
 
 #[cfg(test)]
 mod winding_tests {
-    use super::*;
     use super::defect_tests::{interior_mask, winding_field};
+    use super::*;
 
     /// A uniform director has no winding anywhere.
     #[test]
@@ -377,6 +456,83 @@ mod winding_tests {
             detect_defects(&faint_xx, &faint_xy, nx, ny, 0.5, &mask).is_empty(),
             "the fixed threshold should have missed it, or this test proves nothing"
         );
+    }
+
+    /// A core sitting on a grid node has no director at that node, so a primal
+    /// contour through it cancels and reports nothing. The dual contour
+    /// encloses the node and reads the core.
+    #[test]
+    fn a_core_on_a_grid_node_needs_the_dual_lattice() {
+        let (nx, ny) = (41, 41);
+        let mask = interior_mask(nx, ny);
+        let (qxx, qxy) = winding_field(nx, ny, 20.0, 20.0, true);
+
+        let primal = detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, Lattice::Primal);
+        let dual = detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, Lattice::Dual);
+
+        // The primal contour shares the singular corner between the plaquettes
+        // around it, so each counts the same turn and the merged cluster reads
+        // twice the charge.
+        assert_eq!(primal.len(), 1, "primal found {primal:?}");
+        assert_eq!(
+            primal[0].charge, 2,
+            "a node core doubles on the primal contour"
+        );
+
+        assert_eq!(dual.len(), 1, "dual found {dual:?}");
+        assert_eq!(dual[0].charge, 1);
+        assert!(
+            (dual[0].pos[0] - 20.0).abs() < 1.5 && (dual[0].pos[1] - 20.0).abs() < 1.5,
+            "core at {:?}",
+            dual[0].pos
+        );
+    }
+
+    /// The complement of the node case: a core at a cell centre is generic for
+    /// the primal contour, and the dual contour puts a sample point on it.
+    #[test]
+    fn a_core_at_a_cell_centre_is_read_by_the_primal_lattice() {
+        let (nx, ny) = (41, 41);
+        let mask = interior_mask(nx, ny);
+        let (qxx, qxy) = winding_field(nx, ny, 20.5, 20.5, true);
+
+        let primal = detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, Lattice::Primal);
+        assert_eq!(primal.len(), 1, "primal found {primal:?}");
+        assert_eq!(primal[0].charge, 1);
+        assert!(
+            (primal[0].pos[0] - 20.5).abs() < 1.5 && (primal[0].pos[1] - 20.5).abs() < 1.5,
+            "core at {:?}",
+            primal[0].pos
+        );
+    }
+
+    /// An integer core sums to `+1`, in half units `+2`. Before the cluster
+    /// charge was summed this route reported the sign alone, so an integer
+    /// core came back as a half.
+    #[test]
+    fn an_integer_core_reports_two_half_units() {
+        let (nx, ny) = (41, 41);
+        let mask = interior_mask(nx, ny);
+        let mut qxx = vec![0.0; nx * ny];
+        let mut qxy = vec![0.0; nx * ny];
+        for x in 0..nx {
+            for y in 0..ny {
+                // phi = atan2 turns by 2 pi round the core, an integer defect.
+                let phi = (y as f64 - 20.0).atan2(x as f64 - 20.0);
+                qxx[x * ny + y] = (2.0 * phi).cos();
+                qxy[x * ny + y] = (2.0 * phi).sin();
+            }
+        }
+        let d = detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, Lattice::Dual);
+        assert_eq!(
+            d.iter().map(|d| d.charge as i32).sum::<i32>(),
+            2,
+            "an integer core is two half units, got {d:?}"
+        );
+        // The core spreads over two plaquettes two cells apart, which the
+        // eight-connected merge leaves separate. The total is the physical
+        // quantity; a caller wanting one record per core merges by distance.
+        assert_eq!(d.len(), 2, "{d:?}");
     }
 
     /// A `+1/2` and a `-1/2` at a distance are found as two defects of opposite

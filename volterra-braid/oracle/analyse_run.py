@@ -44,9 +44,17 @@ def load_frame(path):
 def detect_defects_winding(qxx, qxy, nx, ny, mask):
     """Defects by the winding of the director around each lattice plaquette.
 
-    Returns (x, y, charge) triples with charge +/-1, in the same convention as
-    ``braid_tracker_v2.detect_defects``. Vectorised over plaquettes, so it is
-    not a transcription of the Rust and disagreement means one of them is wrong.
+    Returns (x, y, charge) triples with the charge in half units, summed over
+    the cluster: +1 is a +1/2 disclination and +2 an integer +1 core, the same
+    convention as ``volterra_braid::detect_defects_winding``. Vectorised over
+    plaquettes, so it is not a transcription of the Rust and disagreement means
+    one of them is wrong, with one exception. Round an integer core the director
+    turns by exactly a right angle between adjacent corners, half the period a
+    line field is defined modulo, so every bond of the contour is a tie. The two
+    implementations break those ties differently and report +2 against +2.5 on
+    the same field. Reading an integer core takes a contour wide enough that
+    each bond turns by less than a right angle. Half-integer cores, which is
+    what an active nematic makes, agree exactly.
     """
     qxx = np.asarray(qxx, float).reshape(nx, ny)
     qxy = np.asarray(qxy, float).reshape(nx, ny)
@@ -78,10 +86,12 @@ def detect_defects_winding(qxx, qxy, nx, ny, mask):
             visited[x, y] = True
             sx = sy = 0.0
             count = 0
+            total = 0
             while stack:
                 cx, cy = stack.pop()
                 sx += cx + 0.5
                 sy += cy + 0.5
+                total += int(charge[cx, cy])
                 count += 1
                 for dx, dy in neigh:
                     a, b = cx + dx, cy + dy
@@ -90,7 +100,7 @@ def detect_defects_winding(qxx, qxy, nx, ny, mask):
                     if not visited[a, b] and charge[a, b] != 0 and np.sign(charge[a, b]) == sign:
                         visited[a, b] = True
                         stack.append((a, b))
-            out.append((sx / count, sy / count, sign))
+            out.append((sx / count, sy / count, total))
     return out
 
 

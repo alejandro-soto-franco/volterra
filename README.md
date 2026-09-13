@@ -64,6 +64,42 @@ volterra-fd-cuda  double-precision CUDA path for the finite-difference solver,
                   checked kernel by kernel against the CPU crate
 ```
 
+## Defect detection
+
+`volterra_braid::detect_defects_winding` sums the wrapped director increments
+round each contour, so the charge is a topological quantity and needs no
+threshold. Three things a caller has to know.
+
+**Memory layout.** `qxx[x * ny + y]`, with `x` as the slow index. A numpy array
+indexed `[row, column]` is transposed with respect to that, so pass
+`numpy.ascontiguousarray(field.T).ravel()`, and the mask the same way. The
+untransposed array returns positions with the axes swapped and, on a field that
+is not symmetric, the wrong defects.
+
+**Charge sums over the cluster in half units.** `+1` is a `+1/2`
+disclination and `+2` an integer `+1` core. Before September 2026 the merged
+cluster reported the sign alone, so an integer core came back as a half and the
+information was lost rather than wrong-signed. Downstream sign filters, which
+is what the braid tracking uses, are unaffected.
+
+**Contour lattice.** The default contours enclose the points at
+`(x + 1/2, y + 1/2)`. A core sitting on a grid node then shares its singular
+corner between the contours around it, and the merged cluster reads twice the
+charge or loses the core outright, depending on the sign. `Lattice::Dual`, or
+`dual=True` from Python, averages `Q` over each 2 by 2 block first so the
+contours enclose the grid nodes; on an analytic field with cores on grid points
+it recovers each core at its own position. A solver's own output has cores in
+general position and wants the default.
+
+One limit stands. Round an integer core the director turns by exactly a right
+angle between adjacent corners, half the period a line field is defined modulo,
+so every bond of a one-cell contour is a tie. The Rust and the independent
+Python oracle in `volterra-braid/oracle/analyse_run.py` break those ties
+differently and report `+2` against `+2.5` on the same field. Reading an
+integer core takes a contour wide enough that each bond turns by less than a
+right angle. Half-integer cores agree exactly, and an active nematic makes
+those.
+
 ## Substrate
 
 volterra depends on [cartan](https://github.com/alejandro-soto-franco/cartan) for Riemannian geometry. Any type implementing `cartan_core::Manifold` can serve as the simulation domain. This includes the manifolds shipped with cartan (`Sphere<N>`, `SpecialOrthogonal<N>`, `SpecialEuclidean<N>`, flat `Euclidean<N>`) and any user-defined manifold.

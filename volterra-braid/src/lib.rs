@@ -38,25 +38,24 @@ pub mod torus;
 pub mod track;
 
 pub use braidword::{BraidWord, Generator, extract_braidword};
-pub use defect::{Defect, detect_defects, detect_defects_winding};
+pub use defect::{
+    Defect, Lattice, detect_defects, detect_defects_winding, detect_defects_winding_on,
+};
 pub use disclination::{
-    curve_points, linking_number, pairwise_linking,
     Disclination, DisclinationCurve, DisclinationSite, Frenet, SurfaceCurvature, cos_beta_field,
-    disclination_density, disclination_lines, disclination_magnitude, disclination_sites, frenet,
-    level_set_curvature,
+    curve_points, disclination_density, disclination_lines, disclination_magnitude,
+    disclination_sites, frenet, level_set_curvature, linking_number, pairwise_linking,
 };
 pub use entropy::{
-    burau_spectral_radius_minus1, is_exact_regime, paper_burau_matrix,
-    paper_burau_spectral_radius, paper_burau_word, topological_entropy,
+    burau_spectral_radius_minus1, is_exact_regime, paper_burau_matrix, paper_burau_spectral_radius,
+    paper_burau_word, topological_entropy,
 };
 pub use sphere::{
-    SphereFrame, SpherePass, SphereWorldlines, geodesic, rigid_tetrahedron,
-    track_on_sphere,
+    SphereFrame, SpherePass, SphereWorldlines, geodesic, rigid_tetrahedron, track_on_sphere,
 };
 pub use synthetic::{RealizeOpts, golden_orbit, realize_braid, silver_orbit};
 pub use torus::{
-    DefectFrame,
-    Encounter, MaximalMixing, TorusWorldlines, h_tepo_ceilidh, h_tepo_maximal_mixing,
+    DefectFrame, Encounter, MaximalMixing, TorusWorldlines, h_tepo_ceilidh, h_tepo_maximal_mixing,
     ideal_figure_2a, min_image, track_on_torus,
 };
 pub use track::{Worldline, track, track_core};

@@ -77,9 +77,9 @@ def _core(n, m, cx, cy, s0=math.sqrt(2.0)):
     return qxx, qxy
 
 
-@pytest.mark.parametrize("m,charge", [(0.5, 1), (-0.5, -1), (1.0, 1)])
+@pytest.mark.parametrize("m,charge", [(0.5, 1), (-0.5, -1)])
 def test_the_winding_detector_reads_a_core_at_a_plaquette_centre(m, charge):
-    """The holonomy is a topological quantity, so it takes no threshold."""
+    """The winding is a topological quantity, so it takes no threshold."""
     n = 64
     qxx, qxy = _core(n, m, 32.5, 32.5)
     found = volterra.braid_detect_defects_winding(qxx, qxy, n, n, [True] * (n * n))
@@ -89,18 +89,46 @@ def test_the_winding_detector_reads_a_core_at_a_plaquette_centre(m, charge):
     assert abs(x - 32.5) < 1.5 and abs(y - 32.5) < 1.5
 
 
-def test_a_negative_core_on_a_lattice_site_is_missed():
-    """The one placement the winding detector does not read.
+def test_an_integer_core_saturates_a_contour_one_cell_wide():
+    """The resolution limit of a four-corner contour on a line field.
+
+    Round an integer core the director turns by a right angle between adjacent
+    corners, which is exactly half the period a line field is defined modulo.
+    The fold into that period is a tie at every one of the four bonds, and the
+    contour reads twice the charge: `+2` in half units where the field has
+    `+1`. Reading an integer core needs a contour wide enough that each bond
+    turns by less than a right angle, which is what the dual lattice supplies
+    for a core on a grid node. Before the cluster charge was summed this
+    returned the sign alone and the doubling was invisible."""
+    n = 64
+    qxx, qxy = _core(n, 1.0, 32.5, 32.5)
+    found = volterra.braid_detect_defects_winding(qxx, qxy, n, n, [True] * (n * n))
+    assert len(found) == 1, found
+    assert found[0][2] == 4
+
+
+def test_a_core_on_a_lattice_site_needs_the_dual_contour():
+    """The one placement the default contour does not read.
 
     With the singularity exactly on a sampled point, `Q` vanishes there and the
     director comes from `atan2(0, 0)`, which is zero rather than undefined. The
-    four plaquettes meeting at that point then round inconsistently, and a
+    four contours meeting at that point then round inconsistently, and a
     negative core is lost where a positive one survives. A field from a solver
-    never sits exactly on a site, so this is recorded rather than repaired."""
+    never sits exactly on a site, so the default stays where it is; `dual=True`
+    averages `Q` over each 2 by 2 block and encloses the site, which reads the
+    core at its own position."""
     n = 64
     on_site = volterra.braid_detect_defects_winding(
         *_core(n, -0.5, 32.0, 32.0), n, n, [True] * (n * n))
     assert on_site == []
+
+    repaired = volterra.braid_detect_defects_winding(
+        *_core(n, -0.5, 32.0, 32.0), n, n, [True] * (n * n), True)
+    assert len(repaired) == 1, repaired
+    x, y, c = repaired[0]
+    assert c == -1
+    assert abs(x - 32.0) < 1.0 and abs(y - 32.0) < 1.0
+
     off_site = volterra.braid_detect_defects_winding(
         *_core(n, -0.5, 32.5, 32.5), n, n, [True] * (n * n))
     assert len(off_site) == 1 and off_site[0][2] == -1
