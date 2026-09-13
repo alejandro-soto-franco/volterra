@@ -21,6 +21,7 @@ rand             = { workspace = true }
 delaunator       = "1"
 volterra-braid   = { workspace = true }
 sprs             = "0.11"
+nalgebra-sparse  = "0.12"
 num-complex      = "0.4"
 serde_json       = { workspace = true }
 faer = { version = "0.24", default-features = false, features = ["linalg"] }

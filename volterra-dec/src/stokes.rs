@@ -187,7 +187,7 @@ impl SurfaceStokes {
         ops: &Operators<M, 3, 2>,
         mesh: &Mesh<M, 3, 2>,
     ) -> Result<Self, String> {
-        let n_vertices = ops.laplace_beltrami.rows();
+        let n_vertices = ops.laplace_beltrami.nrows();
         let poisson = PoissonSolver::new(ops)?;
         let coords = extract_coords(mesh);
         let dual_areas = compute_dual_areas(n_vertices, &mesh.simplices, &coords);
@@ -255,7 +255,7 @@ impl SurfaceStokes {
         boundary_vertices: &[usize],
         screening: Screening,
     ) -> Result<Self, String> {
-        let n_vertices = ops.laplace_beltrami.rows();
+        let n_vertices = ops.laplace_beltrami.nrows();
         let coords = extract_coords(mesh);
         let inv_sq = screening.inverse_square();
         // A zero or negative screening length gives an infinite shift and an
@@ -1099,12 +1099,12 @@ pub fn compute_vorticity_source_from_stress<M: Manifold>(
 pub fn vorticity_from_psi<M: Manifold>(psi: &[f64], ops: &Operators<M, 3, 2>) -> Vec<f64> {
     let n = psi.len();
     let mut out = vec![0.0_f64; n];
-    for (col, column) in ops.laplace_beltrami.outer_iterator().enumerate() {
+    for (col, column) in ops.laplace_beltrami.col_iter().enumerate() {
         let x = psi[col];
         if x == 0.0 {
             continue;
         }
-        for (row, &v) in column.iter() {
+        for (&row, &v) in column.row_indices().iter().zip(column.values()) {
             out[row] -= v * x;
         }
     }

@@ -135,8 +135,8 @@ impl ActiveNematicEngine {
             triplets.add_triplet(i, i, 1.0);
         }
         // -dt/Pe * Re(Delta_L)
-        for (col, col_view) in lap_mat.outer_iterator().enumerate() {
-            for (row, val) in col_view.iter() {
+        for (col, col_view) in lap_mat.col_iter().enumerate() {
+            for (&row, val) in col_view.row_indices().iter().zip(col_view.values()) {
                 triplets.add_triplet(row, col, -dt_over_pe * val.re);
             }
         }

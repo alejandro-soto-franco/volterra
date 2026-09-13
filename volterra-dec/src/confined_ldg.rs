@@ -148,7 +148,12 @@ impl LdgProblem {
         let mass_lumped: Vec<f64> = ops.mass0.iter().copied().collect();
         let nvx = mesh.mesh.n_vertices();
         let l_diag: Vec<f64> = (0..nvx)
-            .map(|i| ops.laplace_beltrami.get(i, i).copied().unwrap_or(0.0))
+            .map(|i| {
+                ops.laplace_beltrami
+                    .get_entry(i, i)
+                    .map(|e| e.into_value())
+                    .unwrap_or(0.0)
+            })
             .collect();
         let two_ring = {
             let m = &mesh.mesh;

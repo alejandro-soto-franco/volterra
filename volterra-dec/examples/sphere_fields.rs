@@ -129,7 +129,7 @@ fn main() {
         let mut omega = vec![0.0_f64; nv];
         for (i, o) in omega.iter_mut().enumerate() {
             let mut acc = 0.0;
-            for (&v, (r, c)) in domain.ops.laplace_beltrami.iter() {
+            for (r, c, &v) in domain.ops.laplace_beltrami.triplet_iter() {
                 if r == i {
                     acc += v * psi[c];
                 }

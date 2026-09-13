@@ -30,11 +30,11 @@ volterra-braid   = { path = "volterra-braid",  version = "0.6.0" }
 volterra-dec     = { path = "volterra-dec",    version = "0.6.0" }
 volterra-fd      = { path = "volterra-fd",     version = "0.6.0" }
 
-cartan-core      = "0.6.1"
-cartan-manifolds = "0.6"
-cartan-geo       = "0.6"
-cartan-dec       = "0.6"
-cartan-remesh    = "0.6"
+cartan-core      = "0.10"
+cartan-manifolds = "0.10"
+cartan-geo       = "0.10"
+cartan-dec       = "0.10"
+cartan-remesh    = "0.10"
 
 nalgebra         = { version = "0.35", features = ["std"] }
 rayon            = "1"

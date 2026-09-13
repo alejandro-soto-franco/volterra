@@ -218,6 +218,20 @@ impl ShiftedCholesky {
     }
 }
 
+/// `Operators::laplace_beltrami` moved from `sprs::CsMat` to
+/// `nalgebra_sparse::CscMatrix` in cartan-dec 0.8. This module's own stiffness
+/// path stays on `sprs`, so cartan's matrix is converted once at the boundary
+/// rather than rewritten throughout.
+fn csc_to_sprs(m: &nalgebra_sparse::CscMatrix<f64>) -> CsMat<f64> {
+    let (mut rows, mut cols, mut vals) = (Vec::new(), Vec::new(), Vec::new());
+    for (r, c, &v) in m.triplet_iter() {
+        rows.push(r);
+        cols.push(c);
+        vals.push(v);
+    }
+    sprs::TriMat::from_triplets((m.nrows(), m.ncols()), rows, cols, vals).to_csc()
+}
+
 /// Compressed-row arrays for `s`, for the parallel matvec.
 fn to_csr(s: &CsMat<f64>, n: usize) -> (Vec<usize>, Vec<usize>, Vec<f64>) {
     let mut counts = vec![0usize; n];
@@ -249,9 +263,9 @@ impl PoissonSolver {
     /// stiffness on a general (non-well-centred) triangulation is not reliably factorised
     /// by a non-pivoting `LDL^T`, whereas CG needs only the SPD matvec.
     pub fn new<M: Manifold>(ops: &Operators<M, 3, 2>) -> Result<Self, String> {
-        let n = ops.laplace_beltrami.rows();
+        let n = ops.laplace_beltrami.nrows();
         let star0: Vec<f64> = ops.hodge.star0().iter().copied().collect();
-        let s = full_stiffness(&ops.laplace_beltrami, &star0);
+        let s = full_stiffness(&csc_to_sprs(&ops.laplace_beltrami), &star0);
         let is_dirichlet = vec![false; n];
         let inv_diag = jacobi_inv_diag(&s, &is_dirichlet);
         let zero = vec![0.0; n];
@@ -286,9 +300,9 @@ impl PoissonSolver {
         ops: &Operators<M, 3, 2>,
         dirichlet_vertices: &[usize],
     ) -> Result<Self, String> {
-        let n = ops.laplace_beltrami.rows();
+        let n = ops.laplace_beltrami.nrows();
         let star0: Vec<f64> = ops.hodge.star0().iter().copied().collect();
-        let s = full_stiffness(&ops.laplace_beltrami, &star0);
+        let s = full_stiffness(&csc_to_sprs(&ops.laplace_beltrami), &star0);
         let mut is_dirichlet = vec![false; n];
         for &d in dirichlet_vertices {
             is_dirichlet[d] = true;
