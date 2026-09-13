@@ -4,7 +4,7 @@ All notable changes to volterra are documented here.
 
 ---
 
-## [0.5.3] - 2026-09-08
+## [0.6.0] - 2026-09-13
 
 ### Added
 
@@ -52,6 +52,35 @@ All notable changes to volterra are documented here.
   `cos(beta)` on the charge convention already in the file: purple at a `-1/2`
   wedge, green at a twist, yellow at a `+1/2` wedge.
 
+- **Bounded three-dimensional Stokes on tetrahedra.** `volterra-dec` gains a
+  tetrahedral de Rham complex with mimetic Hodge stars (`tet_mesh`, `mimetic`),
+  a saddle-point Stokes solve with the velocity as a 2-form on faces
+  (`stokes_3d`, `saddle`), and the active stress coupled into it
+  (`active_stokes_3d`). Incompressibility is combinatorial, so the divergence
+  residual is round-off on every solve, and the chamber wall is clamped exactly
+  where the 3D lane had a velocity mask. MINRES preconditioned by the Riesz map
+  of the complex replaces the direct factorisation for large chambers.
+  `examples/mask_versus_bounded.rs` measures the mask against the bounded solve.
+
+- **Screened confined Stokes in 2D.** The chamber depth enters as a screening
+  length `h / sqrt(12)`, the Hele-Shaw wall drag, with a shifted Poisson solve on
+  a bounded domain and a clamped-wall constructor. A params file written without
+  the field loads unchanged.
+
+- **A regularised vorticity direction**, `w / sqrt(|w|^2 + eps^2)`, defined at
+  every point and zero on a null curve, with its magnitude as the null
+  indicator.
+
+- **Multi-species transport in 3D.** `SpeciesField3D` and `volterra-fd`'s
+  `species_3d` move a composition field in flux form with the flow's velocity,
+  conservative to round-off, with a van Leer limited reconstruction.
+  `species_step_limit` and `batchelor_scale` report the explicit step bound and
+  the scalar's own length.
+
+- **`Lattice::Dual` for winding detection**, `dual=True` from Python. It averages
+  `Q` over each 2 by 2 block so the contours enclose the grid nodes, and recovers
+  a core that sits on a node at its own position.
+
 ### Changed
 
 - **The 3D runners read their disclinations off the density tensor.** They took
@@ -76,6 +105,26 @@ All notable changes to volterra are documented here.
   `--threshold-fraction` and `--threshold-floor` to set it. It passed `false` unconditionally, so a
   CLI run recorded the mean order parameter and nothing about the state it was
   in.
+
+- **Winding charge sums over the cluster in half units.** `+1` is a `+1/2`
+  disclination and `+2` an integer `+1` core. The merged cluster reported the
+  sign alone, so an integer core read as a half. Sign filters, the braid tracking
+  among them, give the same answer.
+
+### Fixed
+
+- **A closed disclination loop's length includes its last segment**, from the
+  final site back to the first. Every loop read about one segment short, and the
+  derived radius inherited the bias.
+
+- **The 3D active-stress force reads `Q` through `QField3D::idx`.** It indexed
+  `(k * ny + j) * nx + i` against a field stored `(i * ny + j) * nz + k`, so on
+  unequal axes, or any field asymmetric under the swap, the force came from the
+  wrong voxels.
+
+- **The shifted Poisson solve's documentation states the sign it inverts**,
+  `(Delta + c) phi = rhs`. The biharmonic applies it twice, so its result was
+  correct under either sign.
 
 ## [0.5.2] - 2026-09-05
 
