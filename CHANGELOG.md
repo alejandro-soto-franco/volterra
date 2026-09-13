@@ -4,6 +4,21 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [0.7.0] - 2026-09-13
+
+### Changed
+
+- **cartan 0.10.** volterra depended on cartan 0.6. cartan-dec 0.8 moved
+  `Operators::laplace_beltrami` and `BochnerLaplacian::matrix()` from
+  `sprs::CsMat` to `nalgebra_sparse::CscMatrix`, so a caller passing volterra an
+  `Operators` built against cartan 0.6 has to rebuild it against 0.10. The
+  Poisson solver converts cartan's matrix to `sprs` once at the boundary, and
+  every golden and bit-for-bit oracle test gives the value it gave before.
+
+- **Lint and format coverage.** CI checks formatting and runs clippy over every
+  target, examples and tests included, under `-D warnings`. The repository is
+  formatted with rustfmt, and the Python scripts type-check clean under pyrefly.
+
 ## [0.6.0] - 2026-09-13
 
 ### Added
