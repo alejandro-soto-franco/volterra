@@ -16,7 +16,7 @@ use std::path::Path;
 use volterra_braid::disclination::{
     cos_beta_field, disclination_lines_at_fraction, disclination_magnitude,
 };
-use volterra_core::{ActiveNematicParams3D, QField3D, VelocityField3D};
+use volterra_core::{ActiveNematicParams3D, QField3D};
 use volterra_fd::runner_3d::{run_dry_active_nematic_3d, run_wet_active_nematic_3d};
 
 /// `Q = q (nn - I/3)`.

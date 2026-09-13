@@ -263,8 +263,8 @@ fn the_active_flow_has_no_rigid_spin() {
         }
         let n = dot(&r, &r).sqrt();
         for p in r.iter_mut() {
-            for k in 0..3 {
-                p[k] /= n;
+            for pk in p.iter_mut() {
+                *pk /= n;
             }
         }
         basis.push(r);

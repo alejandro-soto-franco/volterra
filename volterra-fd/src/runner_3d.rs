@@ -525,7 +525,7 @@ fn compute_bech_stats(
 mod tests {
     use super::*;
     use volterra_core::ActiveNematicParams3D;
-    use volterra_core::{QField3D, ScalarField3D, VelocityField3D};
+    use volterra_core::{QField3D, ScalarField3D};
 
     /// Smoke test: 5 steps of dry active turbulence on a tiny grid, no crash.
     #[test]

@@ -148,8 +148,8 @@ fn main() {
     let mut noslip = boundary.clone();
     {
         let on_wall: std::collections::HashSet<usize> = boundary.iter().copied().collect();
-        for i in 0..nv {
-            if hloc[i] > 0.0 && hloc[i] < wall_h && !on_wall.contains(&i) {
+        for (i, &h) in hloc.iter().enumerate().take(nv) {
+            if h > 0.0 && h < wall_h && !on_wall.contains(&i) {
                 noslip.push(i);
             }
         }
@@ -157,8 +157,8 @@ fn main() {
     let elastic_h = env_f64("ACT_ELASTICH", 0.5);
     let elastic_mask: Vec<usize> = if env_usize("ACT_ELASTICMASK", 1) != 0 {
         let mut m = boundary.clone();
-        for i in 0..nv {
-            if hloc[i] > 0.0 && hloc[i] < elastic_h && !m.contains(&i) {
+        for (i, &h) in hloc.iter().enumerate().take(nv) {
+            if h > 0.0 && h < elastic_h && !m.contains(&i) {
                 m.push(i);
             }
         }

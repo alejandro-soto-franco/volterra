@@ -60,7 +60,7 @@ fn main() {
         // Sum the two opposite cotangents for each edge, over its cofaces.
         let ne = s1.len();
         let mut cot = vec![0.0_f64; ne];
-        for e in 0..ne {
+        for (e, cot_e) in cot.iter_mut().enumerate() {
             let ends = mesh.boundaries[e];
             let (u, v) = (ends[0], ends[1]);
             let mut acc = 0.0;
@@ -69,7 +69,7 @@ fn main() {
                     acc += cot_at(apex, u, v);
                 }
             }
-            cot[e] = 0.5 * acc;
+            *cot_e = 0.5 * acc;
         }
 
         let mut neg = 0usize;

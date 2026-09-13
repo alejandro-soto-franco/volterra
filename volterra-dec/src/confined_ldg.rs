@@ -2119,8 +2119,7 @@ mod tests {
                 let mut f_prev = p.free_energy_fem(&qq);
                 let f0 = f_prev;
                 let mut worst = 0.0_f64;
-                let mut nsteps = 0usize;
-                for _ in 0..20 {
+                for (nsteps, _) in (0..20).enumerate() {
                     let force = p.elastic_force(&qq);
                     let (vel, _psi, _its) =
                         stokes.solve_force_warm(&force, p.params.eta, &p.mesh.mesh, None, 1e-10);
@@ -2136,7 +2135,6 @@ mod tests {
                             dt * umax / h_min
                         );
                     }
-                    nsteps += 1;
                     p.step_active(&mut qq, &v2, dt, 1e-10, None);
                     let f = p.free_energy_fem(&qq);
                     if !f.is_finite() {
@@ -2206,12 +2204,12 @@ mod tests {
     /// are point (5, 7) of that comparison, seed 0.
     #[test]
     fn stress_matches_the_reference_calculate_pi() {
-        let (q1, q2) = (-5.565_867_409_637_493_6e-3, 4.167_359_036_851_288_6e-1);
+        let (q1, q2) = (-5.565_867_409_637_494e-3, 4.167_359_036_851_288_6e-1);
         let (h1, h2) = (7.581_374_500_747_724e-1, -2.094_337_939_869_166e-1);
         let dq = [
             -1.208_157_937_191_461_2e-1,
             2.087_185_755_204_356e-1,
-            -5.015_025_125_751_170_2e-1,
+            -5.015_025_125_751_17e-1,
             -3.445_836_672_342_819_7e-2,
         ];
         let (k, lambda, zeta) = (1.6384e4, 1.0, 1.337_469_387_755_102_2e3);

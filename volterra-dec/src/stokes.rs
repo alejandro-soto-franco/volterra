@@ -1671,6 +1671,62 @@ pub(crate) fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+/// Discrete Gaussian curvature at each vertex, by angle defect.
+///
+/// `K_i = (2 pi - sum of the incident triangle angles at i) / A_i`, with `A_i`
+/// the dual area. This is the standard discretisation and it satisfies the
+/// discrete Gauss-Bonnet theorem exactly: `sum_i K_i A_i = 2 pi chi`, which is
+/// `4 pi` on a sphere whatever the triangulation.
+///
+/// Vertices on a boundary have no full angle to complete, so their defect is
+/// taken as zero rather than as `2 pi` minus a partial fan.
+pub fn gaussian_curvature(
+    n_vertices: usize,
+    simplices: &[[usize; 3]],
+    coords: &[[f64; 3]],
+    dual_areas: &[f64],
+) -> Vec<f64> {
+    let mut angle_sum = vec![0.0_f64; n_vertices];
+    let mut valence = vec![0usize; n_vertices];
+    let mut edge_faces: std::collections::HashMap<(usize, usize), usize> =
+        std::collections::HashMap::new();
+    for tri in simplices {
+        for k in 0..3 {
+            let i = tri[k];
+            let a = tri[(k + 1) % 3];
+            let b = tri[(k + 2) % 3];
+            let u = sub3(coords[a], coords[i]);
+            let v = sub3(coords[b], coords[i]);
+            let nu = norm3(u);
+            let nv = norm3(v);
+            if nu > 1e-30 && nv > 1e-30 {
+                let c = (dot3(u, v) / (nu * nv)).clamp(-1.0, 1.0);
+                angle_sum[i] += c.acos();
+            }
+            valence[i] += 1;
+            let e = if a < b { (a, b) } else { (b, a) };
+            *edge_faces.entry(e).or_insert(0) += 1;
+        }
+    }
+    // A vertex is on a boundary when one of its edges has a single incident face.
+    let mut on_boundary = vec![false; n_vertices];
+    for (&(a, b), &count) in &edge_faces {
+        if count < 2 {
+            on_boundary[a] = true;
+            on_boundary[b] = true;
+        }
+    }
+    (0..n_vertices)
+        .map(|i| {
+            if on_boundary[i] || dual_areas[i] <= 0.0 {
+                0.0
+            } else {
+                (std::f64::consts::TAU - angle_sum[i]) / dual_areas[i]
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3184,60 +3240,4 @@ mod tests {
             "nonzero activity on sphere should give nonzero velocity, got v_rms = {v_rms:.3e}"
         );
     }
-}
-
-/// Discrete Gaussian curvature at each vertex, by angle defect.
-///
-/// `K_i = (2 pi - sum of the incident triangle angles at i) / A_i`, with `A_i`
-/// the dual area. This is the standard discretisation and it satisfies the
-/// discrete Gauss-Bonnet theorem exactly: `sum_i K_i A_i = 2 pi chi`, which is
-/// `4 pi` on a sphere whatever the triangulation.
-///
-/// Vertices on a boundary have no full angle to complete, so their defect is
-/// taken as zero rather than as `2 pi` minus a partial fan.
-pub fn gaussian_curvature(
-    n_vertices: usize,
-    simplices: &[[usize; 3]],
-    coords: &[[f64; 3]],
-    dual_areas: &[f64],
-) -> Vec<f64> {
-    let mut angle_sum = vec![0.0_f64; n_vertices];
-    let mut valence = vec![0usize; n_vertices];
-    let mut edge_faces: std::collections::HashMap<(usize, usize), usize> =
-        std::collections::HashMap::new();
-    for tri in simplices {
-        for k in 0..3 {
-            let i = tri[k];
-            let a = tri[(k + 1) % 3];
-            let b = tri[(k + 2) % 3];
-            let u = sub3(coords[a], coords[i]);
-            let v = sub3(coords[b], coords[i]);
-            let nu = norm3(u);
-            let nv = norm3(v);
-            if nu > 1e-30 && nv > 1e-30 {
-                let c = (dot3(u, v) / (nu * nv)).clamp(-1.0, 1.0);
-                angle_sum[i] += c.acos();
-            }
-            valence[i] += 1;
-            let e = if a < b { (a, b) } else { (b, a) };
-            *edge_faces.entry(e).or_insert(0) += 1;
-        }
-    }
-    // A vertex is on a boundary when one of its edges has a single incident face.
-    let mut on_boundary = vec![false; n_vertices];
-    for (&(a, b), &count) in &edge_faces {
-        if count < 2 {
-            on_boundary[a] = true;
-            on_boundary[b] = true;
-        }
-    }
-    (0..n_vertices)
-        .map(|i| {
-            if on_boundary[i] || dual_areas[i] <= 0.0 {
-                0.0
-            } else {
-                (std::f64::consts::TAU - angle_sum[i]) / dual_areas[i]
-            }
-        })
-        .collect()
 }

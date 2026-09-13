@@ -445,7 +445,7 @@ fn the_tube_around_a_straight_line_reads_one_over_twice_its_radius() {
 fn ordered_with_noise(n: usize, noise: f64) -> Vec<[f64; 5]> {
     let mut q = vec![[0.0; 5]; n * n * n];
     let mut state = 0x2545F491_4F6CDD1Du64;
-    for k in 0..q.len() {
+    for qk in q.iter_mut() {
         // xorshift, so the noise is reproducible without a dependency
         state ^= state << 13;
         state ^= state >> 7;
@@ -453,7 +453,7 @@ fn ordered_with_noise(n: usize, noise: f64) -> Vec<[f64; 5]> {
         let r = (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
         let dir = [1.0, noise * r, noise * r];
         let norm = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
-        q[k] = uniaxial([dir[0] / norm, dir[1] / norm, dir[2] / norm], 0.556);
+        *qk = uniaxial([dir[0] / norm, dir[1] / norm, dir[2] / norm], 0.556);
     }
     q
 }

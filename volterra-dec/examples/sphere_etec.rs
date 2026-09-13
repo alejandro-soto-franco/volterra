@@ -146,8 +146,8 @@ fn main() {
     let mut u0 = read_npy(&run.join(format!("vel_{:06}.npy", steps[0])), nv, 3).unwrap();
     let mut tangled = 0usize;
 
-    for w in 1..steps.len() {
-        let u1 = read_npy(&run.join(format!("vel_{:06}.npy", steps[w])), nv, 3).unwrap();
+    for (w, &step) in steps.iter().enumerate().skip(1) {
+        let u1 = read_npy(&run.join(format!("vel_{:06}.npy", step)), nv, 3).unwrap();
         for s in 0..sub {
             let f0 = s as f64 / sub as f64;
             let f1 = (s + 1) as f64 / sub as f64;
@@ -166,7 +166,7 @@ fn main() {
         if inv > 0 {
             tangled += 1;
         }
-        let elapsed = steps[w] as f64 * dt_step - t0;
+        let elapsed = step as f64 * dt_step - t0;
         if elapsed > 0.0 {
             curve.push((elapsed, band.log_growth / elapsed));
         }

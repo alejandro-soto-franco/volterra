@@ -199,8 +199,8 @@ fn main() {
     let mut noslip = boundary.clone();
     {
         let on_wall: std::collections::HashSet<usize> = boundary.iter().copied().collect();
-        for i in 0..nv {
-            if hloc[i] > 0.0 && hloc[i] < wall_h && !on_wall.contains(&i) {
+        for (i, &h) in hloc.iter().enumerate().take(nv) {
+            if h > 0.0 && h < wall_h && !on_wall.contains(&i) {
                 noslip.push(i);
             }
         }
@@ -366,8 +366,7 @@ fn main() {
         let q0 = p.random_state(seed);
         let vel = stokes.solve(&q0, &sp, &p.ops, &p.mesh.mesh);
         let mut buckets: Vec<(f64, f64, f64, usize)> = vec![(0.0, 0.0, 0.0, 0); 6];
-        for i in 0..nv {
-            let h = hloc[i];
+        for (i, &h) in hloc.iter().enumerate().take(nv) {
             let b = if h < 0.005 {
                 0
             } else if h < 0.05 {
@@ -636,8 +635,8 @@ fn main() {
     let elastic_h = env_f64("ACT_ELASTICH", 0.5);
     let elastic_mask: Vec<usize> = if env_usize("ACT_ELASTICMASK", 1) != 0 {
         let mut m = boundary.clone();
-        for i in 0..nv {
-            if hloc[i] > 0.0 && hloc[i] < elastic_h && !m.contains(&i) {
+        for (i, &h) in hloc.iter().enumerate().take(nv) {
+            if h > 0.0 && h < elastic_h && !m.contains(&i) {
                 m.push(i);
             }
         }
@@ -706,8 +705,8 @@ fn main() {
                 stokes.solve_warm(src, &sp, &p.ops, &p.mesh.mesh, psi.as_deref(), stokes_tol)
             };
             let mut v2p = vec![[0.0_f64; 2]; nv];
-            for i in 0..nv {
-                v2p[i] = [vel_p.v[i][0], vel_p.v[i][1]];
+            for (dst, src) in v2p.iter_mut().zip(vel_p.v.iter()) {
+                *dst = [src[0], src[1]];
             }
             let mut trial = q.clone();
             // The co-rotational term is driven by `grad u`. Differentiating the

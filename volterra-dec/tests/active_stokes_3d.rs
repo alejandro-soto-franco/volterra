@@ -125,12 +125,8 @@ fn a_uniform_q_field_drives_no_flow() {
     let solver = ConfinedActiveStokes3D::new((5, 5, 4), 0.25, (3, 3, 2)).unwrap();
     let u = solver.solve(&q, &p).unwrap();
     for (n, v) in u.u.iter().enumerate() {
-        for a in 0..3 {
-            assert!(
-                v[a].abs() < 1e-14,
-                "grid point {n}, component {a}: {}",
-                v[a]
-            );
+        for (a, va) in v.iter().enumerate() {
+            assert!(va.abs() < 1e-14, "grid point {n}, component {a}: {va}");
         }
     }
 }
@@ -172,12 +168,12 @@ fn the_wall_is_a_boundary_condition_rather_than_a_mask() {
             }
         }
         let mut worst_normal = 0.0_f64;
-        for f in 0..mesh.n_faces() {
+        for (f, &owner_f) in owner.iter().enumerate() {
             if !mesh.is_boundary_face(f) {
                 continue;
             }
             let c = mesh.face_centroid(f);
-            let v = flow.velocity_in_cell(mesh, owner[f], c);
+            let v = flow.velocity_in_cell(mesh, owner_f, c);
             let n = mesh.face_normal(f);
             worst_normal = worst_normal.max((v[0] * n[0] + v[1] * n[1] + v[2] * n[2]).abs());
         }

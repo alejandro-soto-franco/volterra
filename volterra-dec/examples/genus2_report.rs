@@ -16,6 +16,11 @@
 use std::path::Path;
 use volterra_braid::sphere::{Separation, SphereFrame, track_with};
 
+/// One defect: position and topological charge.
+type Defect = ([f64; 3], i32);
+/// One time frame: time and the defects present at it.
+type Frame = (f64, Vec<Defect>);
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut from = 0.2_f64;
@@ -31,7 +36,7 @@ fn main() {
 
     // defects.csv: step, t, x, y, z, charge
     let text = std::fs::read_to_string(run.join("defects.csv")).expect("no defects.csv");
-    let mut by_time: Vec<(f64, Vec<([f64; 3], i32)>)> = Vec::new();
+    let mut by_time: Vec<Frame> = Vec::new();
     for line in text.lines().skip(1) {
         let f: Vec<&str> = line.split(',').collect();
         if f.len() < 6 {

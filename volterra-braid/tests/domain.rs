@@ -158,6 +158,9 @@ fn the_lattice_offers_twenty_six_neighbours_inside_and_fewer_at_a_corner() {
     assert_eq!(out.len(), 7, "a corner has 7");
 
     // Adjacency is symmetric, which the curve assembly relies on.
+    // The leading `1 *` documents the x-coordinate of the flattened index
+    // (x * n + y) * n + z rather than doing arithmetic work.
+    #[allow(clippy::identity_op)]
     let site = (1 * n + 2) * n + 3;
     domain.neighbours(site, &mut out);
     let mut back = Vec::new();

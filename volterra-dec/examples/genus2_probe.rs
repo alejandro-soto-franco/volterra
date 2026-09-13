@@ -244,8 +244,8 @@ fn smooth(
             }
             let mut c = [0.0; 3];
             for &j in &nbr[i] {
-                for k in 0..3 {
-                    c[k] += old[j][k];
+                for (ck, &oj) in c.iter_mut().zip(old[j].iter()) {
+                    *ck += oj;
                 }
             }
             let m = nbr[i].len() as f64;

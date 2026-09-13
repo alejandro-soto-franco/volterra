@@ -128,15 +128,17 @@ mod tests {
     use crate::mesh_gen::icosphere;
     use cartan_manifolds::sphere::Sphere;
 
-    fn setup(
-        refinement: usize,
-    ) -> (
+    /// Vertex coordinates, triangles, edges, edge-adjacent triangle pairs and
+    /// dual areas of a refined icosphere mesh.
+    type MeshParts = (
         Vec<[f64; 3]>,
         Vec<[usize; 3]>,
         Vec<[usize; 2]>,
         Vec<[usize; 3]>,
         Vec<f64>,
-    ) {
+    );
+
+    fn setup(refinement: usize) -> MeshParts {
         let domain = DecDomain::new(icosphere(refinement), Sphere::<3>).expect("domain assembly");
         let mesh = &domain.mesh;
         let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();

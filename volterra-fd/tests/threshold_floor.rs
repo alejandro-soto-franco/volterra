@@ -45,14 +45,14 @@ fn wedge(n: usize, q_mag: f64) -> Vec<[f64; 5]> {
 fn ordered(n: usize, q_mag: f64, noise: f64) -> Vec<[f64; 5]> {
     let mut state = 0x2545_F491_4F6C_DD1Du64;
     let mut q = vec![[0.0; 5]; n * n * n];
-    for k in 0..q.len() {
+    for qi in q.iter_mut() {
         state ^= state << 13;
         state ^= state >> 7;
         state ^= state << 17;
         let r = (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
         let d = [1.0, noise * r, noise * r];
         let m = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-        q[k] = uniaxial([d[0] / m, d[1] / m, d[2] / m], q_mag);
+        *qi = uniaxial([d[0] / m, d[1] / m, d[2] / m], q_mag);
     }
     q
 }

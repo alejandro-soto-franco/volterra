@@ -153,9 +153,9 @@ fn main() {
         // The plug of equal flow rate: free slip on the side walls answers this
         // shape rather than the parabolic one.
         let mut q = 0.0;
-        for fi in 0..mesh.n_faces() {
+        for (fi, e) in exact.iter().enumerate() {
             if mesh.is_boundary_face(fi) && mesh.face_centroid(fi)[2] < 1e-12 {
-                q += exact[fi].abs();
+                q += e.abs();
             }
         }
         let mean = q / (a * b);

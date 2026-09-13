@@ -87,12 +87,12 @@ fn main() {
             }
         }
         let mut wall_normal = 0.0_f64;
-        for f in 0..mesh.n_faces() {
+        for (f, &owner_f) in owner.iter().enumerate() {
             if !mesh.is_boundary_face(f) {
                 continue;
             }
             let c = mesh.face_centroid(f);
-            let v = flow.velocity_in_cell(mesh, owner[f], c);
+            let v = flow.velocity_in_cell(mesh, owner_f, c);
             let nrm = mesh.face_normal(f);
             wall_normal = wall_normal.max((v[0] * nrm[0] + v[1] * nrm[1] + v[2] * nrm[2]).abs());
         }

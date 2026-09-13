@@ -172,8 +172,8 @@ fn main() {
     let t0 = steps[0] as f64 * dt_step;
 
     let u0 = read_npy(&run.join(format!("vel_{:06}.npy", steps[0])), nv, 3).unwrap();
-    for w in 1..steps.len() {
-        let u1 = read_npy(&run.join(format!("vel_{:06}.npy", steps[w])), nv, 3).unwrap();
+    for &step in steps.iter().skip(1) {
+        let u1 = read_npy(&run.join(format!("vel_{:06}.npy", step)), nv, 3).unwrap();
         for s in 0..sub {
             let f0 = s as f64 / sub as f64;
             let f1 = (s + 1) as f64 / sub as f64;
@@ -203,7 +203,7 @@ fn main() {
                 ]);
             }
         }
-        let elapsed = steps[w] as f64 * dt_step - t0;
+        let elapsed = step as f64 * dt_step - t0;
         if elapsed > 0.0 {
             let mean = acc.iter().sum::<f64>() / seeds as f64 / elapsed;
             curve.push((elapsed, mean));
