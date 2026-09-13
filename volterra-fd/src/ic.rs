@@ -48,11 +48,17 @@ pub struct SeededDefect {
 impl SeededDefect {
     /// A `+1/2` disclination at `(x, y)`.
     pub fn plus(x: f64, y: f64) -> Self {
-        Self { pos: [x, y], charge: 0.5 }
+        Self {
+            pos: [x, y],
+            charge: 0.5,
+        }
     }
     /// A `-1/2` disclination at `(x, y)`.
     pub fn minus(x: f64, y: f64) -> Self {
-        Self { pos: [x, y], charge: -0.5 }
+        Self {
+            pos: [x, y],
+            charge: -0.5,
+        }
     }
 }
 
@@ -168,7 +174,10 @@ mod tests {
     fn a_net_charge_is_refused() {
         let d = vec![SeededDefect::plus(4.0, 4.0)];
         assert!(seeded_q(&d, 16, 16, 1.0, 0.0).is_none());
-        let ok = vec![SeededDefect::plus(4.0, 4.0), SeededDefect::minus(12.0, 12.0)];
+        let ok = vec![
+            SeededDefect::plus(4.0, 4.0),
+            SeededDefect::minus(12.0, 12.0),
+        ];
         assert!(seeded_q(&ok, 16, 16, 1.0, 0.0).is_some());
     }
 
@@ -187,10 +196,18 @@ mod tests {
             let r = 6_i32;
             let (cx, cy) = (d.pos[0] as i32, d.pos[1] as i32);
             let mut path: Vec<(i32, i32)> = Vec::new();
-            for k in -r..r { path.push((cx + k, cy - r)); }
-            for k in -r..r { path.push((cx + r, cy + k)); }
-            for k in -r..r { path.push((cx - k, cy + r)); }
-            for k in -r..r { path.push((cx - r, cy - k)); }
+            for k in -r..r {
+                path.push((cx + k, cy - r));
+            }
+            for k in -r..r {
+                path.push((cx + r, cy + k));
+            }
+            for k in -r..r {
+                path.push((cx - k, cy + r));
+            }
+            for k in -r..r {
+                path.push((cx - r, cy - k));
+            }
             path.push(path[0]);
 
             let at = |p: (i32, i32)| {
@@ -201,8 +218,12 @@ mod tests {
             let mut total = 0.0;
             for w in path.windows(2) {
                 let mut dphi = at(w[1]) - at(w[0]);
-                while dphi > std::f64::consts::PI { dphi -= 2.0 * std::f64::consts::PI; }
-                while dphi < -std::f64::consts::PI { dphi += 2.0 * std::f64::consts::PI; }
+                while dphi > std::f64::consts::PI {
+                    dphi -= 2.0 * std::f64::consts::PI;
+                }
+                while dphi < -std::f64::consts::PI {
+                    dphi += 2.0 * std::f64::consts::PI;
+                }
                 total += dphi;
             }
             let winding = total / (2.0 * std::f64::consts::PI);
@@ -247,11 +268,19 @@ mod tests {
         let mask = vec![true; lx * ly];
         let found = volterra_braid::detect_defects(&qxx, &qxy, lx, ly, 0.05 * s0.powi(4), &mask);
         assert_eq!(found.len(), 4, "found {found:?}");
-        assert_eq!(found.iter().filter(|d| d.charge > 0).count(), 2, "{found:?}");
+        assert_eq!(
+            found.iter().filter(|d| d.charge > 0).count(),
+            2,
+            "{found:?}"
+        );
         for d in &defects {
             let near = found.iter().any(|f| {
-                let dx = (f.pos[0] - d.pos[0]).abs().min(lx as f64 - (f.pos[0] - d.pos[0]).abs());
-                let dy = (f.pos[1] - d.pos[1]).abs().min(ly as f64 - (f.pos[1] - d.pos[1]).abs());
+                let dx = (f.pos[0] - d.pos[0])
+                    .abs()
+                    .min(lx as f64 - (f.pos[0] - d.pos[0]).abs());
+                let dy = (f.pos[1] - d.pos[1])
+                    .abs()
+                    .min(ly as f64 - (f.pos[1] - d.pos[1]).abs());
                 (dx * dx + dy * dy).sqrt() < 3.0
             });
             assert!(near, "no detected defect near {:?}: {found:?}", d.pos);

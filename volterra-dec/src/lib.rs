@@ -33,66 +33,66 @@
 //! | [`curvature_correction`] | Curvature corrections for DEC operators |
 //! | [`snapshot`] | `.npy` field snapshot export |
 
+pub mod active_stokes_3d;
 pub mod bending;
 pub mod boundary_conditions;
-pub mod flow;
-pub mod connection_laplacian;
-pub mod mesh_gen;
-pub mod semi_lagrangian;
-pub mod snapshot;
-pub mod surface_defects;
-pub mod curvature_correction;
-pub mod domain;
-pub mod implicit;
 pub mod confined;
-pub mod curve;
 pub mod confined_ldg;
-pub mod nematic_params;
+pub mod connection_laplacian;
+pub mod curvature_correction;
+pub mod curve;
+pub mod domain;
 pub mod epitrochoid;
 pub mod evolving_domain;
-pub mod ichol;
-pub mod poisson;
-pub mod stokes;
-pub mod tet_mesh;
-pub mod mimetic;
-pub mod saddle;
-pub mod stokes_3d;
-pub mod active_stokes_3d;
-pub mod vorticity;
-pub mod tracers;
+pub mod flow;
 pub mod helfrich;
+pub mod ichol;
+pub mod implicit;
+pub mod mesh_gen;
+pub mod mimetic;
 pub mod molecular_field_dec;
+pub mod nematic_params;
+pub mod poisson;
 pub mod qfield;
+pub mod saddle;
+pub mod semi_lagrangian;
+pub mod snapshot;
+pub mod stokes;
+pub mod stokes_3d;
+pub mod surface_defects;
+pub mod tet_mesh;
+pub mod tracers;
 pub mod variational;
+pub mod vorticity;
 
 // The engine layer and the runners that drive it, moved here from
 // volterra-solver. Each is written against DEC types, so this is where they
 // belong: `engine` reaches for the connection Laplacian, the curved Stokes
 // solver and semi-Lagrangian advection, and the runners drive those.
 pub mod engine;
-pub use engine::{NematicEngine, EngineStats};
+pub use engine::{EngineStats, NematicEngine};
 
 pub mod active_nematic_engine;
 pub use active_nematic_engine::{ActiveNematicEngine, EngineParams, StepDiagnostics};
 
 pub mod stokes_trait;
 pub use stokes_trait::{
-    StokesSolver, StokesBackend, FlowField, KillingOperatorSolver, StreamFunctionStokes,
+    FlowField, KillingOperatorSolver, StokesBackend, StokesSolver, StreamFunctionStokes,
 };
 
 pub mod nematic_field_2d;
 pub use nematic_field_2d::NematicField2D;
 
 pub mod runner_dec;
-pub use runner_dec::{run_dry_active_nematic_dec, run_dry_active_nematic_dec_smoke, SnapStatsDec};
+pub use runner_dec::{SnapStatsDec, run_dry_active_nematic_dec, run_dry_active_nematic_dec_smoke};
 
 pub mod runner_dec_wet;
 pub use runner_dec_wet::{run_wet_active_nematic_dec, run_wet_active_nematic_dec_confined};
 
 pub mod sim_impls;
 
+pub use curve::{PlaneCurve, PolyCurve};
 pub use domain::DecDomain;
 pub use evolving_domain::EvolvingDomain;
 pub use molecular_field_dec::molecular_field_dec;
-pub use curve::{PlaneCurve, PolyCurve};
 pub use qfield::QField;

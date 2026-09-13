@@ -18,11 +18,11 @@ use std::time::Instant;
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
 use cartan_dec::Mesh;
 use cartan_manifolds::euclidean::Euclidean;
+use volterra_dec::EvolvingDomain;
+use volterra_dec::QField;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
 use volterra_dec::stokes::SurfaceStokes;
-use volterra_dec::QField;
-use volterra_dec::EvolvingDomain;
 
 fn main() {
     let refinement = 3; // 642 vertices
@@ -41,11 +41,15 @@ fn main() {
     let nv = sphere_mesh.n_vertices();
     let oblate_factor = 0.9; // compress z-axis by 10%
 
-    let verts_euc: Vec<nalgebra::SVector<f64, 3>> = sphere_mesh.vertices.iter()
+    let verts_euc: Vec<nalgebra::SVector<f64, 3>> = sphere_mesh
+        .vertices
+        .iter()
         .map(|v| nalgebra::SVector::<f64, 3>::new(v[0], v[1], v[2] * oblate_factor))
         .collect();
     let euc_mesh = Mesh::<Euclidean<3>, 3, 2>::from_simplices(
-        &Euclidean::<3>, verts_euc, sphere_mesh.simplices.clone(),
+        &Euclidean::<3>,
+        verts_euc,
+        sphere_mesh.simplices.clone(),
     );
 
     let mut ed = EvolvingDomain::new(euc_mesh, Euclidean::<3>).unwrap();
@@ -54,14 +58,14 @@ fn main() {
     println!("  oblate factor: {oblate_factor}");
 
     // Parameters.
-    let kb = 0.05;       // bending rigidity
-    let tension = 0.0;   // no surface tension
-    let eta_s = 50.0;    // surface viscosity
-    let zeta = 0.5;      // activity (extensile)
-    let k_frank = 0.01;  // Frank elastic constant
-    let a_eff = -1.0;    // Landau parameter
-    let c_landau = 1.0;  // Landau quartic
-    let gamma_r = 1.0;   // rotational viscosity
+    let kb = 0.05; // bending rigidity
+    let tension = 0.0; // no surface tension
+    let eta_s = 50.0; // surface viscosity
+    let zeta = 0.5; // activity (extensile)
+    let k_frank = 0.01; // Frank elastic constant
+    let a_eff = -1.0; // Landau parameter
+    let c_landau = 1.0; // Landau quartic
+    let gamma_r = 1.0; // rotational viscosity
     let eta_fluid = 1.0; // fluid viscosity (for Stokes)
     let h0 = vec![0.0; nv];
 
@@ -94,7 +98,10 @@ fn main() {
     });
     volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta).ok();
 
-    println!("Running full active coupled evolution (Pe={:.0})...", zeta / k_frank);
+    println!(
+        "Running full active coupled evolution (Pe={:.0})...",
+        zeta / k_frank
+    );
     let t0 = Instant::now();
 
     for step in 0..=n_steps {
@@ -105,11 +112,22 @@ fn main() {
 
         if step % (snap_every * 5) == 0 {
             let s = q.mean_order_param();
-            let mean_r: f64 = ed.domain.mesh.vertices.iter()
+            let mean_r: f64 = ed
+                .domain
+                .mesh
+                .vertices
+                .iter()
                 .map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
-                .sum::<f64>() / nv as f64;
-            let mean_z: f64 = ed.domain.mesh.vertices.iter()
-                .map(|v| v[2].abs()).sum::<f64>() / nv as f64;
+                .sum::<f64>()
+                / nv as f64;
+            let mean_z: f64 = ed
+                .domain
+                .mesh
+                .vertices
+                .iter()
+                .map(|v| v[2].abs())
+                .sum::<f64>()
+                / nv as f64;
             let elapsed = t0.elapsed().as_secs_f64();
             println!(
                 "  step {step:>5}/{n_steps}  <S>={s:.4}  <R>={mean_r:.4}  <|z|>={mean_z:.4}  wall={elapsed:.1}s"
@@ -118,9 +136,7 @@ fn main() {
 
         if step < n_steps {
             // 1. Shape evolution: Helfrich + active normal stress -> v_n.
-            let v_n = ed.shape_velocity_active(
-                kb, &h0, tension, eta_s, zeta, &q.q1, &q.q2,
-            );
+            let v_n = ed.shape_velocity_active(kb, &h0, tension, eta_s, zeta, &q.q1, &q.q2);
 
             // Move mesh.
             let normals: Vec<[f64; 3]> = ed.domain.vertex_normals.clone();
@@ -151,7 +167,7 @@ fn main() {
 
             // 3. Q-tensor evolution: molecular field + advection + v_n correction.
             let section = VecSection::<U1Spin2>::from_vec(
-                q.q1.iter().zip(&q.q2).map(|(&a, &b)| [a, b]).collect()
+                q.q1.iter().zip(&q.q2).map(|(&a, &b)| [a, b]).collect(),
             );
             let lap = ed.cov_lap.apply::<U1Spin2, 2, _>(&section, &ed.transport);
 
@@ -163,11 +179,16 @@ fn main() {
                 .collect();
 
             let adv = volterra_dec::stokes::advect_q_covariant(
-                &q, &vel,
+                &q,
+                &vel,
                 &ed.domain.mesh.boundaries,
                 &ed.domain.mesh.vertex_boundaries,
-                &ed.domain.mesh.vertices.iter()
-                    .map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>(),
+                &ed.domain
+                    .mesh
+                    .vertices
+                    .iter()
+                    .map(|v| [v[0], v[1], v[2]])
+                    .collect::<Vec<_>>(),
                 &edge_phases,
             );
 
@@ -188,6 +209,9 @@ fn main() {
     }
 
     let elapsed = t0.elapsed().as_secs_f64();
-    println!("\nDone: {} snapshots in {elapsed:.1}s", n_steps / snap_every + 1);
+    println!(
+        "\nDone: {} snapshots in {elapsed:.1}s",
+        n_steps / snap_every + 1
+    );
     println!("Output: {out_dir}");
 }

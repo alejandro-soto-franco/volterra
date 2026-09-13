@@ -21,7 +21,7 @@
 
 use rustfft::{FftPlanner, num_complex::Complex};
 use volterra_core::ActiveNematicParams3D;
-use volterra_core::{QField3D, VelocityField3D, PressureField3D};
+use volterra_core::{PressureField3D, QField3D, VelocityField3D};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -59,7 +59,10 @@ use volterra_core::{QField3D, VelocityField3D, PressureField3D};
 /// A pair `(u, p_out)` where `u` is the divergence-free velocity field and
 /// `p_out` is a placeholder zero pressure field (pressure is not explicitly
 /// needed for the velocity in the spectral approach).
-pub fn stokes_solve_3d(q: &QField3D, p: &ActiveNematicParams3D) -> (VelocityField3D, PressureField3D) {
+pub fn stokes_solve_3d(
+    q: &QField3D,
+    p: &ActiveNematicParams3D,
+) -> (VelocityField3D, PressureField3D) {
     // Use the Q-field's own grid dimensions so the solver works regardless of
     // whether the params grid matches (e.g. tests may use a smaller grid).
     let nx = q.nx;
@@ -109,10 +112,9 @@ pub fn stokes_solve_3d(q: &QField3D, p: &ActiveNematicParams3D) -> (VelocityFiel
 
                 for alpha in 0..3usize {
                     // ∂_x Q_{α,0}  +  ∂_y Q_{α,1}  +  ∂_z Q_{α,2}
-                    let div_q_alpha =
-                        (get_q(ip, alpha, 0) - get_q(im, alpha, 0)) * inv_2dx
-                            + (get_q(jp, alpha, 1) - get_q(jm, alpha, 1)) * inv_2dx
-                            + (get_q(lp, alpha, 2) - get_q(lm, alpha, 2)) * inv_2dx;
+                    let div_q_alpha = (get_q(ip, alpha, 0) - get_q(im, alpha, 0)) * inv_2dx
+                        + (get_q(jp, alpha, 1) - get_q(jm, alpha, 1)) * inv_2dx
+                        + (get_q(lp, alpha, 2) - get_q(lm, alpha, 2)) * inv_2dx;
 
                     f[k][alpha] = -p.zeta_eff * div_q_alpha;
                 }
@@ -212,9 +214,8 @@ pub fn stokes_solve_3d(q: &QField3D, p: &ActiveNematicParams3D) -> (VelocityFiel
 
                 for a in 0..3 {
                     // Leray-projected body force, divided by η|k|²
-                    u_hat[k][a] = (f_hat[k][a]
-                        - Complex::new(kv[a] / k2, 0.0) * k_dot_f)
-                        * inv_eta_k2;
+                    u_hat[k][a] =
+                        (f_hat[k][a] - Complex::new(kv[a] / k2, 0.0) * k_dot_f) * inv_eta_k2;
                 }
             }
         }

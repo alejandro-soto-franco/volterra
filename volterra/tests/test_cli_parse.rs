@@ -1,11 +1,22 @@
-use volterra::cli::{Cli, Command, RunTarget};
 use clap::Parser;
+use volterra::cli::{Cli, Command, RunTarget};
 
 #[test]
 fn parses_cartesian2d_dry_with_common_flags() {
     let cli = Cli::try_parse_from([
-        "volterra", "run", "cartesian2d", "--mode", "dry",
-        "--steps", "10", "--snap-every", "2", "--seed", "7", "--out", "/tmp/out",
+        "volterra",
+        "run",
+        "cartesian2d",
+        "--mode",
+        "dry",
+        "--steps",
+        "10",
+        "--snap-every",
+        "2",
+        "--seed",
+        "7",
+        "--out",
+        "/tmp/out",
     ])
     .expect("parse");
     match cli.command {

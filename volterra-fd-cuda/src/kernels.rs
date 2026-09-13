@@ -70,8 +70,7 @@ pub mod kernels {
         let c = coeff / 6.0;
         let v = c
             * (-20.0 * arr[idx]
-                + 4.0
-                    * (arr[s(xup, y)] + arr[s(xdn, y)] + arr[s(x, yup)] + arr[s(x, ydn)])
+                + 4.0 * (arr[s(xup, y)] + arr[s(xdn, y)] + arr[s(x, yup)] + arr[s(x, ydn)])
                 + arr[s(xup, yup)]
                 + arr[s(xup, ydn)]
                 + arr[s(xdn, yup)]
@@ -141,13 +140,7 @@ pub mod kernels {
     ///
     /// Ports `volterra_fd::ops::div_vector`.
     #[kernel]
-    pub fn div_vector(
-        arr: &[f64],
-        inside: &[u8],
-        lx: u32,
-        ly: u32,
-        mut out: DisjointSlice<f64>,
-    ) {
+    pub fn div_vector(arr: &[f64], inside: &[u8], lx: u32, ly: u32, mut out: DisjointSlice<f64>) {
         let tid = thread::index_1d();
         let idx = tid.get();
         let n = (lx as usize) * (ly as usize);
@@ -168,8 +161,7 @@ pub mod kernels {
         let v = |a: usize, b: usize, c: usize| (a * lyu + b) * 2 + c;
 
         let d = 0.5
-            * ((arr[v(xup, y, 0)] - arr[v(xdn, y, 0)])
-                + (arr[v(x, yup, 1)] - arr[v(x, ydn, 1)]));
+            * ((arr[v(xup, y, 0)] - arr[v(xdn, y, 0)]) + (arr[v(x, yup, 1)] - arr[v(x, ydn, 1)]));
 
         if let Some(slot) = out.get_mut(tid) {
             *slot = d;
@@ -298,10 +290,7 @@ pub mod kernels {
             hv[c] = kk
                 * (-20.0 * q[v(x, y, c)]
                     + 4.0
-                        * (q[v(xup, y, c)]
-                            + q[v(xdn, y, c)]
-                            + q[v(x, yup, c)]
-                            + q[v(x, ydn, c)])
+                        * (q[v(xup, y, c)] + q[v(xdn, y, c)] + q[v(x, yup, c)] + q[v(x, ydn, c)])
                     + q[v(xup, yup, c)]
                     + q[v(xup, ydn, c)]
                     + q[v(xdn, yup, c)]
@@ -441,7 +430,8 @@ pub mod kernels {
 
         let v = 0.05
             * (-6.0 * rhs[idx]
-                + 4.0 * (p_aux[s(xup, y)] + p_aux[s(x, yup)] + p_aux[s(x, ydn)] + p_aux[s(xdn, y)])
+                + 4.0
+                    * (p_aux[s(xup, y)] + p_aux[s(x, yup)] + p_aux[s(x, ydn)] + p_aux[s(xdn, y)])
                 + p_aux[s(xup, yup)]
                 + p_aux[s(xup, ydn)]
                 + p_aux[s(xdn, yup)]
@@ -491,12 +481,11 @@ pub mod kernels {
         let dyux = 0.5 * (u[v(x, yup, 0)] - u[v(x, ydn, 0)]);
         let dxuy = 0.5 * (u[v(xup, y, 1)] - u[v(xdn, y, 1)]);
 
-        let div_f = (pi_s[v(xup, y, 0)] + pi_s[v(xdn, y, 0)]
-            - pi_s[v(x, yup, 0)]
-            - pi_s[v(x, ydn, 0)])
-            + 0.5
-                * (pi_s[v(xup, yup, 1)] - pi_s[v(xup, ydn, 1)] - pi_s[v(xdn, yup, 1)]
-                    + pi_s[v(xdn, ydn, 1)]);
+        let div_f =
+            (pi_s[v(xup, y, 0)] + pi_s[v(xdn, y, 0)] - pi_s[v(x, yup, 0)] - pi_s[v(x, ydn, 0)])
+                + 0.5
+                    * (pi_s[v(xup, yup, 1)] - pi_s[v(xup, ydn, 1)] - pi_s[v(xdn, yup, 1)]
+                        + pi_s[v(xdn, ydn, 1)]);
 
         let conv = rho * (dudx * dudx + dvdy * dvdy + dyux * 2.0 * dxuy);
 
@@ -844,8 +833,7 @@ pub mod kernels {
 
         let fx = a as f64 * (pi_s[v(x, y, 0)] - pi_s[v(xa, y, 0)])
             + b as f64 * (pi_s[v(x, y, 1)] + pi_a[s(x, y)] - pi_s[v(x, yb, 1)] - pi_a[s(x, yb)]);
-        let fy = a as f64
-            * (pi_s[v(x, y, 1)] - pi_a[s(x, y)] - pi_s[v(xa, y, 1)] + pi_a[s(xa, y)])
+        let fy = a as f64 * (pi_s[v(x, y, 1)] - pi_a[s(x, y)] - pi_s[v(xa, y, 1)] + pi_a[s(xa, y)])
             - b as f64 * (pi_s[v(x, y, 0)] - pi_s[v(x, yb, 0)]);
 
         let lapu0 = 2.0 * u[v(x, y, 0)] - 2.0 * (u[v(xa, y, 0)] + u[v(x, yb, 0)])

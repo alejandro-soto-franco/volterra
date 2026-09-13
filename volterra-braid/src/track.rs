@@ -315,7 +315,10 @@ mod track_tests {
                 "every core strand spans the whole window"
             );
             for p in &wl.positions {
-                assert!(p[0] < 10.0, "a core strand picked up the transient at {p:?}");
+                assert!(
+                    p[0] < 10.0,
+                    "a core strand picked up the transient at {p:?}"
+                );
             }
         }
         assert!(worst < 5.0, "worst step {worst} should be inside the bound");
@@ -357,7 +360,10 @@ mod track_tests {
         // way and the count of offending steps is what separates the two.
         let (_, worst, over, _) = track_core(&frames, 2.0).expect("a core");
         assert_eq!(over, 1, "one assignment jumps the gap");
-        assert!(worst > 35.0, "the jump is the whole 40-unit gap, got {worst}");
+        assert!(
+            worst > 35.0,
+            "the jump is the whole 40-unit gap, got {worst}"
+        );
         let (_, _, none_over, _) = track_core(&frames, 50.0).expect("a core");
         assert_eq!(none_over, 0, "a bound past the jump is not exceeded");
     }

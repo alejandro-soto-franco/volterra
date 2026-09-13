@@ -105,7 +105,10 @@ pub fn min_image(a: [f64; 2], b: [f64; 2], lx: f64, ly: f64) -> ([f64; 2], [i32;
     let raw = [b[0] - a[0], b[1] - a[1]];
     let nx = (raw[0] / lx).round();
     let ny = (raw[1] / ly).round();
-    ([raw[0] - nx * lx, raw[1] - ny * ly], [-(nx as i32), -(ny as i32)])
+    (
+        [raw[0] - nx * lx, raw[1] - ny * ly],
+        [-(nx as i32), -(ny as i32)],
+    )
 }
 
 /// Follow defects frame to frame and lift the trajectories.
@@ -156,12 +159,7 @@ pub fn track_on_torus(
                 }
                 // The lift: measure from the strand's own lifted position, so
                 // the displacement is the minimum image and the lift accumulates.
-                let (v, _) = min_image(
-                    [p[0].rem_euclid(lx), p[1].rem_euclid(ly)],
-                    d.0,
-                    lx,
-                    ly,
-                );
+                let (v, _) = min_image([p[0].rem_euclid(lx), p[1].rem_euclid(ly)], d.0, lx, ly);
                 cand.push((v[0].hypot(v[1]), s, j, [p[0] + v[0], p[1] + v[1]]));
             }
         }
@@ -188,7 +186,13 @@ pub fn track_on_torus(
         times.push(*t);
         pts.push(next);
     }
-    Some(TorusWorldlines { lx, ly, times, pts, charge })
+    Some(TorusWorldlines {
+        lx,
+        ly,
+        times,
+        pts,
+        charge,
+    })
 }
 
 impl TorusWorldlines {
@@ -207,7 +211,9 @@ impl TorusWorldlines {
     /// The paper measures the entropy from the positive defects alone and finds
     /// the negative ones "introduce no additional stretching".
     pub fn positive(&self) -> Vec<usize> {
-        (0..self.n_strands()).filter(|&s| self.charge[s] > 0).collect()
+        (0..self.n_strands())
+            .filter(|&s| self.charge[s] > 0)
+            .collect()
     }
 
     /// Net lattice displacement of each strand over the run.
@@ -232,9 +238,10 @@ impl TorusWorldlines {
         (0..self.n_strands())
             .map(|s| {
                 let n = self.n_frames() as f64;
-                let (mx, my) = self.pts.iter().fold((0.0, 0.0), |(x, y), f| {
-                    (x + f[s][0] / n, y + f[s][1] / n)
-                });
+                let (mx, my) = self
+                    .pts
+                    .iter()
+                    .fold((0.0, 0.0), |(x, y), f| (x + f[s][0] / n, y + f[s][1] / n));
                 (self
                     .pts
                     .iter()
@@ -433,7 +440,11 @@ impl TorusWorldlines {
         // that.
         let per_period = if period > 0.0 && enc.len() >= 2 {
             let span = enc.last().unwrap().t - enc.first().unwrap().t;
-            if span > 0.0 { (enc.len() - 1) as f64 * period / span } else { f64::NAN }
+            if span > 0.0 {
+                (enc.len() - 1) as f64 * period / span
+            } else {
+                f64::NAN
+            }
         } else {
             f64::NAN
         };
@@ -472,10 +483,13 @@ impl TorusWorldlines {
         // reject it however slight the drift.
         let winds = self.winding();
         let span = self.times.last().copied().unwrap_or(0.0) - self.times[0];
-        let revolutions = if period > 0.0 && span > 0.0 { span / period } else { 1.0 };
+        let revolutions = if period > 0.0 && span > 0.0 {
+            span / period
+        } else {
+            1.0
+        };
         let no_winding = self.positive().iter().all(|&s| {
-            (winds[s][0].abs() / revolutions) < 0.25
-                && (winds[s][1].abs() / revolutions) < 0.25
+            (winds[s][0].abs() / revolutions) < 0.25 && (winds[s][1].abs() / revolutions) < 0.25
         });
         MaximalMixing {
             n_positive: self.positive().len(),
@@ -559,7 +573,10 @@ pub fn ideal_figure_2a(
                 t,
                 vec![
                     (wrap([0.5 * lx * a.cos(), 0.5 * ly * a.sin()]), 1),
-                    (wrap([0.5 * lx * (1.0 + b.cos()), 0.5 * ly * (1.0 + b.sin())]), 1),
+                    (
+                        wrap([0.5 * lx * (1.0 + b.cos()), 0.5 * ly * (1.0 + b.sin())]),
+                        1,
+                    ),
                     (wrap([0.0, 0.0]), -1),
                     (wrap([0.5 * lx, 0.5 * ly]), -1),
                 ],

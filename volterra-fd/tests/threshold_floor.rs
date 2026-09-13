@@ -63,7 +63,10 @@ fn the_equilibrium_order_is_the_positive_root_of_the_landau_quartic() {
     let q = p.equilibrium_q();
     // 6a + 3b q + 8c q^2 = 0 at the equilibrium.
     let residual = 6.0 * p.a_landau + 3.0 * p.b_landau * q + 8.0 * p.c_landau * q * q;
-    assert!(residual.abs() < 1e-12, "q_eq = {q} left residual {residual}");
+    assert!(
+        residual.abs() < 1e-12,
+        "q_eq = {q} left residual {residual}"
+    );
     assert!(q > 0.0, "the ordered root should be positive, got {q}");
 }
 
@@ -88,7 +91,11 @@ fn the_default_floor_scales_as_the_inverse_square_of_the_spacing() {
 fn an_explicit_floor_overrides_the_scaled_default() {
     let mut p = ActiveNematicParams3D::default_test();
     p.disclination_threshold_floor = Some(0.0);
-    assert_eq!(p.disclination_floor(), 0.0, "an explicit zero should disable the floor");
+    assert_eq!(
+        p.disclination_floor(),
+        0.0,
+        "an explicit zero should disable the floor"
+    );
     p.disclination_threshold_floor = Some(7.5e-3);
     assert_eq!(p.disclination_floor(), 7.5e-3);
 }
@@ -123,8 +130,16 @@ fn the_default_floor_sits_between_a_resolved_core_and_an_ordered_field() {
     );
     // And with room to spare on both sides, so neither a slightly noisier field
     // nor a slightly coarser core crosses it.
-    assert!(core / floor > 100.0, "only {:.1}x of headroom below a core", core / floor);
-    assert!(floor / quiet > 100.0, "only {:.1}x of headroom above the noise", floor / quiet);
+    assert!(
+        core / floor > 100.0,
+        "only {:.1}x of headroom below a core",
+        core / floor
+    );
+    assert!(
+        floor / quiet > 100.0,
+        "only {:.1}x of headroom above the noise",
+        floor / quiet
+    );
 }
 
 #[test]
@@ -144,7 +159,10 @@ fn the_default_floor_empties_an_ordered_field_and_keeps_a_real_line() {
 
     let (core_lines, _) =
         disclination_lines_at_fraction(&wedge(n, q_eq), n, n, n, p.dx, 0.25, floor);
-    assert!(!core_lines.is_empty(), "the wedge line was lost to the default floor");
+    assert!(
+        !core_lines.is_empty(),
+        "the wedge line was lost to the default floor"
+    );
 }
 
 #[test]

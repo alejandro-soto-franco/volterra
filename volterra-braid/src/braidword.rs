@@ -365,7 +365,11 @@ mod braidword_tests {
         codes.swap(6, 7); // sigma_1 sigma_3 -> sigma_3 sigma_1 in the second repeat
         let w = BraidWord::from_codes(4, &codes);
 
-        assert_eq!(w.fundamental_period().len(), codes.len(), "as a string, no period");
+        assert_eq!(
+            w.fundamental_period().len(),
+            codes.len(),
+            "as a string, no period"
+        );
         assert_eq!(w.period_word().gens.len(), 6, "as a braid, period six");
         assert!((w.entropy_per_period() - crate::SILVER_H).abs() < 1e-9);
     }

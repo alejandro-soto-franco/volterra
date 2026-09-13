@@ -296,7 +296,9 @@ impl ActiveNematicParams {
             return Err(VError::InvalidParams("gamma_r must be positive".into()));
         }
         if self.zeta_eff < 0.0 {
-            return Err(VError::InvalidParams("zeta_eff must be non-negative".into()));
+            return Err(VError::InvalidParams(
+                "zeta_eff must be non-negative".into(),
+            ));
         }
         if self.eta <= 0.0 {
             return Err(VError::InvalidParams("eta must be positive".into()));
@@ -308,7 +310,9 @@ impl ActiveNematicParams {
             return Err(VError::InvalidParams("xi_l must be positive".into()));
         }
         if self.noise_amp < 0.0 {
-            return Err(VError::InvalidParams("noise_amp must be non-negative".into()));
+            return Err(VError::InvalidParams(
+                "noise_amp must be non-negative".into(),
+            ));
         }
         if self.chi_ms < 0.0 {
             return Err(VError::InvalidParams("chi_ms must be non-negative".into()));
@@ -515,7 +519,9 @@ fn default_disclination_threshold_fraction() -> f64 {
     0.25
 }
 
-fn default_epsilon_ch() -> f64 { 1.0 }
+fn default_epsilon_ch() -> f64 {
+    1.0
+}
 
 impl ActiveNematicParams3D {
     /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
@@ -539,8 +545,7 @@ impl ActiveNematicParams3D {
     /// Zero where the quartic has no ordered minimum, which is the isotropic
     /// state and has no disclination in it to find.
     pub fn equilibrium_q(&self) -> f64 {
-        let disc = 9.0 * self.b_landau * self.b_landau
-            - 192.0 * self.a_landau * self.c_landau;
+        let disc = 9.0 * self.b_landau * self.b_landau - 192.0 * self.a_landau * self.c_landau;
         if disc < 0.0 || self.c_landau == 0.0 {
             return 0.0;
         }
@@ -611,7 +616,9 @@ impl ActiveNematicParams3D {
             return Err(VError::InvalidParams("gamma_r must be positive".into()));
         }
         if self.zeta_eff < 0.0 {
-            return Err(VError::InvalidParams("zeta_eff must be non-negative".into()));
+            return Err(VError::InvalidParams(
+                "zeta_eff must be non-negative".into(),
+            ));
         }
         if self.eta <= 0.0 {
             return Err(VError::InvalidParams("eta must be positive".into()));
@@ -620,7 +627,9 @@ impl ActiveNematicParams3D {
             return Err(VError::InvalidParams("c_landau must be positive".into()));
         }
         if self.noise_amp < 0.0 {
-            return Err(VError::InvalidParams("noise_amp must be non-negative".into()));
+            return Err(VError::InvalidParams(
+                "noise_amp must be non-negative".into(),
+            ));
         }
         if self.chi_a < 0.0 {
             return Err(VError::InvalidParams("chi_a must be non-negative".into()));
@@ -665,8 +674,8 @@ impl ActiveNematicParams3D {
         // where k_max = π/dx. Violated timesteps will cause blow-up.
         if self.kappa_bar_g != 0.0 && self.m_l > 0.0 && self.epsilon_ch > 0.0 {
             let k_max = std::f64::consts::PI / self.dx;
-            let dt_max = 0.1 * self.epsilon_ch.powi(3)
-                / (self.m_l * self.kappa_bar_g.abs() * k_max.powi(6));
+            let dt_max =
+                0.1 * self.epsilon_ch.powi(3) / (self.m_l * self.kappa_bar_g.abs() * k_max.powi(6));
             if self.dt > dt_max {
                 return Err(VError::InvalidParams(format!(
                     "dt={:.3e} exceeds κ̄_G ETD stability bound dt_max={:.3e}; \
@@ -712,7 +721,7 @@ impl ActiveNematicParams3D {
             c0_sp: 0.0,
             kappa_w: 0.0,
             kappa_bar_g: 0.0,
-            epsilon_ch: 1.0,   // = dx for unit tests
+            epsilon_ch: 1.0, // = dx for unit tests
             disclination_threshold_fraction: 0.25,
             disclination_threshold_floor: None,
         }
@@ -799,7 +808,10 @@ mod tests {
     fn screening_is_absent_by_default_and_hele_shaw_when_set() {
         assert_eq!(Screening::default(), Screening::None);
         assert_eq!(Screening::None.inverse_square(), 0.0);
-        assert_eq!(ActiveNematicParams::default_test().screening, Screening::None);
+        assert_eq!(
+            ActiveNematicParams::default_test().screening,
+            Screening::None
+        );
 
         // `l_s = h / sqrt(12)`, so `1 / l_s^2 = 12 / h^2`.
         let h = 50e-3_f64;
@@ -816,7 +828,10 @@ mod tests {
         assert_eq!(Screening::Length(-0.5).inverse_square(), f64::INFINITY);
         let mut bad = ActiveNematicParams::default_test();
         bad.screening = Screening::Length(-0.5);
-        assert!(bad.validate().is_err(), "validate must reject a negative screening length");
+        assert!(
+            bad.validate().is_err(),
+            "validate must reject a negative screening length"
+        );
         bad.screening = Screening::Length(0.5);
         assert!(bad.validate().is_ok());
 
@@ -885,9 +900,12 @@ mod tests_approach_b {
     fn test_validate_rejects_dt_violating_kappa_bar_bound() {
         let mut p = ActiveNematicParams3D::default_test();
         p.kappa_bar_g = 1e4; // large |κ̄_G| → tiny dt_max
-        p.dt = 1.0;          // grossly too large
+        p.dt = 1.0; // grossly too large
         p.epsilon_ch = 1.0;
-        assert!(p.validate().is_err(), "large kappa_bar_g + large dt must fail validate");
+        assert!(
+            p.validate().is_err(),
+            "large kappa_bar_g + large dt must fail validate"
+        );
     }
 
     #[test]

@@ -14,9 +14,9 @@
 //! localised errors that these tight tolerances catch.
 
 use volterra_fd::{
-    ops::{div_vector, laplacian},
-    par_gate::{use_parallel, PAR_THRESHOLD},
     Boundary,
+    ops::{div_vector, laplacian},
+    par_gate::{PAR_THRESHOLD, use_parallel},
 };
 
 // A grid that is guaranteed to engage the parallel path.

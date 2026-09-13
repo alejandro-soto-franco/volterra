@@ -7,9 +7,9 @@ use std::time::Instant;
 
 use cartan_manifolds::sphere::Sphere;
 use volterra_core::NematicParams;
+use volterra_dec::NematicEngine;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::NematicEngine;
 
 fn main() {
     let refinement = 4; // 2562 vertices
@@ -25,28 +25,37 @@ fn main() {
     let mesh = icosphere(refinement);
     let nv = mesh.n_vertices();
     let nf = mesh.n_simplices();
-    println!("  {nv} vertices, {nf} faces, chi = {}", mesh.euler_characteristic());
+    println!(
+        "  {nv} vertices, {nf} faces, chi = {}",
+        mesh.euler_characteristic()
+    );
 
     // Write mesh JSON before consuming the mesh.
     let mesh_json = serde_json::json!({
         "vertices": mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>(),
         "triangles": mesh.simplices,
     });
-    std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
-        .expect("write mesh.json");
+    std::fs::write(
+        out.join("mesh.json"),
+        serde_json::to_string(&mesh_json).unwrap(),
+    )
+    .expect("write mesh.json");
 
     // Unit sphere: K = 1 everywhere.
     let gaussian_k = vec![1.0; nv];
 
     // Pe = 1: gentle activity, 4 tetrahedral defects expected.
     let params = NematicParams::new(
-        1.0,   // Pe
-        1.0,   // Er
-        1.0,   // La
-        1.0,   // Lc
-        0.7,   // lambda
+        1.0, // Pe
+        1.0, // Er
+        1.0, // La
+        1.0, // Lc
+        0.7, // lambda
     );
-    println!("  Pe = {}, Er = {}, La = {}, Lc = {}", params.pe, params.er, params.la, params.lc);
+    println!(
+        "  Pe = {}, Er = {}, La = {}, Lc = {}",
+        params.pe, params.er, params.la, params.lc
+    );
     println!("  S_eq = {:.3}", params.s_eq());
 
     println!("Building engine...");
@@ -72,15 +81,16 @@ fn main() {
         "n_steps": n_steps,
         "snap_every": snap_every,
     });
-    volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta)
-        .expect("write meta");
+    volterra_dec::snapshot::write_meta(&out.join("meta.json"), &meta).expect("write meta");
 
-    println!("Running NematicEngine: {n_steps} steps, Pe = {}...", params.pe);
+    println!(
+        "Running NematicEngine: {n_steps} steps, Pe = {}...",
+        params.pe
+    );
     let t0 = Instant::now();
 
     engine.run(&mut q, n_steps, snap_every, |step, q_snap, _vel, stats| {
-        write_snapshot(q_snap, &out.join(format!("q_{step:06}.npy")))
-            .expect("write snapshot");
+        write_snapshot(q_snap, &out.join(format!("q_{step:06}.npy"))).expect("write snapshot");
 
         if step % (snap_every * 4) == 0 {
             let elapsed = t0.elapsed().as_secs_f64();

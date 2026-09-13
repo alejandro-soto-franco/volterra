@@ -14,7 +14,7 @@
 //!     cargo run --release -p volterra-dec --example genus2_report -- <run-dir> [--from=F]
 
 use std::path::Path;
-use volterra_braid::sphere::{track_with, Separation, SphereFrame};
+use volterra_braid::sphere::{Separation, SphereFrame, track_with};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -56,7 +56,10 @@ fn main() {
         .collect();
 
     if frames.len() < 16 {
-        println!("only {} frames in the window; nothing to measure", frames.len());
+        println!(
+            "only {} frames in the window; nothing to measure",
+            frames.len()
+        );
         return;
     }
     let counts: Vec<usize> = frames.iter().map(|(_, v)| v.len()).collect();
@@ -66,7 +69,11 @@ fn main() {
     println!("=== {} ===", run.display());
     println!(
         "  window t in [{:.1}, {:.1}], {} frames, {} to {} defects, total charge {charge}",
-        frames[0].0, t_end, frames.len(), n_min, n_max
+        frames[0].0,
+        t_end,
+        frames.len(),
+        n_min,
+        n_max
     );
     if n_min != n_max {
         println!("  the census moves, so the shape is not a fixed configuration");
@@ -81,7 +88,11 @@ fn main() {
             return;
         }
     };
-    println!("  tracked {} strands over {} frames", w.n_strands(), w.n_frames());
+    println!(
+        "  tracked {} strands over {} frames",
+        w.n_strands(),
+        w.n_frames()
+    );
 
     let (p, q) = w.shape_period_with(Separation::Chord);
     if p.is_finite() {

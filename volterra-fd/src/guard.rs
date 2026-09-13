@@ -9,14 +9,7 @@ use crate::error::{FdError, FdResult};
 ///
 /// `u` is the packed 2-vector velocity field (`[ux, uy, ux, uy, ...]`). When the
 /// field is at rest (`max|u| == 0`) the condition is vacuously satisfied.
-pub fn check_cfl(
-    u: &[f64],
-    dt: f64,
-    dx: f64,
-    dy: f64,
-    safety: f64,
-    step: usize,
-) -> FdResult<()> {
+pub fn check_cfl(u: &[f64], dt: f64, dx: f64, dy: f64, safety: f64, step: usize) -> FdResult<()> {
     let mut umax_sq = 0.0_f64;
     let mut i = 0;
     while i + 1 < u.len() {
@@ -32,7 +25,12 @@ pub fn check_cfl(
     }
     let safe = safety * dx.min(dy) / umax;
     if dt > safe {
-        return Err(FdError::Cfl { step, dt, safe, umax });
+        return Err(FdError::Cfl {
+            step,
+            dt,
+            safe,
+            umax,
+        });
     }
     Ok(())
 }

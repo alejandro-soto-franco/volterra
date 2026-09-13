@@ -70,13 +70,13 @@
 //! to zero over the boundary, and a boundary condition violating that is
 //! rejected rather than answered in a least-squares sense.
 
+use faer::Mat;
 use faer::linalg::solvers::SolveCore;
 use faer::sparse::{SparseColMat, Triplet};
-use faer::Mat;
 use sprs::CsMat;
 
 use crate::mimetic::assemble_star;
-use crate::saddle::{minres, MinresReport, Riesz, RieszMode, SymOperator};
+use crate::saddle::{MinresReport, Riesz, RieszMode, SymOperator, minres};
 use crate::tet_mesh::TetComplex;
 
 /// How the saddle point is inverted.
@@ -103,7 +103,6 @@ pub enum Inversion {
         max_iter: usize,
     },
 }
-
 
 /// The factorisation or the iterative context, whichever the mesh was built for.
 enum Backend {
@@ -251,13 +250,19 @@ impl BoundedStokes3D {
 
         let backend = match inversion {
             Inversion::Direct => {
-                let ft: Vec<Triplet<usize, usize, f64>> =
-                    trip.iter().map(|&(r, c, v)| Triplet::new(r, c, v)).collect();
+                let ft: Vec<Triplet<usize, usize, f64>> = trip
+                    .iter()
+                    .map(|&(r, c, v)| Triplet::new(r, c, v))
+                    .collect();
                 let mat = SparseColMat::<usize, f64>::try_new_from_triplets(n, n, &ft)
                     .map_err(|_| Stokes3DError::Singular)?;
                 Backend::Lu(mat.sp_lu().map_err(|_| Stokes3DError::Singular)?)
             }
-            Inversion::Minres { mode, tol, max_iter } => {
+            Inversion::Minres {
+                mode,
+                tol,
+                max_iter,
+            } => {
                 // The Riesz map of the natural norms. `H(curl)` on edges,
                 // `H(div)` on the free faces, `L2` on the free cells.
                 let mut w_block: Vec<(usize, usize, f64)> = Vec::new();
@@ -284,7 +289,9 @@ impl BoundedStokes3D {
                     }
                 }
                 for t in 0..mesh.n_tets() {
-                    let Some(row) = d2.outer_view(t) else { continue };
+                    let Some(row) = d2.outer_view(t) else {
+                        continue;
+                    };
                     for (f, &s) in row.iter() {
                         let Some(a) = face_slot[f] else { continue };
                         for (f2, &s2) in row.iter() {
@@ -295,8 +302,10 @@ impl BoundedStokes3D {
                     }
                 }
 
-                let p_diagonal: Vec<f64> =
-                    (0..mesh.n_tets()).filter(|&t| t != pin).map(|t| m3[t]).collect();
+                let p_diagonal: Vec<f64> = (0..mesh.n_tets())
+                    .filter(|&t| t != pin)
+                    .map(|t| m3[t])
+                    .collect();
 
                 let m = Riesz::new(mode, n_w, n_u, &w_block, &u_block, &p_diagonal)
                     .ok_or(Stokes3DError::Singular)?;
@@ -372,7 +381,11 @@ impl BoundedStokes3D {
         // `u_bc` is already zero on every interior face, so the sum is over the
         // boundary alone. The floor keeps an all-zero wall, whose net flux is
         // exactly zero, from comparing against a zero scale.
-        let scale: f64 = u_bc.iter().map(|x| x.abs()).sum::<f64>().max(f64::MIN_POSITIVE);
+        let scale: f64 = u_bc
+            .iter()
+            .map(|x| x.abs())
+            .sum::<f64>()
+            .max(f64::MIN_POSITIVE);
         if net.abs() > 1e-10 * scale {
             return Err(Stokes3DError::IncompatibleBoundaryFlux { net, scale });
         }
@@ -406,7 +419,12 @@ impl BoundedStokes3D {
                 lu.solve_in_place_with_conj(faer::Conj::No, rhs.as_mut());
                 ((0..n).map(|i| rhs[(i, 0)]).collect::<Vec<f64>>(), None)
             }
-            Backend::Iterative { a, m, tol, max_iter } => {
+            Backend::Iterative {
+                a,
+                m,
+                tol,
+                max_iter,
+            } => {
                 let b: Vec<f64> = (0..n).map(|i| rhs[(i, 0)]).collect();
                 let (x, r) = minres(a, m, &b, *tol, *max_iter);
                 (x, Some(r))

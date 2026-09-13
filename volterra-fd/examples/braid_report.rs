@@ -35,9 +35,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use volterra_braid::torus::{
-    TorusWorldlines, h_tepo_maximal_mixing, track_on_torus,
-};
+use volterra_braid::torus::{TorusWorldlines, h_tepo_maximal_mixing, track_on_torus};
 
 /// One observation: the defects seen at one time.
 type Frame = (f64, Vec<([f64; 2], i32)>);
@@ -251,7 +249,11 @@ fn report(run: &Path, from: f64, close_frac: f64) -> std::io::Result<()> {
     // Fig. 2(a) it cycles four times an orbit. Reading it as the orbit period
     // divides `T_tilde` by four and multiplies the braid prediction by four.
     let (orbit_t, orbit_q) = w.orbit_period();
-    let t_orbit = if orbit_t.is_finite() && orbit_q > 0.3 { orbit_t } else { period };
+    let t_orbit = if orbit_t.is_finite() && orbit_q > 0.3 {
+        orbit_t
+    } else {
+        period
+    };
     let m = w.is_maximal_mixing(t_orbit, close);
     let enc = w.encounters_apart(close, t_orbit / 8.0);
     let gyr = w.gyration();
@@ -265,7 +267,11 @@ fn report(run: &Path, from: f64, close_frac: f64) -> std::io::Result<()> {
     println!(
         "                  u_rms cycles at {period:.4} \
          (autocorrelation {peak:.4}), {:.2} a revolution",
-        if period > 0.0 { t_orbit / period } else { f64::NAN }
+        if period > 0.0 {
+            t_orbit / period
+        } else {
+            f64::NAN
+        }
     );
     println!(
         "    encounters  : {} over the window, {:.2} per period, \
@@ -296,9 +302,7 @@ fn report(run: &Path, from: f64, close_frac: f64) -> std::io::Result<()> {
         }
     );
     let pred = TorusWorldlines::braid_prediction(t_orbit, t_a);
-    println!(
-        "    prediction  : h_tilde_max = log(phi + sqrt phi) / (T_tilde / 4) = {pred:.4e}"
-    );
+    println!("    prediction  : h_tilde_max = log(phi + sqrt phi) / (T_tilde / 4) = {pred:.4e}");
 
     // Subsample the worldlines so the file stays a plotting input rather than a
     // copy of the run.
@@ -332,7 +336,10 @@ fn report(run: &Path, from: f64, close_frac: f64) -> std::io::Result<()> {
         "h_tilde_max": pred,
         "gyration": gyr, "winding": wind,
     });
-    fs::write(run.join("braid.json"), serde_json::to_string_pretty(&out).unwrap())?;
+    fs::write(
+        run.join("braid.json"),
+        serde_json::to_string_pretty(&out).unwrap(),
+    )?;
     Ok(())
 }
 

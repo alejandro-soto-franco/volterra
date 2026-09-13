@@ -42,7 +42,10 @@ fn curve(q: f64, r: f64, d: f64, u: f64) -> ([f64; 2], [f64; 2], [f64; 2]) {
     let c = 2.0 * q - 1.0;
     let a = r / (2.0 * q);
     (
-        [a * (c * u.cos() + d * (c * u).cos()), a * (c * u.sin() + d * (c * u).sin())],
+        [
+            a * (c * u.cos() + d * (c * u).cos()),
+            a * (c * u.sin() + d * (c * u).sin()),
+        ],
         [
             a * (-c * u.sin() - d * c * (c * u).sin()),
             a * (c * u.cos() + d * c * (c * u).cos()),
@@ -58,7 +61,11 @@ fn curvature_radius(q: f64, r: f64, d: f64, u: f64) -> f64 {
     let (_, p1, p2) = curve(q, r, d, u);
     let cross = (p1[0] * p2[1] - p1[1] * p2[0]).abs();
     let speed = (p1[0] * p1[0] + p1[1] * p1[1]).sqrt();
-    if cross <= 0.0 { f64::INFINITY } else { speed.powi(3) / cross }
+    if cross <= 0.0 {
+        f64::INFINITY
+    } else {
+        speed.powi(3) / cross
+    }
 }
 
 /// Shortest distance from a point to the curve, by dense sampling then a local
@@ -109,15 +116,18 @@ fn angles(p: [[f64; 2]; 3]) -> [f64; 3] {
 }
 
 fn main() {
-    let q = 2.0;          // nephroid
-    let r = 98.0;         // so the lobe tip sits at 49, the L = 100 lattice radius
+    let q = 2.0; // nephroid
+    let r = 98.0; // so the lobe tip sits at 49, the L = 100 lattice radius
     println!(
         "nephroid, q = {q}, r = {r} (lobe tip at {:.1}, matching the L = 100 lattice)\n",
         r * (2.0 * q) / (2.0 * q) / 2.0
     );
 
     println!("cusp curvature radius against the regularisation d, in lattice units:");
-    println!("  {:>6}  {:>14}  {:>26}", "d", "R_cusp", "lattice cells across it");
+    println!(
+        "  {:>6}  {:>14}  {:>26}",
+        "d", "R_cusp", "lattice cells across it"
+    );
     for d in [0.5, 0.7, 0.9, 0.95, 0.99, 0.999] {
         let rc = curvature_radius(q, r, d, PI / 2.0);
         println!("  {d:>6}  {rc:>14.5}  {rc:>26.4}");
@@ -129,9 +139,10 @@ fn main() {
         1.0 / curvature_radius(q, r, 0.99, PI / 2.0)
     );
 
-    println!("{:>9} {:>8} {:>8} {:>8} {:>9} {:>9} {:>8} {:>8} {:>10}",
-             "spacing", "verts", "tris", "bverts", "min ang", "max ang", "obtuse",
-             "%obtuse", "max dev");
+    println!(
+        "{:>9} {:>8} {:>8} {:>8} {:>9} {:>9} {:>8} {:>8} {:>10}",
+        "spacing", "verts", "tris", "bverts", "min ang", "max ang", "obtuse", "%obtuse", "max dev"
+    );
     for spacing in [4.0, 2.0, 1.0, 0.5] {
         let cm = epitrochoid_mesh(q, r, (2.0 * PI * r / spacing) as usize, spacing);
         let m = &cm.mesh;
@@ -161,25 +172,43 @@ fn main() {
             let p = [m.vertices[i].x, m.vertices[i].y];
             dev = dev.max(dist_to_curve(q, r, p, 4000));
         }
-        println!("{:>9.2} {:>8} {:>8} {:>8} {:>9.2} {:>9.2} {:>8} {:>8.1} {:>10.2e}",
-                 spacing, m.n_vertices(), m.n_simplices(),
-                 cm.boundary_vertices.len(), amin.to_degrees(), amax.to_degrees(),
-                 obtuse, 100.0 * obtuse as f64 / m.n_simplices() as f64, dev);
+        println!(
+            "{:>9.2} {:>8} {:>8} {:>8} {:>9.2} {:>9.2} {:>8} {:>8.1} {:>10.2e}",
+            spacing,
+            m.n_vertices(),
+            m.n_simplices(),
+            cm.boundary_vertices.len(),
+            amin.to_degrees(),
+            amax.to_degrees(),
+            obtuse,
+            100.0 * obtuse as f64 / m.n_simplices() as f64,
+            dev
+        );
     }
 
     // Boundary spacing against the local curvature radius. Uniform sampling in
     // the parameter is not uniform in arclength: the speed |r'(u)| collapses at a
     // cusp, so points crowd there on their own. Whether they crowd enough is the
     // question.
-    println!("\nboundary edge length against the local curvature radius, \
-              at 512 samples, d = 0.99:");
+    println!(
+        "\nboundary edge length against the local curvature radius, \
+              at 512 samples, d = 0.99:"
+    );
     let (pts, params) = sample_epitrochoid(q, r, 512);
-    println!("  {:>10} {:>12} {:>12} {:>12}", "u/pi", "ds", "R_curv", "ds/R_curv");
+    println!(
+        "  {:>10} {:>12} {:>12} {:>12}",
+        "u/pi", "ds", "R_curv", "ds/R_curv"
+    );
     for i in [0usize, 32, 64, 96, 120, 126, 128, 130, 136, 160] {
         let j = (i + 1) % pts.len();
         let ds = ((pts[j][0] - pts[i][0]).powi(2) + (pts[j][1] - pts[i][1]).powi(2)).sqrt();
         let rc = curvature_radius(q, r, 0.99, params[i]);
-        println!("  {:>10.4} {:>12.5} {:>12.5} {:>12.2}",
-                 params[i] / PI, ds, rc, ds / rc);
+        println!(
+            "  {:>10.4} {:>12.5} {:>12.5} {:>12.2}",
+            params[i] / PI,
+            ds,
+            rc,
+            ds / rc
+        );
     }
 }

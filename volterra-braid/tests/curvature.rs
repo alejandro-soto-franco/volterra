@@ -61,7 +61,10 @@ fn a_straight_line_has_no_curvature() {
     let f = frenet(&pts, false);
 
     for (i, &k) in f.curvatures.iter().enumerate() {
-        assert!(k.abs() < 1e-9, "site {i} read curvature {k} on a straight line");
+        assert!(
+            k.abs() < 1e-9,
+            "site {i} read curvature {k} on a straight line"
+        );
     }
 }
 
@@ -241,7 +244,11 @@ fn loop_field(n: usize, r: f64) -> Vec<[f64; 5]> {
                 let (x, y, z) = (i as f64 - c, j as f64 - c, l as f64 - c);
                 let rho = (x * x + y * y).sqrt();
                 let half = 0.5 * z.atan2(rho - r);
-                let e_rho = if rho > 1e-9 { [x / rho, y / rho] } else { [1.0, 0.0] };
+                let e_rho = if rho > 1e-9 {
+                    [x / rho, y / rho]
+                } else {
+                    [1.0, 0.0]
+                };
                 let dir = [half.cos() * e_rho[0], half.cos() * e_rho[1], half.sin()];
                 q[((i * n) + j) * n + l] = uniaxial(dir, 0.556);
             }
@@ -462,7 +469,10 @@ fn a_relative_threshold_alone_finds_lines_in_an_ordered_field() {
     let q = ordered_with_noise(n, 1e-6);
     let (lines, threshold) = disclination_lines_at_fraction(&q, n, n, n, 1.0, 0.25, 0.0);
 
-    assert!(threshold < 1e-10, "an ordered field read a threshold of {threshold}");
+    assert!(
+        threshold < 1e-10,
+        "an ordered field read a threshold of {threshold}"
+    );
     assert!(
         !lines.is_empty(),
         "the relative rule found nothing, so this test no longer shows the failure"

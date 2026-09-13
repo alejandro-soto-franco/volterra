@@ -1,7 +1,7 @@
 //! Integration tests for the DEC dry active nematic runner.
 
-use cartan_dec::mesh::FlatMesh;
 use cartan_dec::Operators;
+use cartan_dec::mesh::FlatMesh;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::ActiveNematicParams;
 use volterra_dec::QField;

@@ -62,7 +62,8 @@ use std::time::Instant;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use volterra_braid::{Defect, detect_defects};
 use volterra_fd::{
-    Dimensionless, Locking, MaterialLine, Params, StressModel, boundary::periodic_boundary,
+    Dimensionless, Locking, MaterialLine, Params, StressModel,
+    boundary::periodic_boundary,
     ic::{mitchell_figure_2a, mitchell_four_defect, seeded_q},
     locking::{rms_and_median, rotation_rates},
     ops::div_vector,
@@ -72,7 +73,10 @@ use volterra_fd::{
 };
 
 fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 /// Random director everywhere, `theta` uniform on `[0, pi)`, and `u = 0`.
@@ -98,8 +102,7 @@ fn random_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, rng: &mut StdRn
 /// finds none of the periodic orbit the black curve does. The amplitude is in
 /// units of pi, so `1.0` is the plain random field and the paper's case is a
 /// few per cent.
-fn uniform_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, amp: f64,
-                    rng: &mut StdRng) {
+fn uniform_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, amp: f64, rng: &mut StdRng) {
     use std::f64::consts::PI;
     let base = PI * rng.random::<f64>();
     for x in 0..lx {
@@ -129,7 +132,10 @@ fn uniform_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, amp: f64,
 /// agree modulo `ly`.
 fn symmetric_random_director(q: &mut [f64], s0: f64, lx: usize, ly: usize, rng: &mut StdRng) {
     use std::f64::consts::PI;
-    assert!(lx % 2 == 0 && ly % 2 == 0, "the half-diagonal shift needs an even side");
+    assert!(
+        lx % 2 == 0 && ly % 2 == 0,
+        "the half-diagonal shift needs an even side"
+    );
     let (hx, hy) = (lx / 2, ly / 2);
     for x in 0..hx {
         for y in 0..ly {
@@ -156,8 +162,18 @@ fn advect_tracers(pts: &mut [[f64; 2]], u: &[f64], lx: usize, ly: usize, dt: f64
     let wrap = |p: [f64; 2]| [p[0].rem_euclid(fx), p[1].rem_euclid(fy)];
     for p in pts.iter_mut() {
         let k1 = sample(u, *p, lx, ly);
-        let k2 = sample(u, wrap([p[0] + 0.5 * dt * k1[0], p[1] + 0.5 * dt * k1[1]]), lx, ly);
-        let k3 = sample(u, wrap([p[0] + 0.5 * dt * k2[0], p[1] + 0.5 * dt * k2[1]]), lx, ly);
+        let k2 = sample(
+            u,
+            wrap([p[0] + 0.5 * dt * k1[0], p[1] + 0.5 * dt * k1[1]]),
+            lx,
+            ly,
+        );
+        let k3 = sample(
+            u,
+            wrap([p[0] + 0.5 * dt * k2[0], p[1] + 0.5 * dt * k2[1]]),
+            lx,
+            ly,
+        );
         let k4 = sample(u, wrap([p[0] + dt * k3[0], p[1] + dt * k3[1]]), lx, ly);
         let vx = (k1[0] + 2.0 * k2[0] + 2.0 * k3[0] + k4[0]) / 6.0;
         let vy = (k1[1] + 2.0 * k2[1] + 2.0 * k3[1] + k4[1]) / 6.0;
@@ -167,7 +183,9 @@ fn advect_tracers(pts: &mut [[f64; 2]], u: &[f64], lx: usize, ly: usize, dt: f64
 
 /// RMS speed over the whole domain.
 fn rms_speed(u: &[f64], n: usize) -> f64 {
-    let s: f64 = (0..n).map(|i| u[i * 2] * u[i * 2] + u[i * 2 + 1] * u[i * 2 + 1]).sum();
+    let s: f64 = (0..n)
+        .map(|i| u[i * 2] * u[i * 2] + u[i * 2 + 1] * u[i * 2 + 1])
+        .sum();
     (s / n as f64).sqrt()
 }
 
@@ -216,9 +234,8 @@ fn main() -> std::io::Result<()> {
         "locking" => Dimensionless::nematic_locking(ell_a),
         _ => Dimensionless::mitchell(ell_a),
     };
-    let mut params = Params::from_dimensionless(
-        lx, ly, dims, Dimensionless::MITCHELL_K, dt, max_p_iters,
-    );
+    let mut params =
+        Params::from_dimensionless(lx, ly, dims, Dimensionless::MITCHELL_K, dt, max_p_iters);
     if use_locking != 0 {
         params = params.with_locking(Locking { sigma });
     }
@@ -247,7 +264,10 @@ fn main() -> std::io::Result<()> {
         "lines": n_lines,
         "tracers": n_tracers,
     });
-    fs::write(out.join("config.json"), serde_json::to_string_pretty(&cfg).unwrap())?;
+    fs::write(
+        out.join("config.json"),
+        serde_json::to_string_pretty(&cfg).unwrap(),
+    )?;
 
     println!(
         "periodic {lx}x{ly}  ell_a={:.4}  ell_n={:.4}  t_a={:.6}\n\
@@ -256,8 +276,14 @@ fn main() -> std::io::Result<()> {
         params.active_length(),
         params.coherence_length(),
         params.active_time(),
-        params.k_elastic, params.eta, params.gamma, params.zeta,
-        params.a_landau, params.c_landau, params.s0, params.lambda,
+        params.k_elastic,
+        params.eta,
+        params.gamma,
+        params.zeta,
+        params.a_landau,
+        params.c_landau,
+        params.s0,
+        params.lambda,
         if use_locking != 0 { "on" } else { "off" },
     );
 
@@ -268,31 +294,35 @@ fn main() -> std::io::Result<()> {
         state.q.copy_from_slice(&q);
         println!("  continued from {path}");
     } else {
-    match ic.as_str() {
-        // Mitchell et al. (2024) map the periodic orbit by continuation from a
-        // state that already has two `+1/2` defects. A random field at the same
-        // parameters competes with a defect-free stationary state, so the orbit
-        // needs a field that starts with the right defects.
-        "seeded" | "fig2a" => {
-            let defects = if ic == "fig2a" {
-                mitchell_figure_2a(lx, ly)
-            } else {
-                mitchell_four_defect(lx, ly)
-            };
-            state.q = seeded_q(&defects, lx, ly, params.s0, theta0)
-                .expect("the four-defect arrangement has zero total charge");
-            println!("  seeded {} defects, theta_0 = {:.4} rad", defects.len(), theta0);
+        match ic.as_str() {
+            // Mitchell et al. (2024) map the periodic orbit by continuation from a
+            // state that already has two `+1/2` defects. A random field at the same
+            // parameters competes with a defect-free stationary state, so the orbit
+            // needs a field that starts with the right defects.
+            "seeded" | "fig2a" => {
+                let defects = if ic == "fig2a" {
+                    mitchell_figure_2a(lx, ly)
+                } else {
+                    mitchell_four_defect(lx, ly)
+                };
+                state.q = seeded_q(&defects, lx, ly, params.s0, theta0)
+                    .expect("the four-defect arrangement has zero total charge");
+                println!(
+                    "  seeded {} defects, theta_0 = {:.4} rad",
+                    defects.len(),
+                    theta0
+                );
+            }
+            "uniform" => {
+                uniform_director(&mut state.q, params.s0, lx, ly, uniform_amp, &mut rng);
+                println!("  nearly uniform directors, fluctuation {uniform_amp} pi");
+            }
+            "symrandom" => {
+                symmetric_random_director(&mut state.q, params.s0, lx, ly, &mut rng);
+                println!("  random directors, symmetric under the half-diagonal shift");
+            }
+            _ => random_director(&mut state.q, params.s0, lx, ly, &mut rng),
         }
-        "uniform" => {
-            uniform_director(&mut state.q, params.s0, lx, ly, uniform_amp, &mut rng);
-            println!("  nearly uniform directors, fluctuation {uniform_amp} pi");
-        }
-        "symrandom" => {
-            symmetric_random_director(&mut state.q, params.s0, lx, ly, &mut rng);
-            println!("  random directors, symmetric under the half-diagonal shift");
-        }
-        _ => random_director(&mut state.q, params.s0, lx, ly, &mut rng),
-    }
     }
 
     // Relax the seeded cores against the free energy alone before the activity
@@ -358,7 +388,9 @@ fn main() -> std::io::Result<()> {
                             MaterialLine::segment(
                                 [cx - h * c, cy - h * s],
                                 [cx + h * c, cy + h * s],
-                                lx, ly, 16,
+                                lx,
+                                ly,
+                                16,
                             )
                             .with_limits(line_seg, line_max_points),
                         );
@@ -397,13 +429,22 @@ fn main() -> std::io::Result<()> {
         let n_plus = ds.iter().filter(|d| d.charge > 0).count();
         let n_minus = ds.len() - n_plus;
         for d in &ds {
-            writeln!(defects_out, "{step},{t:.6},{:.4},{:.4},{}", d.pos[0], d.pos[1], d.charge)?;
+            writeln!(
+                defects_out,
+                "{step},{t:.6},{:.4},{:.4},{}",
+                d.pos[0], d.pos[1], d.charge
+            )?;
         }
 
         let (wa_rms, wa_med, wf_rms, wf_med) = if want_rotation != 0 {
             let r = rotation_rates(
-                &state.u, &state.q, &state.h, params.gamma, params.s0,
-                params.locking, &bnd,
+                &state.u,
+                &state.q,
+                &state.h,
+                params.gamma,
+                params.s0,
+                params.locking,
+                &bnd,
             );
             let (ar, am) = rms_and_median(&r.omega_a, &bnd);
             let (fr, fm) = rms_and_median(&r.omega_f, &bnd);
@@ -444,24 +485,26 @@ fn main() -> std::io::Result<()> {
             // saved `q`, which at this cadence is a difference below the line
             // width. The same lag is in the `stats.csv` statistics.
             let r = rotation_rates(
-                &state.u, &state.q, &state.h, params.gamma, params.s0,
-                params.locking, &bnd,
+                &state.u,
+                &state.q,
+                &state.h,
+                params.gamma,
+                params.s0,
+                params.locking,
+                &bnd,
             );
             write_npy_1c(&out.join(format!("wa_{step:08}.npy")), &r.omega_a, lx, ly)?;
             write_npy_1c(&out.join(format!("wf_{step:08}.npy")), &r.omega_f, lx, ly)?;
             if !tracers.is_empty() {
-                let mut f = BufWriter::new(File::create(
-                    out.join(format!("tracer_{step:08}.csv")),
-                )?);
+                let mut f =
+                    BufWriter::new(File::create(out.join(format!("tracer_{step:08}.csv")))?);
                 writeln!(f, "col,x,y")?;
                 for (c, pt) in tracer_col.iter().zip(tracers.iter()) {
                     writeln!(f, "{c},{:.4},{:.4}", pt[0], pt[1])?;
                 }
             }
             if !lines.is_empty() {
-                let mut f = BufWriter::new(File::create(
-                    out.join(format!("line_{step:08}.csv")),
-                )?);
+                let mut f = BufWriter::new(File::create(out.join(format!("line_{step:08}.csv")))?);
                 writeln!(f, "line,x,y")?;
                 for (i, line) in lines.iter().enumerate() {
                     for pt in &line.points {
@@ -487,7 +530,11 @@ fn main() -> std::io::Result<()> {
     // stopped part way still leaves both files on disk.
     write_entropy(&out, &lines, dt, save_every, params.active_time(), true)?;
 
-    println!("done in {:.1}s -> {}", t_start.elapsed().as_secs_f64(), out.display());
+    println!(
+        "done in {:.1}s -> {}",
+        t_start.elapsed().as_secs_f64(),
+        out.display()
+    );
     Ok(())
 }
 
@@ -526,7 +573,6 @@ fn read_npy_2c(path: &std::path::Path, lx: usize, ly: usize) -> std::io::Result<
         .collect())
 }
 
-
 /// Write `line_lengths.csv` and `entropy.json` for the lines as they stand.
 ///
 /// Called at every observation, not only at the end. A material-line entropy is
@@ -544,7 +590,9 @@ fn write_entropy(
     t_a: f64,
     verbose: bool,
 ) -> std::io::Result<()> {
-    let Some(first) = lines.first() else { return Ok(()) };
+    let Some(first) = lines.first() else {
+        return Ok(());
+    };
     if first.history.is_empty() {
         return Ok(());
     }
@@ -578,8 +626,7 @@ fn write_entropy(
     }
     let mean = hs.iter().sum::<f64>() / hs.len() as f64;
     let sem = if hs.len() > 1 {
-        (hs.iter().map(|h| (h - mean).powi(2)).sum::<f64>()
-            / ((hs.len() - 1) * hs.len()) as f64)
+        (hs.iter().map(|h| (h - mean).powi(2)).sum::<f64>() / ((hs.len() - 1) * hs.len()) as f64)
             .sqrt()
     } else {
         f64::NAN

@@ -15,7 +15,7 @@
 use cartan_core::Manifold;
 
 use crate::domain::DecDomain;
-use crate::helfrich::{helfrich_forces, HelfrichParams};
+use crate::helfrich::{HelfrichParams, helfrich_forces};
 
 /// Configuration for the variational integrator.
 pub struct VariationalConfig {
@@ -45,7 +45,9 @@ pub struct VariationalConfig {
 ///
 /// Uses the exponential map for position updates, preserving the manifold
 /// constraint exactly.
-pub fn baoab_ba_step<M: Manifold<Point = nalgebra::SVector<f64, 3>, Tangent = nalgebra::SVector<f64, 3>>>(
+pub fn baoab_ba_step<
+    M: Manifold<Point = nalgebra::SVector<f64, 3>, Tangent = nalgebra::SVector<f64, 3>>,
+>(
     manifold: &M,
     positions: &mut [M::Point],
     momenta: &mut [M::Tangent],
@@ -121,13 +123,7 @@ pub fn kinetic_energy<M: Manifold>(
 /// `h_min` is the shortest edge length in the mesh. `max_force` is the
 /// maximum force magnitude across all vertices. `c_diff` and `c_force`
 /// are safety factors (typically 0.1 to 0.5).
-pub fn compute_dt(
-    h_min: f64,
-    max_force: f64,
-    dt_max: f64,
-    c_diff: f64,
-    c_force: f64,
-) -> f64 {
+pub fn compute_dt(h_min: f64, max_force: f64, dt_max: f64, c_diff: f64, c_force: f64) -> f64 {
     let dt_diff = c_diff * h_min * h_min;
     let dt_force = if max_force > 1e-30 {
         c_force * h_min / max_force

@@ -27,10 +27,10 @@ fn dddphi(s: f64) -> f64 {
 fn source(eta: f64) -> impl Fn([f64; 3]) -> [f64; 3] + Copy {
     move |x: [f64; 3]| {
         let (a, b, c) = (x[0], x[1], x[2]);
-        let ly = ddphi(a) * phi(b) * dphi(c) + phi(a) * ddphi(b) * dphi(c)
-            + phi(a) * phi(b) * dddphi(c);
-        let lz = ddphi(a) * dphi(b) * phi(c) + phi(a) * dddphi(b) * phi(c)
-            + phi(a) * dphi(b) * ddphi(c);
+        let ly =
+            ddphi(a) * phi(b) * dphi(c) + phi(a) * ddphi(b) * dphi(c) + phi(a) * phi(b) * dddphi(c);
+        let lz =
+            ddphi(a) * dphi(b) * phi(c) + phi(a) * dddphi(b) * phi(c) + phi(a) * dphi(b) * ddphi(c);
         [1.0, -eta * ly, eta * lz]
     }
 }
@@ -66,7 +66,11 @@ fn main() {
             let t0 = Instant::now();
             let it = BoundedStokes3D::with_inversion(
                 mesh.clone(),
-                Inversion::Minres { mode, tol: 1e-10, max_iter: 20000 },
+                Inversion::Minres {
+                    mode,
+                    tol: 1e-10,
+                    max_iter: 20000,
+                },
             )
             .unwrap();
             let flow = it.solve(&f, &wall, eta).unwrap();
@@ -78,12 +82,7 @@ fn main() {
                 .zip(&ref_flow.flux)
                 .map(|(p, q)| p - q)
                 .collect();
-            cells.push((
-                r.iterations,
-                r.converged,
-                secs,
-                m2_norm(&m2, &d) / refnorm,
-            ));
+            cells.push((r.iterations, r.converged, secs, m2_norm(&m2, &d) / refnorm));
         }
         let (ji, jc, js, _jd) = cells[0];
         let (ei, ec, es, ed) = cells[1];

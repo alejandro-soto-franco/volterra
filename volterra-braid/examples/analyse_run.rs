@@ -175,8 +175,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         100.0 * s_low
     );
 
-    println!("  +1/2 per frame (count x frames): {}", histogram(&pos_counts));
-    println!("  -1/2 per frame (count x frames): {}", histogram(&neg_counts));
+    println!(
+        "  +1/2 per frame (count x frames): {}",
+        histogram(&pos_counts)
+    );
+    println!(
+        "  -1/2 per frame (count x frames): {}",
+        histogram(&neg_counts)
+    );
 
     // Where the negatives sit over the trailing half. A cusp-pinned defect
     // barely moves, so a large spread is evidence against pinning.
@@ -189,7 +195,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect();
     if !radii.is_empty() {
         let mean = radii.iter().sum::<f64>() / radii.len() as f64;
-        let sd = (radii.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / radii.len() as f64).sqrt();
+        let sd =
+            (radii.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / radii.len() as f64).sqrt();
         println!(
             "  -1/2 radial position over the trailing half: mean {mean:.1}, sd {sd:.1} px \
              (domain radius ~{:.0})",
@@ -351,10 +358,7 @@ fn rotate(frame: &[Defect], theta: f64) -> Vec<Defect> {
     frame
         .iter()
         .map(|d| Defect {
-            pos: [
-                c * d.pos[0] + s * d.pos[1],
-                -s * d.pos[0] + c * d.pos[1],
-            ],
+            pos: [c * d.pos[0] + s * d.pos[1], -s * d.pos[0] + c * d.pos[1]],
             charge: d.charge,
         })
         .collect()
@@ -385,7 +389,11 @@ fn report_period(window: &[Vec<Defect>]) {
                     pairs += 1;
                 }
             }
-            if pairs == 0 { 0.0 } else { total / pairs as f64 }
+            if pairs == 0 {
+                0.0
+            } else {
+                total / pairs as f64
+            }
         })
         .collect();
     if spread.len() < 12 {
@@ -400,7 +408,10 @@ fn report_period(window: &[Vec<Defect>]) {
     }
     let max_lag = (spread.len() / 3).min(200);
     let r_at = |lag: usize| -> f64 {
-        (0..dev.len() - lag).map(|i| dev[i] * dev[i + lag]).sum::<f64>() / norm
+        (0..dev.len() - lag)
+            .map(|i| dev[i] * dev[i + lag])
+            .sum::<f64>()
+            / norm
     };
 
     // Local maxima, not the single largest. A periodic signal autocorrelates at

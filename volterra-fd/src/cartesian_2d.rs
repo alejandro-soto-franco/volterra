@@ -11,13 +11,11 @@
 //! went to `volterra-dec` instead.
 
 use rustfft::{FftPlanner, num_complex::Complex};
-use volterra_core::{Integrator, ActiveNematicParams};
+use volterra_core::{ActiveNematicParams, Integrator};
 use volterra_core::{QField2D, ScalarField2D, VelocityField2D};
 
 use cartan_geo::holonomy::{Disclination, scan_disclinations};
 use cartan_manifolds::frame_field::FrameField3D;
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Molecular field: H = -δF/δQ
@@ -80,7 +78,11 @@ pub fn molecular_field(q: &QField2D, params: &ActiveNematicParams) -> QField2D {
 /// ```
 ///
 /// Returns a `QField2D` of the same shape as `q`.
-pub fn corotation_strain(q: &QField2D, v: &VelocityField2D, params: &ActiveNematicParams) -> QField2D {
+pub fn corotation_strain(
+    q: &QField2D,
+    v: &VelocityField2D,
+    params: &ActiveNematicParams,
+) -> QField2D {
     let lambda = params.lambda;
     let dx = q.dx;
     let mut out = QField2D::zeros(q.nx, q.ny, q.dx);
@@ -159,11 +161,9 @@ pub fn corotation_strain(q: &QField2D, v: &VelocityField2D, params: &ActiveNemat
 
             // S(W,Q) = λ(D·Q + Q·D) - (Ω·Q - Q·Ω) - λ tr(D·Q) I
             // Component 1 (q1 direction):
-            out.q[k][0] =
-                lambda * (dqdq_11 - tr_dq) - oq_qo_11;
+            out.q[k][0] = lambda * (dqdq_11 - tr_dq) - oq_qo_11;
             // Component 2 (q2 direction):
-            out.q[k][1] =
-                lambda * (dqdq_12_gen) - oq_qo_12;
+            out.q[k][1] = lambda * (dqdq_12_gen) - oq_qo_12;
 
             let _ = dqdq_12; // suppress unused warning
         }
@@ -251,10 +251,7 @@ impl Integrator<QField2D> for RK4Integrator {
         let k4 = rhs(&state.add(&k3.scale(dt)));
 
         // Q_{n+1} = Q_n + dt/6 (k1 + 2k2 + 2k3 + k4)
-        let sum = k1
-            .add(&k2.scale(2.0))
-            .add(&k3.scale(2.0))
-            .add(&k4);
+        let sum = k1.add(&k2.scale(2.0)).add(&k3.scale(2.0)).add(&k4);
         state.add(&sum.scale(dt / 6.0))
     }
 }
@@ -280,12 +277,12 @@ fn bessel_k0(x: f64) -> f64 {
         let ti = x / 3.75;
         let ti2 = ti * ti;
         let i0 = 1.0
-            + 3.5156329  * ti2
-            + 3.0899424  * ti2 * ti2
-            + 1.2067492  * ti2.powi(3)
-            + 0.2659732  * ti2.powi(4)
-            + 0.0360768  * ti2.powi(5)
-            + 0.0045813  * ti2.powi(6);
+            + 3.5156329 * ti2
+            + 3.0899424 * ti2 * ti2
+            + 1.2067492 * ti2.powi(3)
+            + 0.2659732 * ti2.powi(4)
+            + 0.0360768 * ti2.powi(5)
+            + 0.0045813 * ti2.powi(6);
         // A&S 9.8.5: K₀(x) = -ln(x/2) I₀(x) + p(t), variable t = (x/2)²
         let tk = x / 2.0;
         let tk2 = tk * tk;
@@ -295,15 +292,12 @@ fn bessel_k0(x: f64) -> f64 {
             + 0.03488590 * tk2.powi(3)
             + 0.00262698 * tk2.powi(4)
             + 0.00010750 * tk2.powi(5)
-            + 0.0000074  * tk2.powi(6);
+            + 0.0000074 * tk2.powi(6);
         -(x / 2.0).ln() * i0 + p
     } else {
         // A&S 9.8.6: asymptotic, variable t = 2/x
         let t = 2.0 / x;
-        let poly = 1.25331414
-            - 0.07832358 * t
-            + 0.02189568 * t * t
-            - 0.01062446 * t.powi(3)
+        let poly = 1.25331414 - 0.07832358 * t + 0.02189568 * t * t - 0.01062446 * t.powi(3)
             + 0.00587872 * t.powi(4)
             - 0.00251540 * t.powi(5)
             + 0.00053208 * t.powi(6);
@@ -413,18 +407,22 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
 
     // Wave-vector frequencies (radians/unit-length): k_j = 2π j / (N dx)
     // Using the standard DFT ordering: j = 0..N/2, then -(N/2-1)..-1 wrapped.
-    let kx_vec: Vec<f64> = (0..nx).map(|i| {
-        let i = i as i64;
-        let n = nx as i64;
-        let i_shifted = if i <= n / 2 { i } else { i - n };
-        2.0 * std::f64::consts::PI * i_shifted as f64 / (nx as f64 * dx)
-    }).collect();
-    let ky_vec: Vec<f64> = (0..ny).map(|j| {
-        let j = j as i64;
-        let n = ny as i64;
-        let j_shifted = if j <= n / 2 { j } else { j - n };
-        2.0 * std::f64::consts::PI * j_shifted as f64 / (ny as f64 * dx)
-    }).collect();
+    let kx_vec: Vec<f64> = (0..nx)
+        .map(|i| {
+            let i = i as i64;
+            let n = nx as i64;
+            let i_shifted = if i <= n / 2 { i } else { i - n };
+            2.0 * std::f64::consts::PI * i_shifted as f64 / (nx as f64 * dx)
+        })
+        .collect();
+    let ky_vec: Vec<f64> = (0..ny)
+        .map(|j| {
+            let j = j as i64;
+            let n = ny as i64;
+            let j_shifted = if j <= n / 2 { j } else { j - n };
+            2.0 * std::f64::consts::PI * j_shifted as f64 / (ny as f64 * dx)
+        })
+        .collect();
 
     // Helper: forward 2D FFT on a real-valued row-major field → Complex array.
     // Layout: q[i * ny + j], i in 0..nx, j in 0..ny.
@@ -481,9 +479,15 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
     // product is the right Fourier source. A uniform ζ reproduces the scalar
     // result exactly by linearity (s_hat = ζ q_hat).
     let s1_field: Vec<f64> =
-        q.q.iter().enumerate().map(|(i, [q1, _])| params.zeta_at(i) * q1).collect();
+        q.q.iter()
+            .enumerate()
+            .map(|(i, [q1, _])| params.zeta_at(i) * q1)
+            .collect();
     let s2_field: Vec<f64> =
-        q.q.iter().enumerate().map(|(i, [_, q2])| params.zeta_at(i) * q2).collect();
+        q.q.iter()
+            .enumerate()
+            .map(|(i, [_, q2])| params.zeta_at(i) * q2)
+            .collect();
 
     let s1_hat = fft2_real(&s1_field);
     let s2_hat = fft2_real(&s2_field);
@@ -522,7 +526,12 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
 
     // Pack into VelocityField2D.
     let v_data: Vec<[f64; 2]> = (0..n).map(|k| [vx_field[k], vy_field[k]]).collect();
-    VelocityField2D { v: v_data, nx, ny, dx }
+    VelocityField2D {
+        v: v_data,
+        nx,
+        ny,
+        dx,
+    }
 }
 
 /// Run the active nematic simulation with full hydrodynamic coupling.
@@ -546,8 +555,8 @@ pub fn run_active_nematic_hydro(
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
     use volterra_core::sim::noise::LangevinNoise;
-    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
     use volterra_core::sim::stats::StepStats;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
 
     let lx = params.nx as f64 * params.dx;
     let ly = params.ny as f64 * params.dx;
@@ -582,9 +591,19 @@ pub fn run_active_nematic_hydro(
         noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
     };
     let mut q = q_init.clone();
-    let mut sink = WetSink { params, area, out: Vec::new() };
+    let mut sink = WetSink {
+        params,
+        area,
+        out: Vec::new(),
+    };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
+        config: RunConfig {
+            steps: n_steps,
+            snap_every,
+            dt: params.dt,
+            seed: 0,
+            snap_final: false,
+        },
     };
     runner.run(&mut q, &mut physics, &mut sink);
     (q, sink.out)
@@ -626,8 +645,7 @@ pub fn scan_defects(q: &QField2D, threshold: f64) -> Vec<DefectInfo> {
     let frame_field = FrameField3D::from_q_field(&q3d);
 
     // Run holonomy scan.
-    let raw: Vec<Disclination> =
-        scan_disclinations(&frame_field.frames, q.nx, q.ny, threshold);
+    let raw: Vec<Disclination> = scan_disclinations(&frame_field.frames, q.nx, q.ny, threshold);
 
     // Convert to DefectInfo, estimating charge sign from holonomy axis.
     raw.into_iter()
@@ -716,8 +734,8 @@ pub fn run_dry_active_nematic(
     snap_every: usize,
 ) -> (QField2D, Vec<SnapStats>) {
     use volterra_core::sim::noise::LangevinNoise;
-    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
     use volterra_core::sim::stats::StepStats;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
 
     let lx = params.nx as f64 * params.dx;
     let ly = params.ny as f64 * params.dx;
@@ -752,9 +770,19 @@ pub fn run_dry_active_nematic(
         noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
     };
     let mut q = q_init.clone();
-    let mut sink = DrySink { params, area, out: Vec::new() };
+    let mut sink = DrySink {
+        params,
+        area,
+        out: Vec::new(),
+    };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
+        config: RunConfig {
+            steps: n_steps,
+            snap_every,
+            dt: params.dt,
+            seed: 0,
+            snap_final: false,
+        },
     };
     runner.run(&mut q, &mut physics, &mut sink);
     (q, sink.out)
@@ -795,10 +823,8 @@ pub fn ch_chemical_potential(
     for k in 0..n {
         let p = phi.phi[k];
         // Tr(Q²) = 2 Tr(Q_2D²) = 2(q1² + q2²) in the 2D parameterisation.
-        let tr_q2 = 2.0 * (q_lip.q[k][0] * q_lip.q[k][0]
-            + q_lip.q[k][1] * q_lip.q[k][1]);
-        mu.phi[k] = params.a_ch * p
-            + params.b_ch * p * p * p
+        let tr_q2 = 2.0 * (q_lip.q[k][0] * q_lip.q[k][0] + q_lip.q[k][1] * q_lip.q[k][1]);
+        mu.phi[k] = params.a_ch * p + params.b_ch * p * p * p
             - params.kappa_ch * lap_phi.phi[k]
             - params.chi_ms * tr_q2;
     }
@@ -861,43 +887,71 @@ pub fn ch_step_etd(
     let dt = params.dt;
 
     let mut planner = FftPlanner::<f64>::new();
-    let fft_x  = planner.plan_fft_forward(nx);
-    let fft_y  = planner.plan_fft_forward(ny);
+    let fft_x = planner.plan_fft_forward(nx);
+    let fft_y = planner.plan_fft_forward(ny);
     let ifft_x = planner.plan_fft_inverse(nx);
     let ifft_y = planner.plan_fft_inverse(ny);
 
     // Wave vectors: k_j = 2π j / (N dx), standard DFT ordering.
-    let kx_vec: Vec<f64> = (0..nx).map(|i| {
-        let i = i as i64;
-        let nm = nx as i64;
-        let is = if i <= nm / 2 { i } else { i - nm };
-        2.0 * std::f64::consts::PI * is as f64 / (nx as f64 * dx)
-    }).collect();
-    let ky_vec: Vec<f64> = (0..ny).map(|j| {
-        let j = j as i64;
-        let nm = ny as i64;
-        let js = if j <= nm / 2 { j } else { j - nm };
-        2.0 * std::f64::consts::PI * js as f64 / (ny as f64 * dx)
-    }).collect();
+    let kx_vec: Vec<f64> = (0..nx)
+        .map(|i| {
+            let i = i as i64;
+            let nm = nx as i64;
+            let is = if i <= nm / 2 { i } else { i - nm };
+            2.0 * std::f64::consts::PI * is as f64 / (nx as f64 * dx)
+        })
+        .collect();
+    let ky_vec: Vec<f64> = (0..ny)
+        .map(|j| {
+            let j = j as i64;
+            let nm = ny as i64;
+            let js = if j <= nm / 2 { j } else { j - nm };
+            2.0 * std::f64::consts::PI * js as f64 / (ny as f64 * dx)
+        })
+        .collect();
 
     // 2D FFT helper for real-valued row-major fields.
     let fft2_real = |field: &[f64]| -> Vec<Complex<f64>> {
         let mut buf: Vec<Complex<f64>> = field.iter().map(|&x| Complex::new(x, 0.0)).collect();
-        for row in buf.chunks_mut(ny) { fft_y.process(row); }
+        for row in buf.chunks_mut(ny) {
+            fft_y.process(row);
+        }
         let mut tr: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
-        for i in 0..nx { for j in 0..ny { tr[j * nx + i] = buf[i * ny + j]; } }
-        for col in tr.chunks_mut(nx) { fft_x.process(col); }
-        for i in 0..nx { for j in 0..ny { buf[i * ny + j] = tr[j * nx + i]; } }
+        for i in 0..nx {
+            for j in 0..ny {
+                tr[j * nx + i] = buf[i * ny + j];
+            }
+        }
+        for col in tr.chunks_mut(nx) {
+            fft_x.process(col);
+        }
+        for i in 0..nx {
+            for j in 0..ny {
+                buf[i * ny + j] = tr[j * nx + i];
+            }
+        }
         buf
     };
 
     // 2D IFFT helper: normalises by N.
     let ifft2_to_real = |buf: &mut Vec<Complex<f64>>| -> Vec<f64> {
         let mut tr: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
-        for i in 0..nx { for j in 0..ny { tr[j * nx + i] = buf[i * ny + j]; } }
-        for col in tr.chunks_mut(nx) { ifft_x.process(col); }
-        for i in 0..nx { for j in 0..ny { buf[i * ny + j] = tr[j * nx + i]; } }
-        for row in buf.chunks_mut(ny) { ifft_y.process(row); }
+        for i in 0..nx {
+            for j in 0..ny {
+                tr[j * nx + i] = buf[i * ny + j];
+            }
+        }
+        for col in tr.chunks_mut(nx) {
+            ifft_x.process(col);
+        }
+        for i in 0..nx {
+            for j in 0..ny {
+                buf[i * ny + j] = tr[j * nx + i];
+            }
+        }
+        for row in buf.chunks_mut(ny) {
+            ifft_y.process(row);
+        }
         let norm = n as f64;
         buf.iter().map(|c| c.re / norm).collect()
     };
@@ -910,8 +964,7 @@ pub fn ch_step_etd(
     let mut nonlin_src = ScalarField2D::zeros(nx, ny, dx);
     for k in 0..n {
         let p = phi.phi[k];
-        let tr_q2 = 2.0 * (q_lip.q[k][0] * q_lip.q[k][0]
-            + q_lip.q[k][1] * q_lip.q[k][1]);
+        let tr_q2 = 2.0 * (q_lip.q[k][0] * q_lip.q[k][0] + q_lip.q[k][1] * q_lip.q[k][1]);
         nonlin_src.phi[k] = params.b_ch * p * p * p - params.chi_ms * tr_q2;
     }
     // Step 2: M_l ∇²(nonlin_src) via 5-point Laplacian.
@@ -926,7 +979,7 @@ pub fn ch_step_etd(
 
     // ── FFT φ and N ──────────────────────────────────────────────────────
     let mut phi_hat = fft2_real(&phi.phi);
-    let nonlin_hat  = fft2_real(&nonlin_real);
+    let nonlin_hat = fft2_real(&nonlin_real);
 
     // ── ETD1 update in Fourier space ─────────────────────────────────────
     for ii in 0..nx {
@@ -962,7 +1015,12 @@ pub fn ch_step_etd(
     }
 
     let phi_new_vals = ifft2_to_real(&mut phi_hat);
-    ScalarField2D { phi: phi_new_vals, nx, ny, dx }
+    ScalarField2D {
+        phi: phi_new_vals,
+        nx,
+        ny,
+        dx,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1032,13 +1090,13 @@ pub fn run_bech(
     n_steps: usize,
     snap_every: usize,
 ) -> (QField2D, ScalarField2D, Vec<BechStats>) {
-    use volterra_core::sim::noise::LangevinNoise;
-    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
-    use volterra_core::sim::stats::StepStats;
     use crate::sim_impls::cartesian2d::BechState;
+    use volterra_core::sim::noise::LangevinNoise;
+    use volterra_core::sim::stats::StepStats;
+    use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
 
-    let lx   = params.nx as f64 * params.dx;
-    let ly   = params.ny as f64 * params.dx;
+    let lx = params.nx as f64 * params.dx;
+    let ly = params.ny as f64 * params.dx;
     let area = lx * ly;
 
     // Sink that rebuilds the exact BechStats the legacy loop produced at each
@@ -1072,10 +1130,23 @@ pub fn run_bech(
         params: params.clone(),
         noise: use_noise.then(|| LangevinNoise::per_run_seed(params.nx, params.ny, n_steps)),
     };
-    let mut state = BechState { q: q_init.clone(), phi: phi_init.clone() };
-    let mut sink = BechSink { params, area, out: Vec::new() };
+    let mut state = BechState {
+        q: q_init.clone(),
+        phi: phi_init.clone(),
+    };
+    let mut sink = BechSink {
+        params,
+        area,
+        out: Vec::new(),
+    };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
+        config: RunConfig {
+            steps: n_steps,
+            snap_every,
+            dt: params.dt,
+            seed: 0,
+            snap_final: false,
+        },
     };
     runner.run(&mut state, &mut physics, &mut sink);
     let BechState { q, phi } = state;
@@ -1164,8 +1235,8 @@ mod tests {
         // Map to Q-field: use a uniform Q with Γ_r H ≈ -r*Q (effective rate r).
         // Use a stable (non-active) parameter set: a_eff > 0.
         let mut params = default_params();
-        params.a_landau = 1.0;  // large positive: stable ordered phase
-        params.zeta_eff = 0.0;  // no activity
+        params.a_landau = 1.0; // large positive: stable ordered phase
+        params.zeta_eff = 0.0; // no activity
         params.c_landau = 0.01; // small cubic term so regime is near linear
         params.gamma_r = 1.0;
         params.dt = 0.01;
@@ -1185,7 +1256,10 @@ mod tests {
         let exact = q0_val * (-r * params.dt).exp();
         let err_euler = (q_euler.q[0][0] - exact).abs();
         let err_rk4 = (q_rk4.q[0][0] - exact).abs();
-        assert!(err_rk4 < err_euler, "RK4 err={err_rk4:.3e} must be < Euler err={err_euler:.3e}");
+        assert!(
+            err_rk4 < err_euler,
+            "RK4 err={err_rk4:.3e} must be < Euler err={err_euler:.3e}"
+        );
     }
 
     // ── K₀ kernel ────────────────────────────────────────────────────────────
@@ -1330,7 +1404,7 @@ mod tests {
         assert!(params.chi_ms > 0.0);
         let phi = ScalarField2D::uniform(8, 8, 1.0, 0.5);
         let q_zero = QField2D::zeros(8, 8, 1.0);
-        let q_ord  = QField2D::uniform(8, 8, 1.0, [0.3, 0.0]);
+        let q_ord = QField2D::uniform(8, 8, 1.0, [0.3, 0.0]);
         let mu_no_q = ch_chemical_potential(&phi, &q_zero, &params);
         let mu_with_q = ch_chemical_potential(&phi, &q_ord, &params);
         // Maier-Saupe term = -χ_ms * 2(0.3² + 0) = -χ_ms * 0.18 < 0.
@@ -1379,13 +1453,20 @@ mod tests {
     fn ch_step_etd_output_finite() {
         // Run a few BECH steps from random initial conditions; all fields stay finite.
         let params = ActiveNematicParams::default_test();
-        let q_init   = QField2D::random_perturbation(16, 16, 1.0, 0.05, 99);
+        let q_init = QField2D::random_perturbation(16, 16, 1.0, 0.05, 99);
         // Initialise φ near the equilibrium value sqrt(a_ch/b_ch) = 1.0 with small noise.
-        let phi_vals: Vec<f64> = (0..16*16).map(|k| {
-            let frac = k as f64 / (16.0 * 16.0);
-            0.5 + 0.05 * (frac * 7.3).sin()
-        }).collect();
-        let phi_init = ScalarField2D { phi: phi_vals, nx: 16, ny: 16, dx: 1.0 };
+        let phi_vals: Vec<f64> = (0..16 * 16)
+            .map(|k| {
+                let frac = k as f64 / (16.0 * 16.0);
+                0.5 + 0.05 * (frac * 7.3).sin()
+            })
+            .collect();
+        let phi_init = ScalarField2D {
+            phi: phi_vals,
+            nx: 16,
+            ny: 16,
+            dx: 1.0,
+        };
         let (q_fin, phi_fin, stats) = run_bech(&q_init, &phi_init, &params, 10, 5);
         assert!(q_fin.max_norm().is_finite());
         for &v in &phi_fin.phi {
@@ -1404,14 +1485,15 @@ mod tests {
         // Use a larger χ_ms to make the effect visible in a short run.
         let mut p = params.clone();
         p.chi_ms = 2.0;
-        p.nx = 16; p.ny = 16;
+        p.nx = 16;
+        p.ny = 16;
 
         let q_init = QField2D::random_perturbation(16, 16, 1.0, 0.3, 17);
         let phi_init = ScalarField2D::uniform(16, 16, 1.0, 0.4);
         let (_, _, stats) = run_bech(&q_init, &phi_init, &p, 50, 10);
 
         let var_init = stats.first().unwrap().phi_variance;
-        let var_fin  = stats.last().unwrap().phi_variance;
+        let var_fin = stats.last().unwrap().phi_variance;
         // Variance should grow (or at minimum not shrink) as Maier-Saupe
         // drives accumulation near ordered regions.
         assert!(

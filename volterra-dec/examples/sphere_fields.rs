@@ -21,10 +21,10 @@ use std::path::Path;
 
 use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
-use volterra_dec::mesh_gen::icosphere;
-use volterra_dec::stokes::{SurfaceStokes, vertex_force_from_stress};
 use volterra_dec::DecDomain;
 use volterra_dec::QField;
+use volterra_dec::mesh_gen::icosphere;
+use volterra_dec::stokes::{SurfaceStokes, vertex_force_from_stress};
 
 fn read_q(path: &Path, nv: usize) -> std::io::Result<QField> {
     use std::io::{Error, ErrorKind};
@@ -40,7 +40,10 @@ fn read_q(path: &Path, nv: usize) -> std::io::Result<QField> {
     let header = String::from_utf8_lossy(&header).to_string();
     let want = format!("'descr': '<f8', 'fortran_order': False, 'shape': ({nv}, 2)");
     if !header.contains(&want) {
-        return Err(Error::new(ErrorKind::InvalidData, format!("header is {header}")));
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("header is {header}"),
+        ));
     }
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;
@@ -55,9 +58,7 @@ fn read_q(path: &Path, nv: usize) -> std::io::Result<QField> {
 
 fn write_npy(path: &Path, rows: usize, cols: usize, data: &[f64]) -> std::io::Result<()> {
     let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
-    let header = format!(
-        "{{'descr': '<f8', 'fortran_order': False, 'shape': ({rows}, {cols}), }}"
-    );
+    let header = format!("{{'descr': '<f8', 'fortran_order': False, 'shape': ({rows}, {cols}), }}");
     let mut h = header.into_bytes();
     while (10 + h.len() + 1) % 64 != 0 {
         h.push(b' ');
@@ -89,8 +90,12 @@ fn main() {
     let mesh = icosphere(refinement);
     let nv = mesh.n_vertices();
     let domain = DecDomain::new(mesh, Sphere::<3>).expect("DecDomain");
-    let coords: Vec<[f64; 3]> =
-        domain.mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
+    let coords: Vec<[f64; 3]> = domain
+        .mesh
+        .vertices
+        .iter()
+        .map(|v| [v[0], v[1], v[2]])
+        .collect();
     let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh).expect("Stokes");
 
     let mut params = ActiveNematicParams::default_test();
@@ -102,8 +107,7 @@ fn main() {
     for step_s in &args[1..] {
         let step: usize = step_s.parse().expect("step must be a number");
         let q = read_q(&run.join(format!("q_{step:06}.npy")), nv).expect("read Q");
-        let (vel, psi, _) =
-            stokes.solve_warm(&q, &params, &domain.ops, &domain.mesh, None, 1e-10);
+        let (vel, psi, _) = stokes.solve_warm(&q, &params, &domain.ops, &domain.mesh, None, 1e-10);
 
         // The active stress is `-zeta Q`, so its symmetric parts are the two
         // components of `Q` scaled, and it has no antisymmetric part.
@@ -111,8 +115,13 @@ fn main() {
         let sym2: Vec<f64> = q.q2.iter().map(|v| -zeta * v).collect();
         let anti = vec![0.0; nv];
         let force = vertex_force_from_stress(
-            &sym1, &sym2, &anti, &domain.mesh, &coords,
-            stokes.normals(), stokes.e1_frames(),
+            &sym1,
+            &sym2,
+            &anti,
+            &domain.mesh,
+            &coords,
+            stokes.normals(),
+            stokes.e1_frames(),
         );
 
         // Vorticity from the stream function: `omega = -Delta psi`, which the
@@ -134,15 +143,15 @@ fn main() {
             let f = force[i];
             let speed = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
             let power = u[0] * f[0] + u[1] * f[1] + u[2] * f[2];
-            out.extend_from_slice(&[
-                u[0], u[1], u[2], speed, omega[i], f[0], f[1], f[2], power,
-            ]);
+            out.extend_from_slice(&[u[0], u[1], u[2], speed, omega[i], f[0], f[1], f[2], power]);
         }
         let path = run.join(format!("fields_{step:06}.npy"));
         write_npy(&path, nv, 9, &out).expect("write fields");
         let l2: f64 = (0..nv).map(|i| out[i * 9 + 3].powi(2)).sum::<f64>() / nv as f64;
         let ens: f64 = (0..nv).map(|i| out[i * 9 + 4].powi(2)).sum::<f64>() / nv as f64;
-        println!("  step {step}: mean |u|^2 {l2:.3e}, mean omega^2 {ens:.3e} -> {}",
-                 path.file_name().unwrap().to_string_lossy());
+        println!(
+            "  step {step}: mean |u|^2 {l2:.3e}, mean omega^2 {ens:.3e} -> {}",
+            path.file_name().unwrap().to_string_lossy()
+        );
     }
 }

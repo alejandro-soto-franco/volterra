@@ -4,8 +4,8 @@
 //! active nematic simulations: scalar order parameter, Tr(Q^2),
 //! conversion to/from the old (q1, q2) layout.
 
-use num_complex::Complex;
 use cartan_dec::line_bundle::Section;
+use num_complex::Complex;
 
 use crate::QField;
 
@@ -59,7 +59,11 @@ impl NematicField2D {
 
     /// Tr(Q^2) = 2(q1^2 + q2^2) = 2|z|^2 at each vertex.
     pub fn trace_q_squared(&self) -> Vec<f64> {
-        self.section.values.iter().map(|z| 2.0 * z.norm_sqr()).collect()
+        self.section
+            .values
+            .iter()
+            .map(|z| 2.0 * z.norm_sqr())
+            .collect()
     }
 
     /// Normalise to unit order parameter (|z| = 1) at each vertex.

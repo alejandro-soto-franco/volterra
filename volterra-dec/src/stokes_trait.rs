@@ -7,9 +7,9 @@
 use nalgebra::{DVector, SVector};
 
 use cartan_core::Manifold;
+use cartan_dec::Operators;
 use cartan_dec::mesh::Mesh;
 use cartan_dec::stokes::StokesSolverAL;
-use cartan_dec::Operators;
 
 use crate::stokes::SurfaceStokes;
 use crate::stokes::{self, VelocityField};
@@ -55,7 +55,10 @@ impl KillingOperatorSolver {
     ) -> Self {
         let nv = mesh.n_vertices();
         let inner = StokesSolverAL::new(mesh, penalty, tolerance, 100, 1000);
-        Self { inner, n_vertices: nv }
+        Self {
+            inner,
+            n_vertices: nv,
+        }
     }
 
     /// Create with custom iteration limits.
@@ -68,7 +71,10 @@ impl KillingOperatorSolver {
     ) -> Self {
         let nv = mesh.n_vertices();
         let inner = StokesSolverAL::new(mesh, penalty, tolerance, max_al, max_cg);
-        Self { inner, n_vertices: nv }
+        Self {
+            inner,
+            n_vertices: nv,
+        }
     }
 }
 
@@ -183,7 +189,13 @@ impl StokesSolver for StreamFunctionStokes {
         // Step 1: Compute vorticity source = discrete curl of force field.
         // For each triangle, accumulate the circulation of f around the
         // boundary and distribute to vertices via dual area weighting.
-        let omega = discrete_curl(force_3d, &self.simplices, &self.coords, &self.dual_areas, nv);
+        let omega = discrete_curl(
+            force_3d,
+            &self.simplices,
+            &self.coords,
+            &self.dual_areas,
+            nv,
+        );
 
         // Step 2: Solve the modified biharmonic for stream function psi.
         let psi = self.inner.stream_from_vorticity(&omega, self.er);
@@ -298,9 +310,17 @@ fn velocity_from_psi(
             let n = scale3(mid, 1.0 / mid_len);
             // Ensure orthogonal to edge.
             let d = dot3(n, edge_hat);
-            let corrected = [n[0] - d * edge_hat[0], n[1] - d * edge_hat[1], n[2] - d * edge_hat[2]];
+            let corrected = [
+                n[0] - d * edge_hat[0],
+                n[1] - d * edge_hat[1],
+                n[2] - d * edge_hat[2],
+            ];
             let cl = norm3(corrected);
-            if cl > 1e-14 { scale3(corrected, 1.0 / cl) } else { [0.0, 0.0, 1.0] }
+            if cl > 1e-14 {
+                scale3(corrected, 1.0 / cl)
+            } else {
+                [0.0, 0.0, 1.0]
+            }
         } else {
             [0.0, 0.0, 1.0]
         };
@@ -321,16 +341,39 @@ fn velocity_from_psi(
         }
     }
 
-    VelocityField { v: vel, n_vertices: nv }
+    VelocityField {
+        v: vel,
+        n_vertices: nv,
+    }
 }
 
 // Vector helpers.
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0] - b[0], a[1] - b[1], a[2] - b[2]] }
-fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0] + b[0], a[1] + b[1], a[2] + b[2]] }
-fn mid3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1]), 0.5 * (a[2] + b[2])] }
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0] * s, a[1] * s, a[2] * s] }
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
-fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
+fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+fn mid3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        0.5 * (a[0] + b[0]),
+        0.5 * (a[1] + b[1]),
+        0.5 * (a[2] + b[2]),
+    ]
+}
+fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn norm3(a: [f64; 3]) -> f64 {
+    dot3(a, a).sqrt()
+}
 fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }

@@ -17,8 +17,8 @@ use std::time::Instant;
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
 use volterra_fd::{
-    beris_edwards_rhs_3d_par_dry, euler_step_par, fire_step_3d_par, force_max_metric, FireParams,
-    FireState,
+    FireParams, FireState, beris_edwards_rhs_3d_par_dry, euler_step_par, fire_step_3d_par,
+    force_max_metric,
 };
 
 fn analytic_s0(p: &ActiveNematicParams3D) -> f64 {

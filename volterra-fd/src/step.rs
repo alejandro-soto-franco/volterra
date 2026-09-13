@@ -29,15 +29,15 @@
 //! default, which matches our Rust `upwind_advective_term` with coeff=-1).
 
 use crate::{
+    Boundary, Params,
     bc::{
-        apply_h_boundary_conditions, apply_q_boundary_conditions,
-        apply_u_boundary_conditions, apply_p_boundary_conditions,
+        apply_h_boundary_conditions, apply_p_boundary_conditions, apply_q_boundary_conditions,
+        apply_u_boundary_conditions,
     },
     nematic::{calculate_pi, h_s_from_q},
     ops::upwind_advective_term,
     par_gate::use_parallel,
     stokes::get_u_update,
-    Boundary, Params,
 };
 use rayon::prelude::*;
 
@@ -72,7 +72,8 @@ pub fn get_q_update(
 
     // dQ = (1/γ)*H + S
     if use_parallel(lx, ly) {
-        dq[..n2].par_iter_mut()
+        dq[..n2]
+            .par_iter_mut()
             .zip(h[..n2].par_iter())
             .zip(s[..n2].par_iter())
             .for_each(|((dqi, hi), si)| {
@@ -204,13 +205,7 @@ pub fn update_step_inner(
     );
 
     // 4. Relax pressure (with real Neumann BCs applied after each sweep)
-    let p_iters = relax_pressure_with_bc(
-        state,
-        params,
-        bnd,
-        target_rel_change,
-        params.max_p_iters,
-    );
+    let p_iters = relax_pressure_with_bc(state, params, bnd, target_rel_change, params.max_p_iters);
 
     // 5. Q update
     get_q_update(
@@ -254,7 +249,8 @@ pub fn update_step_inner(
     // 7. Q += dt * dQ
     let dt = params.dt;
     if use_parallel(lx, ly) {
-        state.q[..n2].par_iter_mut()
+        state.q[..n2]
+            .par_iter_mut()
             .zip(state.dq[..n2].par_iter())
             .for_each(|(qi, dqi)| *qi += dt * dqi);
     } else {
@@ -265,7 +261,8 @@ pub fn update_step_inner(
 
     // 8. u += dt * dudt
     if use_parallel(lx, ly) {
-        state.u[..n2].par_iter_mut()
+        state.u[..n2]
+            .par_iter_mut()
             .zip(state.dudt[..n2].par_iter())
             .for_each(|(ui, dudti)| *ui += dt * dudti);
     } else {
@@ -357,14 +354,18 @@ fn relax_pressure_with_bc(
         // Convergence: rel_change = Σ|p_aux−p| / |1e-7 + Σp_aux|
         // p_aux = old p, p = new p.
         let (sum_diff, sum_old) = if use_parallel(lx, ly) {
-            let sd: f64 = state.p_aux.par_iter()
+            let sd: f64 = state
+                .p_aux
+                .par_iter()
                 .zip(state.p.par_iter())
                 .map(|(a, b)| (a - b).abs())
                 .sum();
             let so: f64 = state.p_aux.par_iter().sum();
             (sd, so)
         } else {
-            let sd: f64 = state.p_aux.iter()
+            let sd: f64 = state
+                .p_aux
+                .iter()
                 .zip(state.p.iter())
                 .map(|(a, b)| (a - b).abs())
                 .sum();

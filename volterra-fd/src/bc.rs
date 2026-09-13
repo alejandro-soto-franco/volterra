@@ -24,8 +24,8 @@
 //! Every Python loop `for l in range(2)` is replicated here by iterating over
 //! both layers in the same order (layer 0 = inner first, then layer 1 = outer).
 
-use crate::index::{si, vi};
 use crate::Boundary;
+use crate::index::{si, vi};
 use std::f64::consts::PI;
 
 // ---------------------------------------------------------------------------
@@ -191,8 +191,7 @@ pub fn apply_p_boundary_conditions(
                             - pi_a[si(x, yb, ly)]);
 
                 let fy = a as f64
-                    * (pi_s[vi(x, y, ly, 1)] - pi_a[si(x, y, ly)]
-                        - pi_s[vi(xa, y, ly, 1)]
+                    * (pi_s[vi(x, y, ly, 1)] - pi_a[si(x, y, ly)] - pi_s[vi(xa, y, ly, 1)]
                         + pi_a[si(xa, y, ly)])
                     - b as f64 * (pi_s[vi(x, y, ly, 0)] - pi_s[vi(x, yb, ly, 0)]);
 

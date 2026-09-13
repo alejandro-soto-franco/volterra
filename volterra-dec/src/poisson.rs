@@ -20,10 +20,10 @@
 
 use cartan_core::Manifold;
 use cartan_dec::Operators;
-use nalgebra::DVector;
+use faer::linalg::solvers::SolveCore;
 use faer::sparse::{SparseColMat, Triplet};
 use faer::{Mat, Side};
-use faer::linalg::solvers::SolveCore;
+use nalgebra::DVector;
 use sprs::CsMat;
 
 use crate::ichol::IChol;
@@ -141,7 +141,6 @@ fn cg_operator_triples(
     }
 }
 
-
 /// A sparse Cholesky of `A + sigma M`, applied as a preconditioner.
 struct ShiftedCholesky {
     llt: faer::sparse::linalg::solvers::Llt<usize, f64>,
@@ -190,7 +189,11 @@ impl ShiftedCholesky {
                     if is_dirichlet[c] {
                         continue;
                     }
-                    let d = if r == c { star0[r] * (shift[r] - sigma) } else { 0.0 };
+                    let d = if r == c {
+                        star0[r] * (shift[r] - sigma)
+                    } else {
+                        0.0
+                    };
                     trip.push(Triplet::new(r, c, val[k] - d));
                 }
             }
@@ -209,7 +212,8 @@ impl ShiftedCholesky {
         for i in 0..self.n {
             rhs[(i, 0)] = r[i];
         }
-        self.llt.solve_in_place_with_conj(faer::Conj::No, rhs.as_mut());
+        self.llt
+            .solve_in_place_with_conj(faer::Conj::No, rhs.as_mut());
         (0..self.n).map(|i| rhs[(i, 0)]).collect()
     }
 }
@@ -254,9 +258,8 @@ impl PoissonSolver {
         let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, &zero, f));
         let (row_ptr, col_idx, val) = to_csr(&s, n);
         let zero_shift = vec![0.0; n];
-        let chol = ShiftedCholesky::new(
-            &row_ptr, &col_idx, &val, &star0, &zero_shift, &is_dirichlet,
-        );
+        let chol =
+            ShiftedCholesky::new(&row_ptr, &col_idx, &val, &star0, &zero_shift, &is_dirichlet);
         Ok(Self {
             n,
             s,
@@ -295,9 +298,8 @@ impl PoissonSolver {
         let ichol = IChol::factor(n, |f| cg_operator_triples(&s, &is_dirichlet, &zero, f));
         let (row_ptr, col_idx, val) = to_csr(&s, n);
         let zero_shift = vec![0.0; n];
-        let chol = ShiftedCholesky::new(
-            &row_ptr, &col_idx, &val, &star0, &zero_shift, &is_dirichlet,
-        );
+        let chol =
+            ShiftedCholesky::new(&row_ptr, &col_idx, &val, &star0, &zero_shift, &is_dirichlet);
         Ok(Self {
             n,
             s,
@@ -351,22 +353,30 @@ impl PoissonSolver {
     /// takes about 30 per cent more iterations a step.
     fn apply_shift(&mut self, shift: &[f64], coords: &[[f64; 3]]) -> Result<(), String> {
         if shift.len() != self.n {
-            return Err(format!("shift has {} entries for {} vertices", shift.len(), self.n));
+            return Err(format!(
+                "shift has {} entries for {} vertices",
+                shift.len(),
+                self.n
+            ));
         }
         self.shift = shift.to_vec();
-        let shift_diag: Vec<f64> =
-            (0..self.n).map(|i| self.star0[i] * self.shift[i]).collect();
+        let shift_diag: Vec<f64> = (0..self.n).map(|i| self.star0[i] * self.shift[i]).collect();
         self.inv_diag = (0..self.n)
             .map(|i| {
                 let d = 1.0 / self.inv_diag[i] - shift_diag[i];
                 if d.abs() > 1e-300 { 1.0 / d } else { 1.0 }
             })
             .collect();
-        self.ichol =
-            IChol::factor(self.n, |f| cg_operator_triples(&self.s, &self.is_dirichlet, &shift_diag, f));
+        self.ichol = IChol::factor(self.n, |f| {
+            cg_operator_triples(&self.s, &self.is_dirichlet, &shift_diag, f)
+        });
         self.chol = ShiftedCholesky::new(
-            &self.row_ptr, &self.col_idx, &self.val,
-            &self.star0, &self.shift, &self.is_dirichlet,
+            &self.row_ptr,
+            &self.col_idx,
+            &self.val,
+            &self.star0,
+            &self.shift,
+            &self.is_dirichlet,
         );
         self.kernel = self.find_kernel(coords);
         Ok(())
@@ -433,9 +443,9 @@ impl PoissonSolver {
         }
         match &self.ichol {
             Some(ic) => Box::new(move |r: &[f64]| ic.apply(r)),
-            None => Box::new(move |r: &[f64]| {
-                (0..self.n).map(|i| self.inv_diag[i] * r[i]).collect()
-            }),
+            None => {
+                Box::new(move |r: &[f64]| (0..self.n).map(|i| self.inv_diag[i] * r[i]).collect())
+            }
         }
     }
 
@@ -620,12 +630,7 @@ impl PoissonSolver {
     /// which is the homogeneous system this solver already assembles, with the
     /// coupling moved to the right-hand side. `g` is a full-length vector and
     /// only its Dirichlet entries are read.
-    pub fn solve_with_boundary(
-        &self,
-        rhs: &DVector<f64>,
-        g: &[f64],
-        tol: f64,
-    ) -> DVector<f64> {
+    pub fn solve_with_boundary(&self, rhs: &DVector<f64>, g: &[f64], tol: f64) -> DVector<f64> {
         assert_eq!(rhs.len(), self.n);
         assert_eq!(g.len(), self.n);
         assert!(
@@ -644,8 +649,7 @@ impl PoissonSolver {
             b[d] = 0.0;
         }
         let pc = self.precond();
-        let (mut x, _) =
-            pcg_solve_from_pc(|q| self.apply_a(q), &pc, &b, self.n, false, None, tol);
+        let (mut x, _) = pcg_solve_from_pc(|q| self.apply_a(q), &pc, &b, self.n, false, None, tol);
         for &d in &self.dirichlet_vertices {
             x[d] = 0.0;
         }
@@ -711,15 +715,7 @@ impl PoissonSolver {
             }
         }
         let pc = self.precond();
-        let (mut x, its) = pcg_solve_from_pc(
-            |p| self.apply_a(p),
-            &pc,
-            &b,
-            self.n,
-            closed,
-            x0,
-            tol,
-        );
+        let (mut x, its) = pcg_solve_from_pc(|p| self.apply_a(p), &pc, &b, self.n, closed, x0, tol);
         if closed {
             let mean = x.iter().sum::<f64>() / self.n as f64;
             for v in x.iter_mut() {
@@ -753,13 +749,10 @@ impl PoissonSolver {
     }
 }
 
-
 /// Dot product of two slices.
 pub(crate) fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
-
-
 
 /// The same iteration with an arbitrary symmetric positive definite
 /// preconditioner `M^{-1}`, given as `precond`.
@@ -916,9 +909,10 @@ mod tests {
         let ax = x.abs();
         if ax < 3.75 {
             let t = (x / 3.75) * (x / 3.75);
-            1.0 + t * (3.5156229
-                + t * (3.0899424
-                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+            1.0 + t
+                * (3.5156229
+                    + t * (3.0899424
+                        + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
         } else {
             let t = 3.75 / ax;
             (ax.exp() / ax.sqrt())
@@ -948,8 +942,7 @@ mod tests {
         let k = 4.0_f64;
         let shift = vec![-k * k; nv];
         let coords = crate::stokes::extract_coords(&mesh);
-        let solver =
-            PoissonSolver::with_dirichlet_shifted(&ops, &bverts, &shift, &coords).unwrap();
+        let solver = PoissonSolver::with_dirichlet_shifted(&ops, &bverts, &shift, &coords).unwrap();
 
         let s_src = -4.0_f64;
         // `solve` returns `x` from `(Delta + shift) x = rhs`, so the source
@@ -969,10 +962,17 @@ mod tests {
         let num: f64 = got.iter().zip(&exact).map(|(a, b)| (a - b) * (a - b)).sum();
         let den: f64 = exact.iter().map(|b| b * b).sum();
         let err = (num / den).sqrt();
-        assert!(err < 0.05, "screened Dirichlet solve, relative L2 error {err:.4}");
+        assert!(
+            err < 0.05,
+            "screened Dirichlet solve, relative L2 error {err:.4}"
+        );
 
         for &b in &bverts {
-            assert!(got[b].abs() < 1e-8, "a should vanish on the wall, got {}", got[b]);
+            assert!(
+                got[b].abs() < 1e-8,
+                "a should vanish on the wall, got {}",
+                got[b]
+            );
         }
 
         // The conjugate gradient must actually converge. It returns quietly
@@ -1015,8 +1015,10 @@ mod tests {
         let edge: Vec<usize> = (0..nv)
             .filter(|&i| {
                 let v = mesh.vertex(i);
-                v[0].abs() < 1e-9 || v[1].abs() < 1e-9
-                    || (v[0] - 1.0).abs() < 1e-9 || (v[1] - 1.0).abs() < 1e-9
+                v[0].abs() < 1e-9
+                    || v[1].abs() < 1e-9
+                    || (v[0] - 1.0).abs() < 1e-9
+                    || (v[1] - 1.0).abs() < 1e-9
             })
             .collect();
         assert!(!edge.is_empty(), "grid has a boundary");
@@ -1033,26 +1035,29 @@ mod tests {
         for &d in &edge {
             b[d] = 0.0;
         }
-        let jacobi: Preconditioner = Box::new(|r: &[f64]| {
-            (0..nv).map(|i| solver.inv_diag[i] * r[i]).collect()
-        });
-        let (mut x_j, its_j) = pcg_solve_from_pc(
-            |p| solver.apply_a(p),
-            &jacobi,
-            &b,
-            nv,
-            closed,
-            None,
-            1e-10,
-        );
+        let jacobi: Preconditioner =
+            Box::new(|r: &[f64]| (0..nv).map(|i| solver.inv_diag[i] * r[i]).collect());
+        let (mut x_j, its_j) =
+            pcg_solve_from_pc(|p| solver.apply_a(p), &jacobi, &b, nv, closed, None, 1e-10);
         for &d in &edge {
             x_j[d] = 0.0;
         }
 
         // Same answer, to the tolerance both were asked for.
-        let num: f64 = (0..nv).map(|i| (x_ic[i] - x_j[i]).powi(2)).sum::<f64>().sqrt();
-        let den: f64 = (0..nv).map(|i| x_j[i] * x_j[i]).sum::<f64>().sqrt().max(1e-300);
-        assert!(num / den < 1e-6, "the two preconditioners disagree by {}", num / den);
+        let num: f64 = (0..nv)
+            .map(|i| (x_ic[i] - x_j[i]).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        let den: f64 = (0..nv)
+            .map(|i| x_j[i] * x_j[i])
+            .sum::<f64>()
+            .sqrt()
+            .max(1e-300);
+        assert!(
+            num / den < 1e-6,
+            "the two preconditioners disagree by {}",
+            num / den
+        );
 
         // And fewer iterations. Two triangular solves cost about as much as the
         // matvec, so the count has to fall by more than a factor of two before
@@ -1173,7 +1178,8 @@ mod tests {
         let psi = solver.solve(&rhs);
 
         // (a) Boundary vertices must have psi ≈ 0.
-        let max_boundary = boundary_vertices.iter()
+        let max_boundary = boundary_vertices
+            .iter()
             .map(|&bv| psi[bv].abs())
             .fold(0.0_f64, f64::max);
         assert!(

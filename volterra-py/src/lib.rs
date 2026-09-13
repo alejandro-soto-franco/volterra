@@ -27,14 +27,8 @@ mod mesh;
 use volterra_core::{ActiveNematicParams, Screening};
 use volterra_core::{QField2D, ScalarField2D, VelocityField2D};
 use volterra_fd::{
-    BechStats, DefectInfo, SnapStats,
-    ch_step_etd,
-    k0_convolution,
-    run_bech,
-    run_dry_active_nematic,
-    run_active_nematic_hydro,
-    scan_defects,
-    stokes_solve,
+    BechStats, DefectInfo, SnapStats, ch_step_etd, k0_convolution, run_active_nematic_hydro,
+    run_bech, run_dry_active_nematic, scan_defects, stokes_solve,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,9 +70,26 @@ impl PyActiveNematicParams {
         m_l: f64,
     ) -> PyResult<Self> {
         let p = ActiveNematicParams {
-            nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta,
-            a_landau, c_landau, lambda: lambda_, k_l, gamma_l, xi_l, noise_amp,
-            chi_ms, kappa_ch, a_ch, b_ch, m_l,
+            nx,
+            ny,
+            dx,
+            dt,
+            k_r,
+            gamma_r,
+            zeta_eff,
+            eta,
+            a_landau,
+            c_landau,
+            lambda: lambda_,
+            k_l,
+            gamma_l,
+            xi_l,
+            noise_amp,
+            chi_ms,
+            kappa_ch,
+            a_ch,
+            b_ch,
+            m_l,
             zeta_field: None,
             // The Python constructor takes no chamber depth, so a run driven
             // from it is the unbounded-depth two-dimensional fluid it always
@@ -86,39 +97,95 @@ impl PyActiveNematicParams {
             // make.
             screening: Screening::None,
         };
-        p.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
+        p.validate()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: p })
     }
 
     #[staticmethod]
     fn default_test() -> Self {
-        Self { inner: ActiveNematicParams::default_test() }
+        Self {
+            inner: ActiveNematicParams::default_test(),
+        }
     }
 
-    #[getter] fn nx(&self) -> usize    { self.inner.nx }
-    #[getter] fn ny(&self) -> usize    { self.inner.ny }
-    #[getter] fn dx(&self) -> f64      { self.inner.dx }
-    #[getter] fn dt(&self) -> f64      { self.inner.dt }
-    #[getter] fn k_r(&self) -> f64     { self.inner.k_r }
-    #[getter] fn gamma_r(&self) -> f64 { self.inner.gamma_r }
-    #[getter] fn zeta_eff(&self) -> f64{ self.inner.zeta_eff }
-    #[getter] fn eta(&self) -> f64     { self.inner.eta }
-    #[getter] fn a_landau(&self) -> f64{ self.inner.a_landau }
-    #[getter] fn c_landau(&self) -> f64{ self.inner.c_landau }
-    #[getter] fn lambda_(&self) -> f64    { self.inner.lambda }
-    #[getter] fn k_l(&self) -> f64        { self.inner.k_l }
-    #[getter] fn gamma_l(&self) -> f64   { self.inner.gamma_l }
-    #[getter] fn xi_l(&self) -> f64      { self.inner.xi_l }
-    #[getter] fn noise_amp(&self) -> f64 { self.inner.noise_amp }
+    #[getter]
+    fn nx(&self) -> usize {
+        self.inner.nx
+    }
+    #[getter]
+    fn ny(&self) -> usize {
+        self.inner.ny
+    }
+    #[getter]
+    fn dx(&self) -> f64 {
+        self.inner.dx
+    }
+    #[getter]
+    fn dt(&self) -> f64 {
+        self.inner.dt
+    }
+    #[getter]
+    fn k_r(&self) -> f64 {
+        self.inner.k_r
+    }
+    #[getter]
+    fn gamma_r(&self) -> f64 {
+        self.inner.gamma_r
+    }
+    #[getter]
+    fn zeta_eff(&self) -> f64 {
+        self.inner.zeta_eff
+    }
+    #[getter]
+    fn eta(&self) -> f64 {
+        self.inner.eta
+    }
+    #[getter]
+    fn a_landau(&self) -> f64 {
+        self.inner.a_landau
+    }
+    #[getter]
+    fn c_landau(&self) -> f64 {
+        self.inner.c_landau
+    }
+    #[getter]
+    fn lambda_(&self) -> f64 {
+        self.inner.lambda
+    }
+    #[getter]
+    fn k_l(&self) -> f64 {
+        self.inner.k_l
+    }
+    #[getter]
+    fn gamma_l(&self) -> f64 {
+        self.inner.gamma_l
+    }
+    #[getter]
+    fn xi_l(&self) -> f64 {
+        self.inner.xi_l
+    }
+    #[getter]
+    fn noise_amp(&self) -> f64 {
+        self.inner.noise_amp
+    }
 
-    #[setter] fn set_noise_amp(&mut self, v: f64) { self.inner.noise_amp = v; }
+    #[setter]
+    fn set_noise_amp(&mut self, v: f64) {
+        self.inner.noise_amp = v;
+    }
 
-    #[setter] fn set_zeta_eff(&mut self, v: f64) { self.inner.zeta_eff = v; }
+    #[setter]
+    fn set_zeta_eff(&mut self, v: f64) {
+        self.inner.zeta_eff = v;
+    }
 
     /// Per-vertex spatial activity field ζ(x) (length nx*ny, row-major i*ny+j),
     /// or None when the scalar zeta_eff is used uniformly.
     #[getter]
-    fn zeta_field(&self) -> Option<Vec<f64>> { self.inner.zeta_field.clone() }
+    fn zeta_field(&self) -> Option<Vec<f64>> {
+        self.inner.zeta_field.clone()
+    }
 
     /// Set the spatial activity field ζ(x). Length must equal nx*ny; an empty
     /// array clears it (revert to the scalar zeta_eff in the active stress).
@@ -140,42 +207,96 @@ impl PyActiveNematicParams {
             }
             self.inner.zeta_field = Some(v.to_vec());
         }
-        self.inner
-            .validate()
-            .map_err(|e| PyValueError::new_err(format!("invalid params after set_zeta_field: {e:?}")))?;
+        self.inner.validate().map_err(|e| {
+            PyValueError::new_err(format!("invalid params after set_zeta_field: {e:?}"))
+        })?;
         Ok(())
     }
-    #[setter] fn set_dt(&mut self, v: f64)        { self.inner.dt = v; }
-    #[setter] fn set_nx(&mut self, v: usize)      { self.inner.nx = v; }
-    #[setter] fn set_ny(&mut self, v: usize)      { self.inner.ny = v; }
+    #[setter]
+    fn set_dt(&mut self, v: f64) {
+        self.inner.dt = v;
+    }
+    #[setter]
+    fn set_nx(&mut self, v: usize) {
+        self.inner.nx = v;
+    }
+    #[setter]
+    fn set_ny(&mut self, v: usize) {
+        self.inner.ny = v;
+    }
 
-    #[getter] fn chi_ms(&self) -> f64    { self.inner.chi_ms }
-    #[getter] fn kappa_ch(&self) -> f64  { self.inner.kappa_ch }
-    #[getter] fn a_ch(&self) -> f64      { self.inner.a_ch }
-    #[getter] fn b_ch(&self) -> f64      { self.inner.b_ch }
-    #[getter] fn m_l(&self) -> f64       { self.inner.m_l }
+    #[getter]
+    fn chi_ms(&self) -> f64 {
+        self.inner.chi_ms
+    }
+    #[getter]
+    fn kappa_ch(&self) -> f64 {
+        self.inner.kappa_ch
+    }
+    #[getter]
+    fn a_ch(&self) -> f64 {
+        self.inner.a_ch
+    }
+    #[getter]
+    fn b_ch(&self) -> f64 {
+        self.inner.b_ch
+    }
+    #[getter]
+    fn m_l(&self) -> f64 {
+        self.inner.m_l
+    }
 
-    #[setter] fn set_chi_ms(&mut self, v: f64)   { self.inner.chi_ms = v; }
-    #[setter] fn set_kappa_ch(&mut self, v: f64) { self.inner.kappa_ch = v; }
-    #[setter] fn set_a_ch(&mut self, v: f64)     { self.inner.a_ch = v; }
-    #[setter] fn set_b_ch(&mut self, v: f64)     { self.inner.b_ch = v; }
-    #[setter] fn set_m_l(&mut self, v: f64)      { self.inner.m_l = v; }
+    #[setter]
+    fn set_chi_ms(&mut self, v: f64) {
+        self.inner.chi_ms = v;
+    }
+    #[setter]
+    fn set_kappa_ch(&mut self, v: f64) {
+        self.inner.kappa_ch = v;
+    }
+    #[setter]
+    fn set_a_ch(&mut self, v: f64) {
+        self.inner.a_ch = v;
+    }
+    #[setter]
+    fn set_b_ch(&mut self, v: f64) {
+        self.inner.b_ch = v;
+    }
+    #[setter]
+    fn set_m_l(&mut self, v: f64) {
+        self.inner.m_l = v;
+    }
 
-    fn defect_length(&self) -> f64       { self.inner.defect_length() }
-    fn pi_number(&self) -> f64           { self.inner.pi_number() }
-    fn a_eff(&self) -> f64               { self.inner.a_eff() }
-    fn ch_coherence_length(&self) -> f64 { self.inner.ch_coherence_length() }
-    fn phi_eq(&self) -> f64              { self.inner.phi_eq() }
+    fn defect_length(&self) -> f64 {
+        self.inner.defect_length()
+    }
+    fn pi_number(&self) -> f64 {
+        self.inner.pi_number()
+    }
+    fn a_eff(&self) -> f64 {
+        self.inner.a_eff()
+    }
+    fn ch_coherence_length(&self) -> f64 {
+        self.inner.ch_coherence_length()
+    }
+    fn phi_eq(&self) -> f64 {
+        self.inner.phi_eq()
+    }
 
     fn validate(&self) -> PyResult<()> {
-        self.inner.validate().map_err(|e| PyValueError::new_err(e.to_string()))
+        self.inner
+            .validate()
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     fn __repr__(&self) -> String {
         format!(
             "ActiveNematicParams(nx={}, ny={}, zeta_eff={:.4}, a_eff={:.4}, Pi={:.4})",
-            self.inner.nx, self.inner.ny,
-            self.inner.zeta_eff, self.inner.a_eff(), self.inner.pi_number(),
+            self.inner.nx,
+            self.inner.ny,
+            self.inner.zeta_eff,
+            self.inner.a_eff(),
+            self.inner.pi_number(),
         )
     }
 }
@@ -198,17 +319,23 @@ pub struct PyQField2D {
 impl PyQField2D {
     #[staticmethod]
     fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
-        Self { inner: QField2D::zeros(nx, ny, dx) }
+        Self {
+            inner: QField2D::zeros(nx, ny, dx),
+        }
     }
 
     #[staticmethod]
     fn uniform(nx: usize, ny: usize, dx: f64, q1: f64, q2: f64) -> Self {
-        Self { inner: QField2D::uniform(nx, ny, dx, [q1, q2]) }
+        Self {
+            inner: QField2D::uniform(nx, ny, dx, [q1, q2]),
+        }
     }
 
     #[staticmethod]
     fn random_perturbation(nx: usize, ny: usize, dx: f64, amplitude: f64, seed: u64) -> Self {
-        Self { inner: QField2D::random_perturbation(nx, ny, dx, amplitude, seed) }
+        Self {
+            inner: QField2D::random_perturbation(nx, ny, dx, amplitude, seed),
+        }
     }
 
     /// Import from a numpy array of shape (nx*ny, 2) or (nx*ny*2,).
@@ -227,7 +354,9 @@ impl PyQField2D {
         let q: Vec<[f64; 2]> = (0..expected_n)
             .map(|k| [view[[k, 0]], view[[k, 1]]])
             .collect();
-        Ok(Self { inner: QField2D { q, nx, ny, dx } })
+        Ok(Self {
+            inner: QField2D { q, nx, ny, dx },
+        })
     }
 
     /// Export as numpy array of shape (nx*ny, 2). Reshape in Python:
@@ -246,35 +375,54 @@ impl PyQField2D {
     /// Reshape in Python: S = q_field.order_param().reshape(nx, ny)
     fn order_param<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
         let s: Array1<f64> = Array1::from_iter(
-            self.inner.q.iter().map(|[q1, q2]| 2.0 * (q1 * q1 + q2 * q2).sqrt()),
+            self.inner
+                .q
+                .iter()
+                .map(|[q1, q2]| 2.0 * (q1 * q1 + q2 * q2).sqrt()),
         );
         s.into_pyarray(py)
     }
 
     /// Director angle theta = atan2(q2, q1)/2 in [-pi/2, pi/2], shape (nx*ny,).
     fn director_angle<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
-        let th: Array1<f64> = Array1::from_iter(
-            self.inner.q.iter().map(|[q1, q2]| q2.atan2(*q1) / 2.0),
-        );
+        let th: Array1<f64> =
+            Array1::from_iter(self.inner.q.iter().map(|[q1, q2]| q2.atan2(*q1) / 2.0));
         th.into_pyarray(py)
     }
 
-    #[getter] fn nx(&self) -> usize { self.inner.nx }
-    #[getter] fn ny(&self) -> usize { self.inner.ny }
-    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+    #[getter]
+    fn nx(&self) -> usize {
+        self.inner.nx
+    }
+    #[getter]
+    fn ny(&self) -> usize {
+        self.inner.ny
+    }
+    #[getter]
+    fn dx(&self) -> f64 {
+        self.inner.dx
+    }
 
-    fn mean_order_param(&self) -> f64 { self.inner.mean_order_param() }
-    fn max_norm(&self) -> f64         { self.inner.max_norm() }
+    fn mean_order_param(&self) -> f64 {
+        self.inner.mean_order_param()
+    }
+    fn max_norm(&self) -> f64 {
+        self.inner.max_norm()
+    }
 
     fn __repr__(&self) -> String {
         format!(
             "QField2D(nx={}, ny={}, dx={:.3}, <S>={:.4})",
-            self.inner.nx, self.inner.ny, self.inner.dx,
+            self.inner.nx,
+            self.inner.ny,
+            self.inner.dx,
             self.inner.mean_order_param(),
         )
     }
 
-    fn __len__(&self) -> usize { self.inner.q.len() }
+    fn __len__(&self) -> usize {
+        self.inner.q.len()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,12 +449,24 @@ impl PyVelocityField2D {
         arr.into_pyarray(py)
     }
 
-    #[getter] fn nx(&self) -> usize { self.inner.nx }
-    #[getter] fn ny(&self) -> usize { self.inner.ny }
-    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+    #[getter]
+    fn nx(&self) -> usize {
+        self.inner.nx
+    }
+    #[getter]
+    fn ny(&self) -> usize {
+        self.inner.ny
+    }
+    #[getter]
+    fn dx(&self) -> f64 {
+        self.inner.dx
+    }
 
     fn __repr__(&self) -> String {
-        format!("VelocityField2D(nx={}, ny={}, dx={:.3})", self.inner.nx, self.inner.ny, self.inner.dx)
+        format!(
+            "VelocityField2D(nx={}, ny={}, dx={:.3})",
+            self.inner.nx, self.inner.ny, self.inner.dx
+        )
     }
 }
 
@@ -323,18 +483,35 @@ pub struct PySnapStats {
 
 #[pymethods]
 impl PySnapStats {
-    #[getter] fn time(&self)           -> f64   { self.inner.time }
-    #[getter] fn mean_s(&self)         -> f64   { self.inner.mean_s }
-    #[getter] fn n_defects(&self)      -> usize { self.inner.n_defects }
-    #[getter] fn n_plus(&self)         -> usize { self.inner.n_plus }
-    #[getter] fn n_minus(&self)        -> usize { self.inner.n_minus }
-    #[getter] fn defect_density(&self) -> f64   { self.inner.defect_density }
+    #[getter]
+    fn time(&self) -> f64 {
+        self.inner.time
+    }
+    #[getter]
+    fn mean_s(&self) -> f64 {
+        self.inner.mean_s
+    }
+    #[getter]
+    fn n_defects(&self) -> usize {
+        self.inner.n_defects
+    }
+    #[getter]
+    fn n_plus(&self) -> usize {
+        self.inner.n_plus
+    }
+    #[getter]
+    fn n_minus(&self) -> usize {
+        self.inner.n_minus
+    }
+    #[getter]
+    fn defect_density(&self) -> f64 {
+        self.inner.defect_density
+    }
 
     fn __repr__(&self) -> String {
         format!(
             "SnapStats(t={:.3}, <S>={:.4}, n_def={}, rho_d={:.4e})",
-            self.inner.time, self.inner.mean_s,
-            self.inner.n_defects, self.inner.defect_density,
+            self.inner.time, self.inner.mean_s, self.inner.n_defects, self.inner.defect_density,
         )
     }
 }
@@ -352,15 +529,26 @@ pub struct PyDefectInfo {
 
 #[pymethods]
 impl PyDefectInfo {
-    #[getter] fn plaquette(&self) -> (usize, usize) { self.inner.plaquette }
-    #[getter] fn angle(&self) -> f64    { self.inner.angle }
-    #[getter] fn charge_sign(&self) -> i32 { self.inner.charge_sign.into() }
+    #[getter]
+    fn plaquette(&self) -> (usize, usize) {
+        self.inner.plaquette
+    }
+    #[getter]
+    fn angle(&self) -> f64 {
+        self.inner.angle
+    }
+    #[getter]
+    fn charge_sign(&self) -> i32 {
+        self.inner.charge_sign.into()
+    }
 
     fn __repr__(&self) -> String {
         format!(
             "DefectInfo(plaquette=({},{}), angle={:.3}, charge={})",
-            self.inner.plaquette.0, self.inner.plaquette.1,
-            self.inner.angle, self.inner.charge_sign,
+            self.inner.plaquette.0,
+            self.inner.plaquette.1,
+            self.inner.angle,
+            self.inner.charge_sign,
         )
     }
 }
@@ -380,13 +568,12 @@ fn run_dry_active_nematic_py(
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, Vec<PySnapStats>) {
-    let (q_final, stats) = run_dry_active_nematic(
-        &q_init.inner,
-        &params.inner,
-        n_steps,
-        snap_every,
-    );
-    let py_stats = stats.into_iter().map(|s| PySnapStats { inner: s }).collect();
+    let (q_final, stats) =
+        run_dry_active_nematic(&q_init.inner, &params.inner, n_steps, snap_every);
+    let py_stats = stats
+        .into_iter()
+        .map(|s| PySnapStats { inner: s })
+        .collect();
     (PyQField2D { inner: q_final }, py_stats)
 }
 
@@ -394,7 +581,9 @@ fn run_dry_active_nematic_py(
 #[pyfunction]
 #[pyo3(name = "k0_convolution")]
 fn k0_convolution_py(q_rot: &PyQField2D, params: &PyActiveNematicParams) -> PyQField2D {
-    PyQField2D { inner: k0_convolution(&q_rot.inner, &params.inner) }
+    PyQField2D {
+        inner: k0_convolution(&q_rot.inner, &params.inner),
+    }
 }
 
 /// Holonomy-based disclination detection.
@@ -425,13 +614,12 @@ fn run_active_nematic_hydro_py(
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, Vec<PySnapStats>) {
-    let (q_final, stats) = run_active_nematic_hydro(
-        &q_init.inner,
-        &params.inner,
-        n_steps,
-        snap_every,
-    );
-    let py_stats = stats.into_iter().map(|s| PySnapStats { inner: s }).collect();
+    let (q_final, stats) =
+        run_active_nematic_hydro(&q_init.inner, &params.inner, n_steps, snap_every);
+    let py_stats = stats
+        .into_iter()
+        .map(|s| PySnapStats { inner: s })
+        .collect();
     (PyQField2D { inner: q_final }, py_stats)
 }
 
@@ -442,7 +630,9 @@ fn run_active_nematic_hydro_py(
 #[pyfunction]
 #[pyo3(name = "stokes_solve")]
 fn stokes_solve_py(q: &PyQField2D, params: &PyActiveNematicParams) -> PyVelocityField2D {
-    PyVelocityField2D { inner: stokes_solve(&q.inner, &params.inner) }
+    PyVelocityField2D {
+        inner: stokes_solve(&q.inner, &params.inner),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -463,25 +653,38 @@ pub struct PyScalarField2D {
 impl PyScalarField2D {
     #[staticmethod]
     fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
-        Self { inner: ScalarField2D::zeros(nx, ny, dx) }
+        Self {
+            inner: ScalarField2D::zeros(nx, ny, dx),
+        }
     }
 
     #[staticmethod]
     fn uniform(nx: usize, ny: usize, dx: f64, val: f64) -> Self {
-        Self { inner: ScalarField2D::uniform(nx, ny, dx, val) }
+        Self {
+            inner: ScalarField2D::uniform(nx, ny, dx, val),
+        }
     }
 
     /// Import from a 1D numpy array of length nx*ny.
     #[staticmethod]
-    fn from_numpy(arr: numpy::PyReadonlyArray1<f64>, nx: usize, ny: usize, dx: f64) -> PyResult<Self> {
+    fn from_numpy(
+        arr: numpy::PyReadonlyArray1<f64>,
+        nx: usize,
+        ny: usize,
+        dx: f64,
+    ) -> PyResult<Self> {
         let view = arr.as_array();
         if view.len() != nx * ny {
             return Err(PyValueError::new_err(format!(
-                "expected length {}, got {}", nx * ny, view.len()
+                "expected length {}, got {}",
+                nx * ny,
+                view.len()
             )));
         }
         let phi: Vec<f64> = view.iter().copied().collect();
-        Ok(Self { inner: ScalarField2D { phi, nx, ny, dx } })
+        Ok(Self {
+            inner: ScalarField2D { phi, nx, ny, dx },
+        })
     }
 
     /// Export as 1D numpy array of length nx*ny. Reshape in Python to (nx, ny).
@@ -490,25 +693,49 @@ impl PyScalarField2D {
         arr.into_pyarray(py)
     }
 
-    #[getter] fn nx(&self) -> usize { self.inner.nx }
-    #[getter] fn ny(&self) -> usize { self.inner.ny }
-    #[getter] fn dx(&self) -> f64   { self.inner.dx }
+    #[getter]
+    fn nx(&self) -> usize {
+        self.inner.nx
+    }
+    #[getter]
+    fn ny(&self) -> usize {
+        self.inner.ny
+    }
+    #[getter]
+    fn dx(&self) -> f64 {
+        self.inner.dx
+    }
 
-    fn mean_value(&self) -> f64      { self.inner.mean_value() }
-    fn variance(&self) -> f64        { self.inner.variance() }
-    fn max_value(&self) -> f64       { self.inner.max_value() }
-    fn min_value(&self) -> f64       { self.inner.min_value() }
-    fn mean_gradient_sq(&self) -> f64 { self.inner.mean_gradient_sq() }
+    fn mean_value(&self) -> f64 {
+        self.inner.mean_value()
+    }
+    fn variance(&self) -> f64 {
+        self.inner.variance()
+    }
+    fn max_value(&self) -> f64 {
+        self.inner.max_value()
+    }
+    fn min_value(&self) -> f64 {
+        self.inner.min_value()
+    }
+    fn mean_gradient_sq(&self) -> f64 {
+        self.inner.mean_gradient_sq()
+    }
 
     fn __repr__(&self) -> String {
         format!(
             "ScalarField2D(nx={}, ny={}, dx={:.3}, <φ>={:.4}, Var[φ]={:.4e})",
-            self.inner.nx, self.inner.ny, self.inner.dx,
-            self.inner.mean_value(), self.inner.variance(),
+            self.inner.nx,
+            self.inner.ny,
+            self.inner.dx,
+            self.inner.mean_value(),
+            self.inner.variance(),
         )
     }
 
-    fn __len__(&self) -> usize { self.inner.len() }
+    fn __len__(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -524,21 +751,51 @@ pub struct PyBechStats {
 
 #[pymethods]
 impl PyBechStats {
-    #[getter] fn time(&self)              -> f64   { self.inner.time }
-    #[getter] fn mean_s(&self)            -> f64   { self.inner.mean_s }
-    #[getter] fn n_defects(&self)         -> usize { self.inner.n_defects }
-    #[getter] fn n_plus(&self)            -> usize { self.inner.n_plus }
-    #[getter] fn n_minus(&self)           -> usize { self.inner.n_minus }
-    #[getter] fn defect_density(&self)    -> f64   { self.inner.defect_density }
-    #[getter] fn mean_phi(&self)          -> f64   { self.inner.mean_phi }
-    #[getter] fn phi_variance(&self)      -> f64   { self.inner.phi_variance }
-    #[getter] fn mean_grad_phi_sq(&self)  -> f64   { self.inner.mean_grad_phi_sq }
+    #[getter]
+    fn time(&self) -> f64 {
+        self.inner.time
+    }
+    #[getter]
+    fn mean_s(&self) -> f64 {
+        self.inner.mean_s
+    }
+    #[getter]
+    fn n_defects(&self) -> usize {
+        self.inner.n_defects
+    }
+    #[getter]
+    fn n_plus(&self) -> usize {
+        self.inner.n_plus
+    }
+    #[getter]
+    fn n_minus(&self) -> usize {
+        self.inner.n_minus
+    }
+    #[getter]
+    fn defect_density(&self) -> f64 {
+        self.inner.defect_density
+    }
+    #[getter]
+    fn mean_phi(&self) -> f64 {
+        self.inner.mean_phi
+    }
+    #[getter]
+    fn phi_variance(&self) -> f64 {
+        self.inner.phi_variance
+    }
+    #[getter]
+    fn mean_grad_phi_sq(&self) -> f64 {
+        self.inner.mean_grad_phi_sq
+    }
 
     fn __repr__(&self) -> String {
         format!(
             "BechStats(t={:.3}, <S>={:.4}, n_def={}, <φ>={:.4}, Var[φ]={:.4e})",
-            self.inner.time, self.inner.mean_s,
-            self.inner.n_defects, self.inner.mean_phi, self.inner.phi_variance,
+            self.inner.time,
+            self.inner.mean_s,
+            self.inner.n_defects,
+            self.inner.mean_phi,
+            self.inner.phi_variance,
         )
     }
 }
@@ -570,8 +827,15 @@ fn run_bech_py(
         n_steps,
         snap_every,
     );
-    let py_stats = stats.into_iter().map(|s| PyBechStats { inner: s }).collect();
-    (PyQField2D { inner: q_fin }, PyScalarField2D { inner: phi_fin }, py_stats)
+    let py_stats = stats
+        .into_iter()
+        .map(|s| PyBechStats { inner: s })
+        .collect();
+    (
+        PyQField2D { inner: q_fin },
+        PyScalarField2D { inner: phi_fin },
+        py_stats,
+    )
 }
 
 /// Advance the CH field by one ETD1 step.

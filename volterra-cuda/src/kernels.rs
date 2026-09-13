@@ -404,7 +404,13 @@ pub mod kernels {
     /// In-place velocity-Verlet position update:
     /// `q += dt * v_old + 0.5 * dt^2 * f_old`.
     #[kernel]
-    pub fn position_update(v_old: &[f64], f_old: &[f64], dt: f64, len: u32, mut q: DisjointSlice<f64>) {
+    pub fn position_update(
+        v_old: &[f64],
+        f_old: &[f64],
+        dt: f64,
+        len: u32,
+        mut q: DisjointSlice<f64>,
+    ) {
         let idx = thread::index_1d();
         let j = idx.get();
         if j >= len as usize {
@@ -621,4 +627,4 @@ pub mod kernels {
 // `crate::kernels::{load, LoadedModule}` is the path callers use, matching
 // `cartan-cuda`'s (which declares its module inline in `lib.rs` and so has
 // no extra nesting to flatten).
-pub use kernels::{load, LoadedModule};
+pub use kernels::{LoadedModule, load};

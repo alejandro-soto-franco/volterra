@@ -52,8 +52,7 @@ pub mod prelude {
     pub use volterra_core::{ActiveNematicParams, VError};
     pub use volterra_core::{QField2D, VelocityField2D};
     pub use volterra_fd::{
-        DefectInfo, SnapStats, beris_edwards_rhs, defect_count, k0_convolution,
-        molecular_field, run_dry_active_nematic, scan_defects,
-        EulerIntegrator, RK4Integrator,
+        DefectInfo, EulerIntegrator, RK4Integrator, SnapStats, beris_edwards_rhs, defect_count,
+        k0_convolution, molecular_field, run_dry_active_nematic, scan_defects,
     };
 }

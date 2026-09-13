@@ -5,10 +5,10 @@
 //! integrators, a unified per-step statistics currency, and snapshot sinks.
 //! This module is dependency-free so it can live in the lowest crate.
 
-pub mod noise;
 pub mod integrate;
-pub mod stats;
+pub mod noise;
 pub mod snapshot;
+pub mod stats;
 
 mod runner;
 pub use runner::{Observer, PhysicsStep, RunConfig, SimulationRunner};

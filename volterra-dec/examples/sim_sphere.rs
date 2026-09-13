@@ -12,12 +12,12 @@ use std::time::Instant;
 
 use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
+use volterra_dec::DecDomain;
+use volterra_dec::QField;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::{write_snapshot, write_velocity_snapshot};
 use volterra_dec::stokes::{SurfaceStokes, advect_q_covariant};
-use volterra_dec::QField;
-use volterra_dec::DecDomain;
 
 fn main() {
     let refinement = 5; // 10242 vertices, 20480 faces
@@ -33,7 +33,10 @@ fn main() {
     let mesh = icosphere(refinement);
     let nv = mesh.n_vertices();
     let nf = mesh.n_simplices();
-    println!("  vertices: {nv}, faces: {nf}, chi: {}", mesh.euler_characteristic());
+    println!(
+        "  vertices: {nv}, faces: {nf}, chi: {}",
+        mesh.euler_characteristic()
+    );
 
     println!("Assembling DEC operators...");
     let domain = DecDomain::new(mesh, Sphere::<3>).expect("DecDomain assembly failed");
@@ -45,8 +48,11 @@ fn main() {
             .collect::<Vec<_>>(),
         "triangles": domain.mesh.simplices,
     });
-    std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
-        .expect("failed to write mesh.json");
+    std::fs::write(
+        out.join("mesh.json"),
+        serde_json::to_string(&mesh_json).unwrap(),
+    )
+    .expect("failed to write mesh.json");
 
     // Wet active nematic parameters.
     // Activity drives flow, flow creates distortions, distortions nucleate defects.
@@ -71,22 +77,30 @@ fn main() {
     params.lambda = 0.7;
 
     // Extract vertex coordinates (needed by Stokes, advection, and connection Laplacian).
-    let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
-        [v[0], v[1], v[2]]
-    }).collect();
+    let stokes_coords: Vec<[f64; 3]> = domain
+        .mesh
+        .vertices
+        .iter()
+        .map(|v| [v[0], v[1], v[2]])
+        .collect();
 
     // Build the parallel-transport connection Laplacian.
     // Curvature enters automatically through the holonomy angles.
     let conn_lap = ConnectionLaplacian::new(
-        &domain.mesh, &stokes_coords,
-        &(0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect::<Vec<_>>(),
-        &(0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect::<Vec<_>>(),
+        &domain.mesh,
+        &stokes_coords,
+        &(0..domain.ops.hodge.star0().len())
+            .map(|i| domain.ops.hodge.star0()[i])
+            .collect::<Vec<_>>(),
+        &(0..domain.ops.hodge.star1().len())
+            .map(|i| domain.ops.hodge.star1()[i])
+            .collect::<Vec<_>>(),
     );
 
     // Pre-factorise the Stokes solver.
     println!("Factorising Stokes solver...");
-    let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh)
-        .expect("Stokes solver factorisation failed");
+    let stokes =
+        SurfaceStokes::new(&domain.ops, &domain.mesh).expect("Stokes solver factorisation failed");
 
     // Extract per-edge connection phases for covariant advection.
     let edge_phases = conn_lap.edge_phases();
@@ -139,13 +153,18 @@ fn main() {
             let coords = &stokes_coords;
             let rhs = |qq: &QField| -> QField {
                 let h = molecular_field_conn(
-                    qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
+                    qq,
+                    params.k_r,
+                    params.a_eff(),
+                    params.c_landau,
+                    &conn_lap,
                 );
                 let mut dq = h.scale(params.gamma_r);
 
                 // Advection: -(u . grad Q) with covariant transport.
                 let adv = advect_q_covariant(
-                    qq, &vel,
+                    qq,
+                    &vel,
                     &domain.mesh.boundaries,
                     &domain.mesh.vertex_boundaries,
                     coords,

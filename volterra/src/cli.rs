@@ -247,7 +247,8 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
     params.nx = args.nx;
     params.ny = args.ny;
 
-    let q0 = QField2D::random_perturbation(params.nx, params.ny, params.dx, 0.001, args.common.seed);
+    let q0 =
+        QField2D::random_perturbation(params.nx, params.ny, params.dx, 0.001, args.common.seed);
 
     let out = args.common.out_or_default("cartesian2d");
     make_out_dir(&out)?;
@@ -276,12 +277,26 @@ fn run_cartesian2d(args: Cartesian2dArgs) -> Result<(), DynErr> {
                     0.5 + 0.05 * (frac * 7.3).sin()
                 })
                 .collect();
-            let phi0 = ScalarField2D { phi: phi_vals, nx: params.nx, ny: params.ny, dx: params.dx };
-            let (_qf, _phif, stats) =
-                run_bech(&q0, &phi0, &params, args.common.steps, args.common.snap_every);
+            let phi0 = ScalarField2D {
+                phi: phi_vals,
+                nx: params.nx,
+                ny: params.ny,
+                dx: params.dx,
+            };
+            let (_qf, _phif, stats) = run_bech(
+                &q0,
+                &phi0,
+                &params,
+                args.common.steps,
+                args.common.snap_every,
+            );
             stats.iter().map(|s| (s.time, s.mean_s)).collect()
         }
-        other => return Err(format!("unknown cartesian2d mode '{other}' (expected dry|wet|bech)").into()),
+        other => {
+            return Err(
+                format!("unknown cartesian2d mode '{other}' (expected dry|wet|bech)").into(),
+            );
+        }
     };
 
     write_summary_json(&out, &summary)?;
@@ -356,7 +371,9 @@ fn run_cartesian3d(args: Cartesian3dArgs) -> Result<(), DynErr> {
             );
             stats.len()
         }
-        other => return Err(format!("unknown cartesian3d mode '{other}' (expected dry|bech)").into()),
+        other => {
+            return Err(format!("unknown cartesian3d mode '{other}' (expected dry|bech)").into());
+        }
     };
 
     println!(
@@ -422,7 +439,13 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
             }
             "wet" => {
                 let (_qf, stats) = run_wet_active_nematic_dec(
-                    &q0, params, ops, &domain.mesh, None, steps, snap_every,
+                    &q0,
+                    params,
+                    ops,
+                    &domain.mesh,
+                    None,
+                    steps,
+                    snap_every,
                 )
                 .map_err(|e| -> DynErr { format!("wet dec runner: {e}").into() })?;
                 Ok(stats.iter().map(|s| (s.time, s.mean_s)).collect())
@@ -436,11 +459,27 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
         "sphere" => {
             // refinement 2 -> 162 vertices: small and fast, real curvature.
             let mesh = icosphere(2);
-            drive(mesh, Sphere::<3>, &params, mode, args.common.seed, args.common.steps, args.common.snap_every)?
+            drive(
+                mesh,
+                Sphere::<3>,
+                &params,
+                mode,
+                args.common.seed,
+                args.common.steps,
+                args.common.snap_every,
+            )?
         }
         "torus" => {
             let mesh = torus_mesh(2.0, 1.0, 12, 8);
-            drive(mesh, Euclidean::<3>, &params, mode, args.common.seed, args.common.steps, args.common.snap_every)?
+            drive(
+                mesh,
+                Euclidean::<3>,
+                &params,
+                mode,
+                args.common.seed,
+                args.common.steps,
+                args.common.snap_every,
+            )?
         }
         other => return Err(format!("unknown dec mesh '{other}' (expected sphere|torus)").into()),
     };
@@ -464,15 +503,11 @@ fn run_dec(args: DecArgs) -> Result<(), DynErr> {
 /// frames via the shared `volterra_fd::output::write_state_frame` and checks
 /// finiteness. With `--strict`, finiteness is also checked after every step.
 fn run_fd(args: FdArgs) -> Result<(), DynErr> {
-    use volterra_fd::{
-        guard::check_finite,
-        nephroid_boundary,
-        output::write_state_frame,
-        sim_step::FdStep,
-        step::State,
-        FdError, Params,
-    };
     use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
+    use volterra_fd::{
+        FdError, Params, guard::check_finite, nephroid_boundary, output::write_state_frame,
+        sim_step::FdStep, step::State,
+    };
 
     // build Params
     // Start from TOML config if provided, then apply CLI overrides.
@@ -508,11 +543,15 @@ fn run_fd(args: FdArgs) -> Result<(), DynErr> {
     if let Some(ref theta_path) = args.theta_ic {
         // Load theta IC from file (same format as fd).
         let n = lx * ly;
-        let contents = std::fs::read_to_string(theta_path)
-            .map_err(|e| -> DynErr { format!("read theta IC {}: {e}", theta_path.display()).into() })?;
+        let contents = std::fs::read_to_string(theta_path).map_err(|e| -> DynErr {
+            format!("read theta IC {}: {e}", theta_path.display()).into()
+        })?;
         let theta: Vec<f64> = contents
             .split_whitespace()
-            .map(|s| s.parse::<f64>().map_err(|_| -> DynErr { format!("non-float in theta IC: {s}").into() }))
+            .map(|s| {
+                s.parse::<f64>()
+                    .map_err(|_| -> DynErr { format!("non-float in theta IC: {s}").into() })
+            })
             .collect::<Result<Vec<f64>, DynErr>>()?;
         if theta.len() != n {
             return Err(format!("theta IC has {} values, expected {n}", theta.len()).into());
@@ -524,7 +563,7 @@ fn run_fd(args: FdArgs) -> Result<(), DynErr> {
                 let t = theta[idx];
                 let cos_t = t.cos();
                 let sin_t = t.sin();
-                state.q[idx * 2]     = params.s0 * (cos_t * cos_t - 0.5);
+                state.q[idx * 2] = params.s0 * (cos_t * cos_t - 0.5);
                 state.q[idx * 2 + 1] = params.s0 * (cos_t * sin_t);
             }
         }
@@ -535,7 +574,7 @@ fn run_fd(args: FdArgs) -> Result<(), DynErr> {
             for y in 0..ly {
                 let idx = x * ly + y;
                 if boundary.inside[idx] {
-                    state.q[idx * 2]     =  amplitude;
+                    state.q[idx * 2] = amplitude;
                     state.q[idx * 2 + 1] = -amplitude * 0.5;
                 }
             }

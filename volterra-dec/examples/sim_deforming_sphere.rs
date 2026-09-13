@@ -18,10 +18,10 @@ use std::time::Instant;
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
 use cartan_dec::Mesh;
 use cartan_manifolds::euclidean::Euclidean;
+use volterra_dec::EvolvingDomain;
+use volterra_dec::QField;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::write_snapshot;
-use volterra_dec::QField;
-use volterra_dec::EvolvingDomain;
 
 fn main() {
     let refinement = 3; // 642 vertices (fast for demo)
@@ -45,11 +45,15 @@ fn main() {
     let nv = sphere_mesh.n_vertices();
     println!("  vertices: {nv}");
 
-    let verts_euc: Vec<nalgebra::SVector<f64, 3>> = sphere_mesh.vertices.iter()
+    let verts_euc: Vec<nalgebra::SVector<f64, 3>> = sphere_mesh
+        .vertices
+        .iter()
         .map(|v| nalgebra::SVector::<f64, 3>::new(v[0], v[1], v[2]))
         .collect();
     let euc_mesh = Mesh::<Euclidean<3>, 3, 2>::from_simplices(
-        &Euclidean::<3>, verts_euc, sphere_mesh.simplices.clone(),
+        &Euclidean::<3>,
+        verts_euc,
+        sphere_mesh.simplices.clone(),
     );
     let mut ed = EvolvingDomain::new(euc_mesh, Euclidean::<3>).unwrap();
     ed.recompute_curvatures();
@@ -61,13 +65,16 @@ fn main() {
             .collect::<Vec<_>>(),
         "triangles": ed.domain.mesh.simplices,
     });
-    std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
-        .expect("failed to write mesh.json");
+    std::fs::write(
+        out.join("mesh.json"),
+        serde_json::to_string(&mesh_json).unwrap(),
+    )
+    .expect("failed to write mesh.json");
 
     // Shape parameters (slow shape evolution relative to nematic relaxation).
-    let kb = 0.1;      // bending rigidity
+    let kb = 0.1; // bending rigidity
     let tension = 0.01; // gentle surface tension
-    let eta_s = 100.0;  // high surface viscosity -> slow shape evolution
+    let eta_s = 100.0; // high surface viscosity -> slow shape evolution
     let h0 = vec![0.0; nv]; // zero spontaneous curvature
 
     // Nematic parameters.
@@ -114,18 +121,22 @@ fn main() {
             std::fs::write(
                 out.join(format!("mesh_{step:06}.json")),
                 serde_json::to_string(&mesh_json).unwrap(),
-            ).ok();
+            )
+            .ok();
         }
 
         if step % (snap_every * 5) == 0 {
             let s = q.mean_order_param();
-            let mean_r: f64 = ed.domain.mesh.vertices.iter()
+            let mean_r: f64 = ed
+                .domain
+                .mesh
+                .vertices
+                .iter()
                 .map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
-                .sum::<f64>() / nv as f64;
+                .sum::<f64>()
+                / nv as f64;
             let elapsed = t0.elapsed().as_secs_f64();
-            println!(
-                "  step {step:>5}/{n_steps}  <S>={s:.4}  <R>={mean_r:.4}  wall={elapsed:.1}s"
-            );
+            println!("  step {step:>5}/{n_steps}  <S>={s:.4}  <R>={mean_r:.4}  wall={elapsed:.1}s");
         }
 
         if step < n_steps {
@@ -153,7 +164,7 @@ fn main() {
             // Molecular field using CovLaplacian from the updated connection.
             let lap = ed.cov_lap.apply::<U1Spin2, 2, _>(
                 &VecSection::<U1Spin2>::from_vec(
-                    q.q1.iter().zip(&q.q2).map(|(&a, &b)| [a, b]).collect()
+                    q.q1.iter().zip(&q.q2).map(|(&a, &b)| [a, b]).collect(),
                 ),
                 &ed.transport,
             );
@@ -179,6 +190,9 @@ fn main() {
     }
 
     let elapsed = t0.elapsed().as_secs_f64();
-    println!("\nDone: {} snapshots in {elapsed:.1}s", n_steps / snap_every + 1);
+    println!(
+        "\nDone: {} snapshots in {elapsed:.1}s",
+        n_steps / snap_every + 1
+    );
     println!("Output: {out_dir}");
 }

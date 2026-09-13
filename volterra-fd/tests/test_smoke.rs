@@ -5,10 +5,10 @@
 //! uses a subprocess); this one exercises the library directly.
 
 use volterra_fd::{
+    Params,
     guard::check_finite,
     nephroid_boundary,
-    step::{update_step_inner, State},
-    Params,
+    step::{State, update_step_inner},
 };
 
 /// `Params::new` args that match the canonical test constants used elsewhere:
@@ -42,7 +42,7 @@ fn five_steps_keep_all_fields_finite() {
             let idx = x * ly + y;
             if bnd.inside[idx] {
                 // Q has 2 components packed as [Q0_00, Q1_00, Q0_01, Q1_01, ...]
-                state.q[idx * 2]     =  amplitude;
+                state.q[idx * 2] = amplitude;
                 state.q[idx * 2 + 1] = -amplitude * 0.5;
             }
         }

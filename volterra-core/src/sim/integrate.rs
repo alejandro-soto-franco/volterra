@@ -36,7 +36,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{rk4, euler, FieldVec};
+    use super::{FieldVec, euler, rk4};
 
     // Minimal field: a single f64 wrapped so it implements FieldVec.
     #[derive(Clone, PartialEq, Debug)]

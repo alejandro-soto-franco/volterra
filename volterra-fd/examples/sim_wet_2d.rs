@@ -18,12 +18,12 @@
 use std::path::Path;
 use std::time::Instant;
 
+use volterra_core::ActiveNematicParams;
+use volterra_core::QField2D;
 use volterra_core::sim::noise::LangevinNoise;
 use volterra_core::sim::snapshot::write_npy;
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
-use volterra_core::ActiveNematicParams;
-use volterra_core::QField2D;
 use volterra_fd::sim_impls::cartesian2d::Cartesian2DWet;
 
 /// Observer that streams Q-tensor snapshots to `.npy` on the snapshot cadence.
@@ -46,8 +46,7 @@ impl Observer<QField2D> for SnapshotSink<'_> {
             data[k * 2 + 1] = q.q[k][1];
         }
         let snap_path = self.out.join(format!("q_{step:06}.npy"));
-        write_npy(&snap_path, &data, self.nx, self.ny, 1, 2)
-            .expect("failed to write snapshot");
+        write_npy(&snap_path, &data, self.nx, self.ny, 1, 2).expect("failed to write snapshot");
 
         if step % (self.snap_every * 10) == 0 {
             let s = q.mean_order_param();
@@ -74,7 +73,7 @@ fn main() {
     params.ny = ny;
     params.dx = 1.0;
     params.dt = 0.005;
-    params.zeta_eff = 3.0;   // strongly active
+    params.zeta_eff = 3.0; // strongly active
     params.k_r = 1.0;
     params.gamma_r = 1.0;
     params.eta = 1.0;
@@ -96,10 +95,16 @@ fn main() {
         "n_steps": n_steps,
         "snap_every": snap_every,
     });
-    std::fs::write(out.join("meta.json"), serde_json::to_string_pretty(&meta).unwrap())
-        .expect("failed to write meta.json");
+    std::fs::write(
+        out.join("meta.json"),
+        serde_json::to_string_pretty(&meta).unwrap(),
+    )
+    .expect("failed to write meta.json");
 
-    println!("Running WET active nematic 2D: {nx}x{ny}, {n_steps} steps, zeta={}", params.zeta_eff);
+    println!(
+        "Running WET active nematic 2D: {nx}x{ny}, {n_steps} steps, zeta={}",
+        params.zeta_eff
+    );
     let t0 = Instant::now();
 
     // Shared runner core: Cartesian2DWet physics + canonical per-run Langevin
@@ -120,7 +125,13 @@ fn main() {
         t0,
     };
     let runner = SimulationRunner {
-        config: RunConfig { steps: n_steps, snap_every, dt: params.dt, seed: 0, snap_final: false },
+        config: RunConfig {
+            steps: n_steps,
+            snap_every,
+            dt: params.dt,
+            seed: 0,
+            snap_final: false,
+        },
     };
     runner.run(&mut q, &mut physics, &mut sink);
 
@@ -129,5 +140,7 @@ fn main() {
     println!("Done: {n_snaps} snapshots in {elapsed:.1}s");
     println!("Output: {out_dir}");
     println!("\nRender with:");
-    println!("  python tools/viz/render_2d.py {out_dir} --nx {nx} --ny {ny} --video output/videos/wet2d.mp4 --fps 30");
+    println!(
+        "  python tools/viz/render_2d.py {out_dir} --nx {nx} --ny {ny} --video output/videos/wet2d.mp4 --fps 30"
+    );
 }

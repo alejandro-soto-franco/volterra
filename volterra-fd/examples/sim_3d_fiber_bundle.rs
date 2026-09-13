@@ -57,13 +57,18 @@ fn main() {
         .collect();
 
     let mean_s = |d: &[[f64; 5]]| -> f64 {
-        let sum: f64 = d.iter().map(|q| {
-            let q33 = -q[0] - q[3];
-            let tr2 = q[0]*q[0] + q[3]*q[3] + q33*q33
-                + 2.0*(q[1]*q[1] + q[2]*q[2] + q[4]*q[4]);
-            // S = sqrt(3/2 * tr(Q^2)) for 3D (largest eigenvalue scaling).
-            (1.5 * tr2).sqrt()
-        }).sum::<f64>();
+        let sum: f64 = d
+            .iter()
+            .map(|q| {
+                let q33 = -q[0] - q[3];
+                let tr2 = q[0] * q[0]
+                    + q[3] * q[3]
+                    + q33 * q33
+                    + 2.0 * (q[1] * q[1] + q[2] * q[2] + q[4] * q[4]);
+                // S = sqrt(3/2 * tr(Q^2)) for 3D (largest eigenvalue scaling).
+                (1.5 * tr2).sqrt()
+            })
+            .sum::<f64>();
         sum / d.len() as f64
     };
 
@@ -86,8 +91,10 @@ fn main() {
             let bulk_linear = -a_eff; // positive when a_eff < 0
             for (i, q_row) in data.iter_mut().enumerate() {
                 let q33 = -q_row[0] - q_row[3];
-                let tr_q2 = q_row[0]*q_row[0] + q_row[3]*q_row[3] + q33*q33
-                    + 2.0*(q_row[1]*q_row[1] + q_row[2]*q_row[2] + q_row[4]*q_row[4]);
+                let tr_q2 = q_row[0] * q_row[0]
+                    + q_row[3] * q_row[3]
+                    + q33 * q33
+                    + 2.0 * (q_row[1] * q_row[1] + q_row[2] * q_row[2] + q_row[4] * q_row[4]);
                 let bulk = bulk_linear - 2.0 * c_landau * tr_q2;
 
                 let lap_v = lap.at(i);

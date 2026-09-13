@@ -239,13 +239,32 @@ impl Device {
                 Bookkeeping::Split => unsafe {
                     if mix_v != 1.0 || mix_f != 0.0 {
                         self.module.fire_mix_coeffs(
-                            stream, cfg_len5, &f, mix_v, mix_f, len5 as u32, &mut v,
+                            stream,
+                            cfg_len5,
+                            &f,
+                            mix_v,
+                            mix_f,
+                            len5 as u32,
+                            &mut v,
                         )?;
                     }
-                    self.module
-                        .position_update(stream, cfg_len5, &v, &f, dt, len5 as u32, &mut q)?;
-                    self.module
-                        .axpy_inplace(stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v)?;
+                    self.module.position_update(
+                        stream,
+                        cfg_len5,
+                        &v,
+                        &f,
+                        dt,
+                        len5 as u32,
+                        &mut q,
+                    )?;
+                    self.module.axpy_inplace(
+                        stream,
+                        cfg_len5,
+                        &f,
+                        0.5 * dt,
+                        len5 as u32,
+                        &mut v,
+                    )?;
                 },
             }
 
@@ -288,10 +307,22 @@ impl Device {
                     launched?;
                 }
                 Bookkeeping::Split => unsafe {
-                    self.module
-                        .axpy_inplace(stream, cfg_len5, &f, 0.5 * dt, len5 as u32, &mut v)?;
-                    self.module
-                        .reduce_fire(stream, cfg_sites, &f, &v, n_sites as u32, &acc_atomic)?;
+                    self.module.axpy_inplace(
+                        stream,
+                        cfg_len5,
+                        &f,
+                        0.5 * dt,
+                        len5 as u32,
+                        &mut v,
+                    )?;
+                    self.module.reduce_fire(
+                        stream,
+                        cfg_sites,
+                        &f,
+                        &v,
+                        n_sites as u32,
+                        &acc_atomic,
+                    )?;
                 },
             }
             acc = acc_atomic.cast_elem::<f64>();
@@ -549,7 +580,12 @@ impl Device {
     /// the end. Comparable, same-conditions basis for
     /// `time_fused_aos_force`/`time_fused_soa_force` below -- none of the
     /// three read anything back from the device mid-loop.
-    pub fn time_split_force(&self, q0: &[f64], ldg: &LdgParams, reps: usize) -> Result<f64, CudaError> {
+    pub fn time_split_force(
+        &self,
+        q0: &[f64],
+        ldg: &LdgParams,
+        reps: usize,
+    ) -> Result<f64, CudaError> {
         let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
         let stream = &self.stream;
         let q = DeviceBuffer::from_host(stream, q0)?;
@@ -572,7 +608,12 @@ impl Device {
     /// Pure kernel timing for `force_fused_aos`, same protocol as
     /// `time_split_force`: one untimed warm-up launch, `reps` timed launches
     /// with no host round trip, one final sync.
-    pub fn time_fused_aos_force(&self, q0: &[f64], ldg: &LdgParams, reps: usize) -> Result<f64, CudaError> {
+    pub fn time_fused_aos_force(
+        &self,
+        q0: &[f64],
+        ldg: &LdgParams,
+        reps: usize,
+    ) -> Result<f64, CudaError> {
         let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
         let stream = &self.stream;
         let q = DeviceBuffer::from_host(stream, q0)?;
@@ -584,8 +625,19 @@ impl Device {
         // `n_sites * 5`, `out` has `n_sites` `[f64; 5]` slots, matching `cfg`.
         unsafe {
             self.module.force_fused_aos(
-                stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.b_landau, ldg.c_landau, ldg.k_r,
-                ldg.gamma_r, inv_dx2, &mut out,
+                stream,
+                cfg,
+                &q,
+                ldg.nx,
+                ldg.ny,
+                ldg.nz,
+                ldg.a_eff,
+                ldg.b_landau,
+                ldg.c_landau,
+                ldg.k_r,
+                ldg.gamma_r,
+                inv_dx2,
+                &mut out,
             )?;
         }
         stream.synchronize()?;
@@ -594,8 +646,19 @@ impl Device {
         for _ in 0..reps {
             unsafe {
                 self.module.force_fused_aos(
-                    stream, cfg, &q, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff, ldg.b_landau, ldg.c_landau, ldg.k_r,
-                    ldg.gamma_r, inv_dx2, &mut out,
+                    stream,
+                    cfg,
+                    &q,
+                    ldg.nx,
+                    ldg.ny,
+                    ldg.nz,
+                    ldg.a_eff,
+                    ldg.b_landau,
+                    ldg.c_landau,
+                    ldg.k_r,
+                    ldg.gamma_r,
+                    inv_dx2,
+                    &mut out,
                 )?;
             }
         }
@@ -608,9 +671,18 @@ impl Device {
     /// (matching `force_soa`'s own boundary conversion, but paid once here
     /// rather than once per call, since the point is timing the kernel, not
     /// the conversion).
-    pub fn time_fused_soa_force(&self, q0_aos: &[f64], ldg: &LdgParams, reps: usize) -> Result<f64, CudaError> {
+    pub fn time_fused_soa_force(
+        &self,
+        q0_aos: &[f64],
+        ldg: &LdgParams,
+        reps: usize,
+    ) -> Result<f64, CudaError> {
         let n_sites = (ldg.nx as usize) * (ldg.ny as usize) * (ldg.nz as usize);
-        assert_eq!(q0_aos.len(), n_sites * 5, "q0_aos length must be n_sites * 5");
+        assert_eq!(
+            q0_aos.len(),
+            n_sites * 5,
+            "q0_aos length must be n_sites * 5"
+        );
         let stream = &self.stream;
 
         let mut planes: [Vec<f64>; 5] = Default::default();
@@ -640,9 +712,27 @@ impl Device {
         // `n_sites`, matching `cfg`.
         unsafe {
             self.module.force_fused_soa(
-                stream, cfg, &q11, &q12, &q13, &q22, &q23, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff,
-                ldg.b_landau, ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
-                &mut o22, &mut o23,
+                stream,
+                cfg,
+                &q11,
+                &q12,
+                &q13,
+                &q22,
+                &q23,
+                ldg.nx,
+                ldg.ny,
+                ldg.nz,
+                ldg.a_eff,
+                ldg.b_landau,
+                ldg.c_landau,
+                ldg.k_r,
+                ldg.gamma_r,
+                inv_dx2,
+                &mut o11,
+                &mut o12,
+                &mut o13,
+                &mut o22,
+                &mut o23,
             )?;
         }
         stream.synchronize()?;
@@ -651,9 +741,27 @@ impl Device {
         for _ in 0..reps {
             unsafe {
                 self.module.force_fused_soa(
-                    stream, cfg, &q11, &q12, &q13, &q22, &q23, ldg.nx, ldg.ny, ldg.nz, ldg.a_eff,
-                    ldg.b_landau, ldg.c_landau, ldg.k_r, ldg.gamma_r, inv_dx2, &mut o11, &mut o12, &mut o13,
-                    &mut o22, &mut o23,
+                    stream,
+                    cfg,
+                    &q11,
+                    &q12,
+                    &q13,
+                    &q22,
+                    &q23,
+                    ldg.nx,
+                    ldg.ny,
+                    ldg.nz,
+                    ldg.a_eff,
+                    ldg.b_landau,
+                    ldg.c_landau,
+                    ldg.k_r,
+                    ldg.gamma_r,
+                    inv_dx2,
+                    &mut o11,
+                    &mut o12,
+                    &mut o13,
+                    &mut o22,
+                    &mut o23,
                 )?;
             }
         }

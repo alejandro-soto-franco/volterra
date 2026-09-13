@@ -6,9 +6,9 @@ use cartan_manifolds::euclidean::Euclidean;
 use cartan_manifolds::sphere::Sphere;
 use nalgebra::SVector;
 
-use volterra_dec::helfrich::{helfrich_energy, HelfrichParams};
-use volterra_dec::variational::{baoab_ba_step, compute_dt, kinetic_energy};
 use volterra_dec::DecDomain;
+use volterra_dec::helfrich::{HelfrichParams, helfrich_energy};
+use volterra_dec::variational::{baoab_ba_step, compute_dt, kinetic_energy};
 
 #[test]
 fn dec_domain_construction() {
@@ -133,7 +133,10 @@ fn kinetic_energy_positive_with_momentum() {
     let masses: Vec<f64> = vec![1.0; nv];
 
     let ke = kinetic_energy(&manifold, &domain.mesh.vertices, &momenta, &masses);
-    assert!(ke > 0.0, "kinetic energy with nonzero momenta should be positive");
+    assert!(
+        ke > 0.0,
+        "kinetic energy with nonzero momenta should be positive"
+    );
 }
 
 #[test]

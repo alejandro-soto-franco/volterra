@@ -147,7 +147,10 @@ fn a_static_field_lies_along_x_and_a_rotating_one_does_not() {
         with.q[0][1] - without.q[0][1]
     };
     // Static: the direction is x, so the xy component of `d (x) d` vanishes.
-    assert!(off_diagonal(0.0, 2.4).abs() < 1e-15, "a static field is not along x");
+    assert!(
+        off_diagonal(0.0, 2.4).abs() < 1e-15,
+        "a static field is not along x"
+    );
     // Rotating: a quarter turn in, the direction has both components.
     let quarter = std::f64::consts::FRAC_PI_4;
     assert!(

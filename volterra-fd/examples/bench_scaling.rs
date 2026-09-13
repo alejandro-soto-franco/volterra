@@ -27,14 +27,7 @@ fn main() {
     let threads = rayon::current_num_threads();
 
     let t0 = Instant::now();
-    let (_q_fin, _stats) = run_dry_active_nematic_3d(
-        &q0,
-        &p,
-        n_steps,
-        n_steps + 1,
-        &out,
-        false,
-    );
+    let (_q_fin, _stats) = run_dry_active_nematic_3d(&q0, &p, n_steps, n_steps + 1, &out, false);
     let elapsed = t0.elapsed().as_secs_f64();
     let usps = elapsed * 1e6 / (sites as f64 * n_steps as f64);
 

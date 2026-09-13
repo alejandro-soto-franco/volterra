@@ -165,9 +165,9 @@ impl Device {
         let stream = &self.stream;
         let d_arr = DeviceBuffer::from_host(stream, arr)?;
         let d_out = DeviceBuffer::from_host(stream, out_seed)?;
-        let mut d_out2 = d_out.cast_chunks::<[f64; 2]>().unwrap_or_else(|_| {
-            panic!("lx*ly*2 f64 buffer must reinterpret as lx*ly [f64;2]")
-        });
+        let mut d_out2 = d_out
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("lx*ly*2 f64 buffer must reinterpret as lx*ly [f64;2]"));
         let cfg = LaunchConfig::for_num_elems(n as u32);
         // SAFETY: as above; `d_out2` holds `n` 2-wide slots matching `cfg`.
         let launched = unsafe {
@@ -267,8 +267,12 @@ impl Device {
                 &mut d_s,
             )
         };
-        let d_h = d_h.cast_chunks::<f64>().unwrap_or_else(|_| panic!("h back to f64"));
-        let d_s = d_s.cast_chunks::<f64>().unwrap_or_else(|_| panic!("s back to f64"));
+        let d_h = d_h
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("h back to f64"));
+        let d_s = d_s
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("s back to f64"));
         launched?;
         Ok((d_h.to_host_vec(stream)?, d_s.to_host_vec(stream)?))
     }
@@ -453,7 +457,9 @@ impl Device {
                 &mut d_u,
             )
         };
-        let d_u = d_u.cast_chunks::<f64>().unwrap_or_else(|_| panic!("u back to f64"));
+        let d_u = d_u
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("u back to f64"));
         launched?;
         Ok(d_u.to_host_vec(stream)?)
     }
@@ -488,7 +494,9 @@ impl Device {
                 &mut d_q,
             )
         };
-        let d_q = d_q.cast_chunks::<f64>().unwrap_or_else(|_| panic!("q back to f64"));
+        let d_q = d_q
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("q back to f64"));
         launched?;
         Ok(d_q.to_host_vec(stream)?)
     }
@@ -531,7 +539,9 @@ impl Device {
                 &mut d_h,
             )
         };
-        let d_h = d_h.cast_chunks::<f64>().unwrap_or_else(|_| panic!("h back to f64"));
+        let d_h = d_h
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("h back to f64"));
         launched?;
         Ok(d_h.to_host_vec(stream)?)
     }
@@ -619,7 +629,9 @@ impl Device {
                 &mut d_dq,
             )
         };
-        let d_dq = d_dq.cast_chunks::<f64>().unwrap_or_else(|_| panic!("dq back to f64"));
+        let d_dq = d_dq
+            .cast_chunks::<f64>()
+            .unwrap_or_else(|_| panic!("dq back to f64"));
         launched?;
         Ok(d_dq.to_host_vec(stream)?)
     }
@@ -634,14 +646,8 @@ impl Device {
         // SAFETY: `d_rate` and `d_field` are the same length, which the kernel
         // bounds-checks against `len`.
         unsafe {
-            self.module.integrate(
-                stream,
-                cfg,
-                &d_rate,
-                field.len() as u32,
-                dt,
-                &mut d_field,
-            )?;
+            self.module
+                .integrate(stream, cfg, &d_rate, field.len() as u32, dt, &mut d_field)?;
         }
         Ok(d_field.to_host_vec(stream)?)
     }
@@ -663,9 +669,9 @@ impl Device {
         let d_u = DeviceBuffer::from_host(stream, u)?;
         let d_arr = DeviceBuffer::from_host(stream, arr)?;
         let d_out = DeviceBuffer::from_host(stream, out_seed)?;
-        let mut d_out2 = d_out.cast_chunks::<[f64; 2]>().unwrap_or_else(|_| {
-            panic!("lx*ly*2 f64 buffer must reinterpret as lx*ly [f64;2]")
-        });
+        let mut d_out2 = d_out
+            .cast_chunks::<[f64; 2]>()
+            .unwrap_or_else(|_| panic!("lx*ly*2 f64 buffer must reinterpret as lx*ly [f64;2]"));
         let cfg = LaunchConfig::for_num_elems(n as u32);
         // SAFETY: as above.
         let launched = unsafe {

@@ -51,7 +51,13 @@ impl SimulationRunner {
         physics: &mut P,
         observer: &mut dyn Observer<P::Field>,
     ) {
-        let RunConfig { steps, snap_every, dt, snap_final, .. } = self.config;
+        let RunConfig {
+            steps,
+            snap_every,
+            dt,
+            snap_final,
+            ..
+        } = self.config;
         let mut last = StepStats::default();
         for step in 0..=steps {
             let at_cadence = snap_every != 0 && step % snap_every == 0;
@@ -69,8 +75,8 @@ impl SimulationRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::stats::StepStats;
     use crate::sim::snapshot::StatsSink;
+    use crate::sim::stats::StepStats;
 
     // A trivial physics: state is a counter, each step increments and reports it.
     struct Counter;
@@ -78,13 +84,21 @@ mod tests {
         type Field = u64;
         fn step(&mut self, field: &mut u64, t: f64) -> StepStats {
             *field += 1;
-            StepStats::default().with_time(t).with_order_param(*field as f64)
+            StepStats::default()
+                .with_time(t)
+                .with_order_param(*field as f64)
         }
     }
 
     #[test]
     fn loop_snapshots_at_cadence_and_steps_exactly_n() {
-        let cfg = RunConfig { steps: 4, snap_every: 2, dt: 0.5, seed: 0, snap_final: false };
+        let cfg = RunConfig {
+            steps: 4,
+            snap_every: 2,
+            dt: 0.5,
+            seed: 0,
+            snap_final: false,
+        };
         let runner = SimulationRunner { config: cfg };
         let mut field = 0u64;
         let mut sink = StatsSink::default();
@@ -105,7 +119,13 @@ mod tests {
     fn snap_final_emits_final_step_when_off_cadence() {
         // steps=5, snap_every=2: cadence hits 0,2,4 and would DROP the final
         // state at step 5. snap_final=true must append a step-5 snapshot.
-        let cfg = RunConfig { steps: 5, snap_every: 2, dt: 1.0, seed: 0, snap_final: true };
+        let cfg = RunConfig {
+            steps: 5,
+            snap_every: 2,
+            dt: 1.0,
+            seed: 0,
+            snap_final: true,
+        };
         let runner = SimulationRunner { config: cfg };
         let mut field = 0u64;
         let mut sink = StatsSink::default();
@@ -120,7 +140,13 @@ mod tests {
     fn snap_final_does_not_double_emit_when_on_cadence() {
         // steps=4, snap_every=2: step 4 is already a cadence point, so
         // snap_final must not produce a duplicate snapshot.
-        let cfg = RunConfig { steps: 4, snap_every: 2, dt: 1.0, seed: 0, snap_final: true };
+        let cfg = RunConfig {
+            steps: 4,
+            snap_every: 2,
+            dt: 1.0,
+            seed: 0,
+            snap_final: true,
+        };
         let runner = SimulationRunner { config: cfg };
         let mut field = 0u64;
         let mut sink = StatsSink::default();

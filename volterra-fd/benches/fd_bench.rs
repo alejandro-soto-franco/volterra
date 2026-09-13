@@ -17,20 +17,14 @@
 use std::f64::consts::PI;
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 
-use volterra_fd::{
-    boundary::nephroid_boundary,
-    index::vi,
-    sim_step::FdStep,
-    step::State,
-    Params,
-};
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
+use volterra_fd::{Params, boundary::nephroid_boundary, index::vi, sim_step::FdStep, step::State};
 
 /// No-op observer: never invoked because snapshots are disabled, but the runner
 /// requires one.
@@ -89,7 +83,9 @@ fn fd_step(c: &mut Criterion) {
             };
             let mut state = State::new(lx, ly);
             random_theta_ic(&mut state.q, params.s0, lx, ly, &boundary.inside, 0);
-            let runner = SimulationRunner { config: cfg.clone() };
+            let runner = SimulationRunner {
+                config: cfg.clone(),
+            };
             let mut obs = NullObserver;
             runner.run(black_box(&mut state), &mut physics, &mut obs);
         });

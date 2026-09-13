@@ -23,9 +23,18 @@ fn main() {
     );
 
     let cases: Vec<(String, _)> = vec![
-        ("circle r=1, 240 bdy, h=0.04".into(), disk_mesh(1.0, 1.0, 240, 0.04)),
-        ("cardioid q=1, r=3, 128 bdy".into(), epitrochoid_mesh(1.0, 3.0, 128, 0.3)),
-        ("nephroid q=2, r=3, 128 bdy".into(), epitrochoid_mesh(2.0, 3.0, 128, 0.3)),
+        (
+            "circle r=1, 240 bdy, h=0.04".into(),
+            disk_mesh(1.0, 1.0, 240, 0.04),
+        ),
+        (
+            "cardioid q=1, r=3, 128 bdy".into(),
+            epitrochoid_mesh(1.0, 3.0, 128, 0.3),
+        ),
+        (
+            "nephroid q=2, r=3, 128 bdy".into(),
+            epitrochoid_mesh(2.0, 3.0, 128, 0.3),
+        ),
     ];
 
     for (name, cm) in cases {

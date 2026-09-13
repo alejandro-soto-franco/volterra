@@ -17,7 +17,14 @@ fn the_genus_two_mesh_has_euler_characteristic_minus_two() {
         }
     }
     let chi = verts.len() as i64 - edges.len() as i64 + tris.len() as i64;
-    assert_eq!(chi, -2, "V {} - E {} + F {}", verts.len(), edges.len(), tris.len());
+    assert_eq!(
+        chi,
+        -2,
+        "V {} - E {} + F {}",
+        verts.len(),
+        edges.len(),
+        tris.len()
+    );
 }
 
 /// Every edge has two faces and every triangle has area.
@@ -31,14 +38,19 @@ fn the_genus_two_mesh_is_closed_and_has_no_degenerate_triangle() {
     let mut faces_on_edge = std::collections::HashMap::new();
     for t in &tris {
         for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-            *faces_on_edge.entry(if a < b { (a, b) } else { (b, a) }).or_insert(0) += 1;
+            *faces_on_edge
+                .entry(if a < b { (a, b) } else { (b, a) })
+                .or_insert(0) += 1;
         }
     }
     let open = faces_on_edge.values().filter(|&&c| c != 2).count();
     assert_eq!(open, 0, "{open} edge(s) without exactly two faces");
 
     for t in &tris {
-        assert!(t[0] != t[1] && t[1] != t[2] && t[0] != t[2], "repeated vertex in {t:?}");
+        assert!(
+            t[0] != t[1] && t[1] != t[2] && t[0] != t[2],
+            "repeated vertex in {t:?}"
+        );
         let (p, q, r) = (verts[t[0]], verts[t[1]], verts[t[2]]);
         let u = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
         let v = [r[0] - p[0], r[1] - p[1], r[2] - p[2]];
@@ -75,7 +87,10 @@ fn the_genus_two_mesh_satisfies_gauss_bonnet() {
     }
     let total: f64 = angle.iter().map(|a| std::f64::consts::TAU - a).sum();
     let want = -4.0 * std::f64::consts::PI;
-    assert!((total - want).abs() < 1e-8, "defect sum {total}, wanted {want}");
+    assert!(
+        (total - want).abs() < 1e-8,
+        "defect sum {total}, wanted {want}"
+    );
 }
 
 /// The cotangent weights are non-negative, which is what DEC needs.

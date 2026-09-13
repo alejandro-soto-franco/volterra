@@ -186,8 +186,19 @@ impl Device {
             // slots matching `cells`.
             let r = unsafe {
                 m.h_s_from_q(
-                    stream, cells, &st.u, &st.q, &bnd.inside, lx, ly,
-                    p.a_landau, p.c_landau, p.k_elastic, p.lambda, &mut h2, &mut s2,
+                    stream,
+                    cells,
+                    &st.u,
+                    &st.q,
+                    &bnd.inside,
+                    lx,
+                    ly,
+                    p.a_landau,
+                    p.c_landau,
+                    p.k_elastic,
+                    p.lambda,
+                    &mut h2,
+                    &mut s2,
                 )
             };
             st.h = h2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("h back"));
@@ -203,9 +214,19 @@ impl Device {
             // SAFETY: as above.
             let r = unsafe {
                 m.apply_h_bc(
-                    stream, cells, &st.q, &st.u, &st.s,
-                    &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
-                    lx, ly, p.gamma, &mut h2,
+                    stream,
+                    cells,
+                    &st.q,
+                    &st.u,
+                    &st.s,
+                    &bnd.is_inner,
+                    &bnd.is_outer,
+                    &bnd.inner_normals,
+                    &bnd.outer_normals,
+                    lx,
+                    ly,
+                    p.gamma,
+                    &mut h2,
                 )
             };
             st.h = h2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("h back"));
@@ -220,11 +241,23 @@ impl Device {
             // SAFETY: as above.
             let r = unsafe {
                 m.calculate_pi(
-                    stream, cells, &st.h, &st.q, &bnd.inside, lx, ly,
-                    p.lambda, p.zeta, p.k_elastic, &mut pi_s2, &mut st.pi_a,
+                    stream,
+                    cells,
+                    &st.h,
+                    &st.q,
+                    &bnd.inside,
+                    lx,
+                    ly,
+                    p.lambda,
+                    p.zeta,
+                    p.k_elastic,
+                    &mut pi_s2,
+                    &mut st.pi_a,
                 )
             };
-            st.pi_s = pi_s2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("pi_s back"));
+            st.pi_s = pi_s2
+                .cast_chunks::<f64>()
+                .unwrap_or_else(|_| panic!("pi_s back"));
             r?;
         }
 
@@ -239,11 +272,22 @@ impl Device {
             // SAFETY: as above.
             let r = unsafe {
                 m.q_update(
-                    stream, cells, &st.q, &st.h, &st.s, &st.u, &bnd.inside, lx, ly,
-                    p.gamma, &mut dq2,
+                    stream,
+                    cells,
+                    &st.q,
+                    &st.h,
+                    &st.s,
+                    &st.u,
+                    &bnd.inside,
+                    lx,
+                    ly,
+                    p.gamma,
+                    &mut dq2,
                 )
             };
-            st.dq = dq2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("dq back"));
+            st.dq = dq2
+                .cast_chunks::<f64>()
+                .unwrap_or_else(|_| panic!("dq back"));
             r?;
         }
 
@@ -255,11 +299,23 @@ impl Device {
             // SAFETY: as above.
             let r = unsafe {
                 m.u_update(
-                    stream, cells, &st.u, &st.p, &st.pi_s, &st.pi_a, &bnd.inside, lx, ly,
-                    p.rho, p.eta, &mut dudt2,
+                    stream,
+                    cells,
+                    &st.u,
+                    &st.p,
+                    &st.pi_s,
+                    &st.pi_a,
+                    &bnd.inside,
+                    lx,
+                    ly,
+                    p.rho,
+                    p.eta,
+                    &mut dudt2,
                 )
             };
-            st.dudt = dudt2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("dudt back"));
+            st.dudt = dudt2
+                .cast_chunks::<f64>()
+                .unwrap_or_else(|_| panic!("dudt back"));
             r?;
         }
 
@@ -279,9 +335,17 @@ impl Device {
             // SAFETY: as above.
             let r = unsafe {
                 m.apply_q_bc(
-                    stream, cells,
-                    &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
-                    lx, ly, p.s0, p.net_charge, &mut q2,
+                    stream,
+                    cells,
+                    &bnd.is_inner,
+                    &bnd.is_outer,
+                    &bnd.inner_normals,
+                    &bnd.outer_normals,
+                    lx,
+                    ly,
+                    p.s0,
+                    p.net_charge,
+                    &mut q2,
                 )
             };
             st.q = q2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("q back"));
@@ -296,9 +360,15 @@ impl Device {
             // SAFETY: as above.
             let r = unsafe {
                 m.apply_u_bc(
-                    stream, cells,
-                    &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
-                    lx, ly, &mut u2,
+                    stream,
+                    cells,
+                    &bnd.is_inner,
+                    &bnd.is_outer,
+                    &bnd.inner_normals,
+                    &bnd.outer_normals,
+                    lx,
+                    ly,
+                    &mut u2,
                 )
             };
             st.u = u2.cast_chunks::<f64>().unwrap_or_else(|_| panic!("u back"));
@@ -330,7 +400,15 @@ impl Device {
             m.div_vector(stream, cells, &st.u, &bnd.inside, lx, ly, &mut st.rhs)?;
             m.scale_scalar(stream, cells, n as u32, p.rho / p.dt, &mut st.rhs)?;
             m.pressure_terms(
-                stream, cells, &st.u, &st.pi_s, &bnd.inside, lx, ly, p.rho, &mut st.rhs,
+                stream,
+                cells,
+                &st.u,
+                &st.pi_s,
+                &bnd.inside,
+                lx,
+                ly,
+                p.rho,
+                &mut st.rhs,
             )?;
         }
 
@@ -342,12 +420,31 @@ impl Device {
                 unsafe {
                     m.copy_scalar(stream, cells, &st.p, n as u32, &mut st.p_aux)?;
                     m.jacobi_sweep(
-                        stream, cells, &st.p_aux, &st.rhs, &bnd.inside, lx, ly, &mut st.p,
+                        stream,
+                        cells,
+                        &st.p_aux,
+                        &st.rhs,
+                        &bnd.inside,
+                        lx,
+                        ly,
+                        &mut st.p,
                     )?;
                     m.apply_p_bc(
-                        stream, cells, &st.p_aux, &st.u, &st.pi_s, &st.pi_a,
-                        &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
-                        lx, ly, p.rho, p.eta, &mut st.p,
+                        stream,
+                        cells,
+                        &st.p_aux,
+                        &st.u,
+                        &st.pi_s,
+                        &st.pi_a,
+                        &bnd.is_inner,
+                        &bnd.is_outer,
+                        &bnd.inner_normals,
+                        &bnd.outer_normals,
+                        lx,
+                        ly,
+                        p.rho,
+                        p.eta,
+                        &mut st.p,
                     )?;
                 }
             }
@@ -370,12 +467,31 @@ impl Device {
             unsafe {
                 m.copy_scalar(stream, cells, &st.p, n as u32, &mut st.p_aux)?;
                 m.jacobi_sweep(
-                    stream, cells, &st.p_aux, &st.rhs, &bnd.inside, lx, ly, &mut st.p,
+                    stream,
+                    cells,
+                    &st.p_aux,
+                    &st.rhs,
+                    &bnd.inside,
+                    lx,
+                    ly,
+                    &mut st.p,
                 )?;
                 m.apply_p_bc(
-                    stream, cells, &st.p_aux, &st.u, &st.pi_s, &st.pi_a,
-                    &bnd.is_inner, &bnd.is_outer, &bnd.inner_normals, &bnd.outer_normals,
-                    lx, ly, p.rho, p.eta, &mut st.p,
+                    stream,
+                    cells,
+                    &st.p_aux,
+                    &st.u,
+                    &st.pi_s,
+                    &st.pi_a,
+                    &bnd.is_inner,
+                    &bnd.is_outer,
+                    &bnd.inner_normals,
+                    &bnd.outer_normals,
+                    lx,
+                    ly,
+                    p.rho,
+                    p.eta,
+                    &mut st.p,
                 )?;
             }
             {
@@ -387,11 +503,19 @@ impl Device {
                 // `blocks`.
                 let r = unsafe {
                     m.pressure_partials(
-                        stream, blocks, &st.p, &st.p_aux, n as u32, st.span as u32,
-                        st.n_blocks as u32, &mut pr,
+                        stream,
+                        blocks,
+                        &st.p,
+                        &st.p_aux,
+                        n as u32,
+                        st.span as u32,
+                        st.n_blocks as u32,
+                        &mut pr,
                     )
                 };
-                st.partials = pr.cast_chunks::<f64>().unwrap_or_else(|_| panic!("partials back"));
+                st.partials = pr
+                    .cast_chunks::<f64>()
+                    .unwrap_or_else(|_| panic!("partials back"));
                 r?;
             }
 

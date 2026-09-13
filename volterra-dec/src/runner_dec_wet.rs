@@ -9,12 +9,12 @@
 //! The per-step physics lives in [`crate::sim_impls::dec::DecWet`]; these are
 //! the thin wrappers driving it through `volterra_core::sim::SimulationRunner`.
 
+use crate::QField;
+use crate::stokes::SurfaceStokes;
 use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
-use volterra_core::sim::{RunConfig, SimulationRunner};
 use volterra_core::ActiveNematicParams;
-use crate::stokes::SurfaceStokes;
-use crate::QField;
+use volterra_core::sim::{RunConfig, SimulationRunner};
 
 use crate::runner_dec::{DecSink, SnapStatsDec};
 use crate::sim_impls::dec::DecWet;

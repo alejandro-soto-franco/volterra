@@ -9,8 +9,8 @@
 
 use nalgebra::SVector;
 
-use cartan_core::bundle::{CovLaplacian, EdgeTransport2D};
 use cartan_core::Manifold;
+use cartan_core::bundle::{CovLaplacian, EdgeTransport2D};
 use cartan_dec::{DecError, Operators};
 
 use crate::domain::DecDomain;
@@ -85,22 +85,17 @@ where
         }
         let ne = self.domain.n_edges();
         for e in 0..ne {
-            self.domain.edge_lengths[e] = self.domain.mesh.boundary_volume(&self.domain.manifold, e);
+            self.domain.edge_lengths[e] =
+                self.domain.mesh.boundary_volume(&self.domain.manifold, e);
         }
 
         // Rebuild Levi-Civita connection.
         self.transport = cartan_dec::levi_civita_2d(&self.domain.mesh, &self.domain.manifold);
 
         // Rebuild covariant Laplacian stencil.
-        let star1: Vec<f64> = (0..ne)
-            .map(|i| self.domain.ops.hodge.star1()[i])
-            .collect();
-        self.cov_lap = CovLaplacian::new(
-            nv,
-            &self.transport.edges,
-            &star1,
-            &self.domain.dual_areas,
-        );
+        let star1: Vec<f64> = (0..ne).map(|i| self.domain.ops.hodge.star1()[i]).collect();
+        self.cov_lap =
+            CovLaplacian::new(nv, &self.transport.edges, &star1, &self.domain.dual_areas);
 
         self.deform_count += 1;
         Ok(())
@@ -173,7 +168,9 @@ where
         for n in &mut normals {
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
             if len > 1e-14 {
-                n[0] /= len; n[1] /= len; n[2] /= len;
+                n[0] /= len;
+                n[1] /= len;
+                n[2] /= len;
             }
         }
         self.domain.vertex_normals = normals;
@@ -201,8 +198,7 @@ where
         }
         for (v, (&angle, &a)) in angle_sum.iter().zip(&self.domain.dual_areas).enumerate() {
             if a > 1e-30 {
-                self.domain.gaussian_curvatures[v] =
-                    (2.0 * std::f64::consts::PI - angle) / a;
+                self.domain.gaussian_curvatures[v] = (2.0 * std::f64::consts::PI - angle) / a;
             }
         }
 
@@ -242,13 +238,7 @@ where
     /// v_n = (1/eta_s) * (-kb * (lap_H + 2(H-H0)(H^2-K)) + tension * H)
     ///
     /// Requires `recompute_curvatures()` to have been called first.
-    pub fn shape_velocity(
-        &self,
-        kb: f64,
-        h0: &[f64],
-        tension: f64,
-        eta_surface: f64,
-    ) -> Vec<f64> {
+    pub fn shape_velocity(&self, kb: f64, h0: &[f64], tension: f64, eta_surface: f64) -> Vec<f64> {
         let nv = self.domain.n_vertices();
         let h = &self.domain.mean_curvatures;
         let k = &self.domain.gaussian_curvatures;
@@ -270,21 +260,12 @@ where
     /// The correction to dQ/dt is: v_n * 2H * Q at each vertex.
     ///
     /// Returns delta_q1, delta_q2 to be added to the RHS of the Q evolution.
-    pub fn vn_correction(
-        &self,
-        v_n: &[f64],
-        q1: &[f64],
-        q2: &[f64],
-    ) -> (Vec<f64>, Vec<f64>) {
+    pub fn vn_correction(&self, v_n: &[f64], q1: &[f64], q2: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let nv = self.domain.n_vertices();
         let h = &self.domain.mean_curvatures;
 
-        let dq1: Vec<f64> = (0..nv)
-            .map(|v| v_n[v] * 2.0 * h[v] * q1[v])
-            .collect();
-        let dq2: Vec<f64> = (0..nv)
-            .map(|v| v_n[v] * 2.0 * h[v] * q2[v])
-            .collect();
+        let dq1: Vec<f64> = (0..nv).map(|v| v_n[v] * 2.0 * h[v] * q1[v]).collect();
+        let dq2: Vec<f64> = (0..nv).map(|v| v_n[v] * 2.0 * h[v] * q2[v]).collect();
 
         (dq1, dq2)
     }
@@ -298,12 +279,7 @@ where
     /// Computed per face using FEM gradient of vertex normals, then averaged
     /// to vertices. The Q-tensor is interpolated barycentrically (no frame
     /// transport, which is an approximation valid for small triangles).
-    pub fn active_stress_normal(
-        &self,
-        zeta: f64,
-        q1: &[f64],
-        q2: &[f64],
-    ) -> Vec<f64> {
+    pub fn active_stress_normal(&self, zeta: f64, q1: &[f64], q2: &[f64]) -> Vec<f64> {
         let nv = self.domain.n_vertices();
         let verts = &self.domain.mesh.vertices;
         let tris = &self.domain.mesh.simplices;
@@ -325,14 +301,19 @@ where
                 e01[2] * e02[0] - e01[0] * e02[2],
                 e01[0] * e02[1] - e01[1] * e02[0],
             ];
-            let area2 = (fn_vec[0] * fn_vec[0] + fn_vec[1] * fn_vec[1] + fn_vec[2] * fn_vec[2]).sqrt();
-            if area2 < 1e-30 { continue; }
+            let area2 =
+                (fn_vec[0] * fn_vec[0] + fn_vec[1] * fn_vec[1] + fn_vec[2] * fn_vec[2]).sqrt();
+            if area2 < 1e-30 {
+                continue;
+            }
             let face_area = area2 / 2.0;
             let fn_hat = [fn_vec[0] / area2, fn_vec[1] / area2, fn_vec[2] / area2];
 
             // Face tangent frame.
             let e01_len = (e01[0] * e01[0] + e01[1] * e01[1] + e01[2] * e01[2]).sqrt();
-            if e01_len < 1e-30 { continue; }
+            if e01_len < 1e-30 {
+                continue;
+            }
             let t1 = [e01[0] / e01_len, e01[1] / e01_len, e01[2] / e01_len];
             let t2 = [
                 fn_hat[1] * t1[2] - fn_hat[2] * t1[1],

@@ -103,7 +103,11 @@ pub fn detect_defects_surface(
             (vertices[tri[0]][2] + vertices[tri[1]][2] + vertices[tri[2]][2]) / 3.0,
         ];
         let r = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
-        let pos = if r > 0.0 { [c[0] / r, c[1] / r, c[2] / r] } else { c };
+        let pos = if r > 0.0 {
+            [c[0] / r, c[1] / r, c[2] / r]
+        } else {
+            c
+        };
         out.push((pos, n));
     }
     out
@@ -118,19 +122,24 @@ pub fn total_charge(defects: &[SurfaceDefect]) -> HalfCharge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DecDomain;
+    use crate::QField;
     use crate::connection_laplacian::ConnectionLaplacian;
     use crate::mesh_gen::icosphere;
-    use crate::QField;
-    use crate::DecDomain;
     use cartan_manifolds::sphere::Sphere;
 
-    fn setup(refinement: usize) -> (Vec<[f64; 3]>, Vec<[usize; 3]>, Vec<[usize; 2]>,
-                                    Vec<[usize; 3]>, Vec<f64>) {
-        let domain = DecDomain::new(icosphere(refinement), Sphere::<3>)
-            .expect("domain assembly");
+    fn setup(
+        refinement: usize,
+    ) -> (
+        Vec<[f64; 3]>,
+        Vec<[usize; 3]>,
+        Vec<[usize; 2]>,
+        Vec<[usize; 3]>,
+        Vec<f64>,
+    ) {
+        let domain = DecDomain::new(icosphere(refinement), Sphere::<3>).expect("domain assembly");
         let mesh = &domain.mesh;
-        let coords: Vec<[f64; 3]> =
-            mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
+        let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
         let h = &domain.ops.hodge;
         let star0: Vec<f64> = (0..h.star0().len()).map(|i| h.star0()[i]).collect();
         let star1: Vec<f64> = (0..h.star1().len()).map(|i| h.star1()[i]).collect();

@@ -1,8 +1,8 @@
 //! Tests for EvolvingDomain: mesh deformation with automatic operator rebuild.
 
 use cartan_manifolds::sphere::Sphere;
-use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::EvolvingDomain;
+use volterra_dec::mesh_gen::icosphere;
 
 use cartan_core::fiber::{Section, U1Spin2, VecSection};
 
@@ -30,11 +30,7 @@ fn evolving_domain_inflate_sphere() {
         .map(|i| {
             let p = ed.domain.mesh.vertices[i];
             let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
-            if r > 1e-14 {
-                p * (scale / r)
-            } else {
-                p
-            }
+            if r > 1e-14 { p * (scale / r) } else { p }
         })
         .collect();
 
@@ -63,20 +59,24 @@ fn evolving_domain_laplacian_updates_after_deform() {
     let area_before: f64 = ed.domain.dual_areas.iter().sum();
 
     // Scale all vertices by 2.0 (inflate to radius 2).
-    let new_positions: Vec<nalgebra::SVector<f64, 3>> = (0..nv)
-        .map(|i| ed.domain.mesh.vertices[i] * 2.0)
-        .collect();
+    let new_positions: Vec<nalgebra::SVector<f64, 3>> =
+        (0..nv).map(|i| ed.domain.mesh.vertices[i] * 2.0).collect();
 
     ed.deform(&new_positions).unwrap();
 
     let area_after: f64 = ed.domain.dual_areas.iter().sum();
     // Area should scale by 4x (R^2 factor).
     let ratio = area_after / area_before;
-    assert!((ratio - 4.0).abs() < 0.5, "area ratio should be ~4.0, got {ratio}");
+    assert!(
+        (ratio - 4.0).abs() < 0.5,
+        "area ratio should be ~4.0, got {ratio}"
+    );
 
     // Zero field: Laplacian must be zero regardless of geometry.
     let zero_field = VecSection::<U1Spin2>::from_vec(vec![[0.0, 0.0]; nv]);
-    let lap_result = ed.cov_lap.apply::<U1Spin2, 2, _>(&zero_field, &ed.transport);
+    let lap_result = ed
+        .cov_lap
+        .apply::<U1Spin2, 2, _>(&zero_field, &ed.transport);
 
     let max_lap: f64 = (0..nv)
         .map(|v| {
@@ -98,9 +98,8 @@ fn evolving_domain_deform_explicit() {
     let nv = mesh.n_vertices();
     let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
 
-    let new_positions: Vec<nalgebra::SVector<f64, 3>> = (0..nv)
-        .map(|i| ed.domain.mesh.vertices[i] * 1.1)
-        .collect();
+    let new_positions: Vec<nalgebra::SVector<f64, 3>> =
+        (0..nv).map(|i| ed.domain.mesh.vertices[i] * 1.1).collect();
 
     ed.deform(&new_positions).unwrap();
 
@@ -156,10 +155,8 @@ fn curvature_unit_sphere() {
     let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
     ed.recompute_curvatures();
 
-    let mean_h: f64 = ed.domain.mean_curvatures.iter().sum::<f64>()
-        / ed.n_vertices() as f64;
-    let mean_k: f64 = ed.domain.gaussian_curvatures.iter().sum::<f64>()
-        / ed.n_vertices() as f64;
+    let mean_h: f64 = ed.domain.mean_curvatures.iter().sum::<f64>() / ed.n_vertices() as f64;
+    let mean_k: f64 = ed.domain.gaussian_curvatures.iter().sum::<f64>() / ed.n_vertices() as f64;
 
     // Gaussian curvature should be 1.0 on unit sphere.
     assert!(
@@ -181,7 +178,10 @@ fn gaussian_curvature_integrates_to_4pi() {
     let mut ed = EvolvingDomain::new(mesh, Sphere::<3>).unwrap();
     ed.recompute_curvatures();
 
-    let integral_k: f64 = ed.domain.gaussian_curvatures.iter()
+    let integral_k: f64 = ed
+        .domain
+        .gaussian_curvatures
+        .iter()
         .zip(&ed.domain.dual_areas)
         .map(|(&k, &a)| k * a)
         .sum();

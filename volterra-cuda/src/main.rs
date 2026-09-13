@@ -34,7 +34,7 @@ use std::time::Instant;
 
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
-use volterra_fd::{fire_minimize_3d_par, FireParams as CpuFireParams};
+use volterra_fd::{FireParams as CpuFireParams, fire_minimize_3d_par};
 
 use volterra_cuda::{Bookkeeping, Device, FireParams as GpuFireParams, LdgParams};
 
@@ -203,7 +203,12 @@ fn run_validation_n8(dev: &Device, preset: &Preset) -> Result<(), Box<dyn std::e
     let diff = max_abs_diff(&cpu_q, &gpu_result.q);
     println!(
         "[{}] N=8 validation: CPU {} iters force_max={:.3e}; GPU {} iters force_max={:.3e}; max|Q_cpu-Q_gpu|={:.3e}",
-        preset.name, cpu_result.iterations, cpu_result.force_max, gpu_result.iterations, gpu_result.force_max, diff
+        preset.name,
+        cpu_result.iterations,
+        cpu_result.force_max,
+        gpu_result.iterations,
+        gpu_result.force_max,
+        diff
     );
     if diff > tol {
         return Err(format!(
@@ -212,7 +217,10 @@ fn run_validation_n8(dev: &Device, preset: &Preset) -> Result<(), Box<dyn std::e
         )
         .into());
     }
-    println!("[{}] N=8 validation PASSED (max diff {diff:e} <= {tol:e})", preset.name);
+    println!(
+        "[{}] N=8 validation PASSED (max diff {diff:e} <= {tol:e})",
+        preset.name
+    );
     Ok(())
 }
 
@@ -258,7 +266,13 @@ fn run_validation_n100(
         (cpu_result.force_max - gpu_result.force_max).abs() / cpu_result.force_max.max(1e-300);
     println!(
         "[{}] N=100 ({label}, target={target:e}): CPU {} iters force_max={:.6e}; GPU {} iters force_max={:.6e}; max|Q_cpu-Q_gpu|={:.3e}; rel force_max diff={:.3e}",
-        preset.name, cpu_result.iterations, cpu_result.force_max, gpu_result.iterations, gpu_result.force_max, diff, rel_force_diff
+        preset.name,
+        cpu_result.iterations,
+        cpu_result.force_max,
+        gpu_result.iterations,
+        gpu_result.force_max,
+        diff,
+        rel_force_diff
     );
     if cpu_result.iterations != gpu_result.iterations {
         return Err(format!(
@@ -275,13 +289,19 @@ fn run_validation_n100(
         )
         .into());
     }
-    println!("[{}] N=100 ({label}) validation PASSED (max diff {diff:e} <= {tol:e}, steps match)", preset.name);
+    println!(
+        "[{}] N=100 ({label}) validation PASSED (max diff {diff:e} <= {tol:e}, steps match)",
+        preset.name
+    );
     Ok(())
 }
 
 /// Matched-physics analogue of `run_validation_n8`: same tight `1e-9`
 /// tolerance, but `setup_matched`'s `(a_eff, b_landau, c_landau, k_r)`.
-fn run_validation_matched_n8(dev: &Device, preset: &Preset) -> Result<(), Box<dyn std::error::Error>> {
+fn run_validation_matched_n8(
+    dev: &Device,
+    preset: &Preset,
+) -> Result<(), Box<dyn std::error::Error>> {
     let n = 8usize;
     let (p, ldg) = setup_matched(n);
     let s0 = analytic_s0_matched(&p);
@@ -313,7 +333,12 @@ fn run_validation_matched_n8(dev: &Device, preset: &Preset) -> Result<(), Box<dy
     let diff = max_abs_diff(&cpu_q, &gpu_result.q);
     println!(
         "[matched/{}] N=8 validation: CPU {} iters force_max={:.3e}; GPU {} iters force_max={:.3e}; max|Q_cpu-Q_gpu|={:.3e}",
-        preset.name, cpu_result.iterations, cpu_result.force_max, gpu_result.iterations, gpu_result.force_max, diff
+        preset.name,
+        cpu_result.iterations,
+        cpu_result.force_max,
+        gpu_result.iterations,
+        gpu_result.force_max,
+        diff
     );
     if diff > tol {
         return Err(format!(
@@ -322,7 +347,10 @@ fn run_validation_matched_n8(dev: &Device, preset: &Preset) -> Result<(), Box<dy
         )
         .into());
     }
-    println!("[matched/{}] N=8 validation PASSED (max diff {diff:e} <= {tol:e})", preset.name);
+    println!(
+        "[matched/{}] N=8 validation PASSED (max diff {diff:e} <= {tol:e})",
+        preset.name
+    );
     Ok(())
 }
 
@@ -364,7 +392,12 @@ fn run_validation_matched_n100(
     let diff = max_abs_diff(&cpu_q, &gpu_result.q);
     println!(
         "[matched/{}] N=100 (target={target:e}): CPU {} iters force_max={:.6e}; GPU {} iters force_max={:.6e}; max|Q_cpu-Q_gpu|={:.3e}",
-        preset.name, cpu_result.iterations, cpu_result.force_max, gpu_result.iterations, gpu_result.force_max, diff
+        preset.name,
+        cpu_result.iterations,
+        cpu_result.force_max,
+        gpu_result.iterations,
+        gpu_result.force_max,
+        diff
     );
     if cpu_result.iterations != gpu_result.iterations {
         return Err(format!(
@@ -381,7 +414,10 @@ fn run_validation_matched_n100(
         )
         .into());
     }
-    println!("[matched/{}] N=100 validation PASSED (max diff {diff:e} <= {tol:e}, steps match)", preset.name);
+    println!(
+        "[matched/{}] N=100 validation PASSED (max diff {diff:e} <= {tol:e}, steps match)",
+        preset.name
+    );
     Ok(())
 }
 
@@ -391,7 +427,10 @@ fn phase_matched(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
     let s0 = analytic_s0_matched(&p);
     println!(
         "[matched] a_eff={:.6} b_landau={:.6} c_landau={:.6} k_r={:.6} -- S0={s0:.6}",
-        p.a_eff(), p.b_landau, p.c_landau, p.k_r
+        p.a_eff(),
+        p.b_landau,
+        p.c_landau,
+        p.k_r
     );
 
     for preset in PRESETS.iter().chain(std::iter::once(&MATCHED_TUNED_PRESET)) {
@@ -428,7 +467,9 @@ fn phase_matched(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
                 let (t, iters, force_max, ok) =
                     timed_run(dev, preset, p.dt, LITERAL_TARGET, 2000, &q0_flat, &ldg)?;
                 if !ok {
-                    return Err(format!("[matched] batch {batch} rep {rep}: did not reach target").into());
+                    return Err(
+                        format!("[matched] batch {batch} rep {rep}: did not reach target").into(),
+                    );
                 }
                 println!(
                     "[matched/{preset_name}] GPU FIRE literal (1e-3) batch={batch} rep={rep} N={n} steps={iters} force_max={force_max:.6e} wall={t:.4}s"
@@ -442,7 +483,8 @@ fn phase_matched(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         let max = times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         println!(
             "[matched/{preset_name}] GPU FIRE literal (1e-3) N={n} steps={:?} (warm-up steps={warm_iters}) wall min={min:.4}s mean={mean:.4}s max={max:.4}s spread={:.4}s",
-            iters_seen, max - min
+            iters_seen,
+            max - min
         );
     }
     Ok(())
@@ -468,7 +510,9 @@ fn phase_roofline(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         bw_elements * 8 / (1024 * 1024)
     );
     let launch_overhead_us = dev.measure_launch_overhead(2000)? * 1e6;
-    println!("roofline: mean kernel launch overhead (1-element launches, 2000 reps) = {launch_overhead_us:.2} us");
+    println!(
+        "roofline: mean kernel launch overhead (1-element launches, 2000 reps) = {launch_overhead_us:.2} us"
+    );
 
     let n = 100usize;
     let n_sites = n * n * n;
@@ -505,7 +549,12 @@ fn timed_run(
     let t0 = Instant::now();
     let result = dev.fire_minimize(q0_flat, ldg, &gpu_params)?;
     let elapsed = t0.elapsed().as_secs_f64();
-    Ok((elapsed, result.iterations, result.force_max, result.converged))
+    Ok((
+        elapsed,
+        result.iterations,
+        result.force_max,
+        result.converged,
+    ))
 }
 
 fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
@@ -516,7 +565,10 @@ fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
     let q0 = QField3D::random_director_field(n, n, n, p.dx, s0, 42);
     let q0_flat = flatten(&q0);
 
-    for (label, target) in [("literal (1e-3)", LITERAL_TARGET), ("scale-matched (2.09e-5)", SCALE_MATCHED_TARGET)] {
+    for (label, target) in [
+        ("literal (1e-3)", LITERAL_TARGET),
+        ("scale-matched (2.09e-5)", SCALE_MATCHED_TARGET),
+    ] {
         // Untimed warm-up (pays first-touch cost once), then 3 timed repeats.
         let (_warm_t, warm_iters, _warm_fm, warm_ok) =
             timed_run(dev, preset, p.dt, target, 2000, &q0_flat, &ldg)?;
@@ -527,7 +579,8 @@ fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         let mut times = Vec::with_capacity(3);
         let mut iters_seen = Vec::with_capacity(3);
         for rep in 0..3 {
-            let (t, iters, force_max, ok) = timed_run(dev, preset, p.dt, target, 2000, &q0_flat, &ldg)?;
+            let (t, iters, force_max, ok) =
+                timed_run(dev, preset, p.dt, target, 2000, &q0_flat, &ldg)?;
             if !ok {
                 return Err(format!("[time-tuned] {label} rep {rep}: did not reach target").into());
             }
@@ -542,7 +595,8 @@ fn phase_time_tuned(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
         let max = times.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         println!(
             "[volterra_tuned] GPU FIRE {label} N={n} steps={:?} (warm-up steps={warm_iters}) wall min={min:.4}s mean={mean:.4}s max={max:.4}s spread={:.4}s",
-            iters_seen, max - min
+            iters_seen,
+            max - min
         );
     }
     Ok(())
@@ -583,7 +637,9 @@ fn phase_bookkeeping(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
             let r = dev.fire_minimize_with(&q0_flat, &ldg, &params, mode)?;
             let t = t0.elapsed().as_secs_f64();
             if !r.converged {
-                return Err(format!("[bookkeeping] {label} rep {rep}: did not reach target").into());
+                return Err(
+                    format!("[bookkeeping] {label} rep {rep}: did not reach target").into(),
+                );
             }
             if r.iterations != iters {
                 return Err(format!(
@@ -645,10 +701,14 @@ fn phase_kernels(dev: &Device) -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[kernels] N={n}, {reps} reps each, mean ms/launch (no host round trip mid-loop):");
     println!("[kernels] split (trq2+force, current)      = {t_split:.4} ms");
-    println!("[kernels] force_fused_aos (fused, AoS)      = {t_fused_aos:.4} ms  ({:+.1}% vs split)",
-        100.0 * (t_fused_aos - t_split) / t_split);
-    println!("[kernels] force_fused_soa (fused, SoA)      = {t_fused_soa:.4} ms  ({:+.1}% vs split)",
-        100.0 * (t_fused_soa - t_split) / t_split);
+    println!(
+        "[kernels] force_fused_aos (fused, AoS)      = {t_fused_aos:.4} ms  ({:+.1}% vs split)",
+        100.0 * (t_fused_aos - t_split) / t_split
+    );
+    println!(
+        "[kernels] force_fused_soa (fused, SoA)      = {t_fused_soa:.4} ms  ({:+.1}% vs split)",
+        100.0 * (t_fused_soa - t_split) / t_split
+    );
     let _ = p;
     Ok(())
 }
@@ -681,7 +741,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             phase_kernels(&dev)?;
         }
         other => {
-            return Err(format!("unknown phase '{other}'; expected roofline|validate|time-tuned|kernels|matched|all").into());
+            return Err(format!(
+                "unknown phase '{other}'; expected roofline|validate|time-tuned|kernels|matched|all"
+            )
+            .into());
         }
     }
 

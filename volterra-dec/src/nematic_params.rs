@@ -57,7 +57,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Parameterisation {
     /// The two lattice lengths at a given grid side.
-    LengthScales { active_length: f64, coherence_length: f64, resolution: usize },
+    LengthScales {
+        active_length: f64,
+        coherence_length: f64,
+        resolution: usize,
+    },
     /// Activity and core size measured against the domain.
     Nondimensional { pe: f64, epsilon: f64, domain: f64 },
     /// The dimensional constants given directly.
@@ -150,7 +154,11 @@ impl NematicParams {
         let als = domain / pe.sqrt();
         let ncl = epsilon * domain;
         let mut p = Self::from_length_scales(als, ncl, domain.round() as usize);
-        p.source = Parameterisation::Nondimensional { pe, epsilon, domain };
+        p.source = Parameterisation::Nondimensional {
+            pe,
+            epsilon,
+            domain,
+        };
         p
     }
 
@@ -344,7 +352,10 @@ mod tests {
         let (a, c, z) = p.to_rotor_convention();
         assert!((a - p.a_landau).abs() < 1e-12);
         assert!((2.0 * c - p.c_landau).abs() < 1e-12, "2c must equal C");
-        assert_eq!(z, 0.0, "activity belongs in the stress, not the linear term");
+        assert_eq!(
+            z, 0.0,
+            "activity belongs in the stress, not the linear term"
+        );
     }
 
     #[test]

@@ -20,10 +20,10 @@
 use cartan_manifolds::sphere::Sphere;
 use nalgebra::DMatrix;
 use std::collections::HashMap;
+use volterra_dec::DecDomain;
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::poisson::PoissonSolver;
 use volterra_dec::stokes::{extract_coords, gaussian_curvature};
-use volterra_dec::DecDomain;
 
 /// A tube around the Bernoulli lemniscate.
 ///
@@ -89,24 +89,29 @@ fn marching_tets(
     // closes.
     let mut on_edge: HashMap<(usize, usize), usize> = HashMap::new();
 
-    let mut cut = |a: usize, b: usize, verts: &mut Vec<[f64; 3]>, at_pt: &dyn Fn(usize) -> [f64; 3]| {
-        let key = if a < b { (a, b) } else { (b, a) };
-        if let Some(&v) = on_edge.get(&key) {
-            return v;
-        }
-        let (fa, fb) = (val[key.0], val[key.1]);
-        let t = if (fb - fa).abs() < 1e-300 { 0.5 } else { (fa / (fa - fb)).clamp(1e-6, 1.0 - 1e-6) };
-        let (pa, pb) = (at_pt(key.0), at_pt(key.1));
-        let p = [
-            pa[0] + t * (pb[0] - pa[0]),
-            pa[1] + t * (pb[1] - pa[1]),
-            pa[2] + t * (pb[2] - pa[2]),
-        ];
-        verts.push(p);
-        let v = verts.len() - 1;
-        on_edge.insert(key, v);
-        v
-    };
+    let mut cut =
+        |a: usize, b: usize, verts: &mut Vec<[f64; 3]>, at_pt: &dyn Fn(usize) -> [f64; 3]| {
+            let key = if a < b { (a, b) } else { (b, a) };
+            if let Some(&v) = on_edge.get(&key) {
+                return v;
+            }
+            let (fa, fb) = (val[key.0], val[key.1]);
+            let t = if (fb - fa).abs() < 1e-300 {
+                0.5
+            } else {
+                (fa / (fa - fb)).clamp(1e-6, 1.0 - 1e-6)
+            };
+            let (pa, pb) = (at_pt(key.0), at_pt(key.1));
+            let p = [
+                pa[0] + t * (pb[0] - pa[0]),
+                pa[1] + t * (pb[1] - pa[1]),
+                pa[2] + t * (pb[2] - pa[2]),
+            ];
+            verts.push(p);
+            let v = verts.len() - 1;
+            on_edge.insert(key, v);
+            v
+        };
 
     let at_pt = |flat: usize| -> [f64; 3] {
         let k = flat % (n + 1);
@@ -271,7 +276,10 @@ fn orient(tris: &mut [[usize; 3]]) -> (bool, usize) {
     let mut by_edge: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     for (fi, t) in tris.iter().enumerate() {
         for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-            by_edge.entry(if a < b { (a, b) } else { (b, a) }).or_default().push(fi);
+            by_edge
+                .entry(if a < b { (a, b) } else { (b, a) })
+                .or_default()
+                .push(fi);
         }
     }
     let boundary = by_edge.values().filter(|v| v.len() != 2).count();
@@ -330,7 +338,11 @@ fn spectrum(solver: &PoissonSolver, n: usize) -> Vec<f64> {
     // Symmetrise away the last bit of assembly asymmetry before the solve.
     let bt = b.transpose();
     let sym = (&b + &bt) * 0.5;
-    let mut ev: Vec<f64> = nalgebra::SymmetricEigen::new(sym).eigenvalues.iter().copied().collect();
+    let mut ev: Vec<f64> = nalgebra::SymmetricEigen::new(sym)
+        .eigenvalues
+        .iter()
+        .copied()
+        .collect();
     ev.sort_by(|a, c| a.abs().partial_cmp(&c.abs()).unwrap());
     ev
 }
@@ -370,7 +382,9 @@ fn probe<M: cartan_core::Manifold>(
 ) {
     let n = coords.len();
     let chi = euler(n, tris);
-    let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
+    let star0: Vec<f64> = (0..ops.hodge.star0().len())
+        .map(|i| ops.hodge.star0()[i])
+        .collect();
     let k = gaussian_curvature(n, tris, coords, &star0);
 
     // Discrete Gauss-Bonnet: the angle defects sum to 2 pi chi exactly, so this
@@ -405,16 +419,27 @@ fn probe<M: cartan_core::Manifold>(
     let h = mesh_h(coords, tris);
 
     println!("\n=== {name} ===");
-    println!("  V = {n}, F = {}, chi = {chi} (expected {chi_expect}), h = {h:.4}", tris.len());
-    println!("  Gauss-Bonnet: int K dA = {total:.6}, 2 pi chi = {want:.6}, error {:.2e}",
-             (total - want).abs());
-    println!("  raw angle defect sum = {raw:.6} (combinatorial, must equal 2 pi chi), \
-              error {:.2e}", (raw - want).abs());
+    println!(
+        "  V = {n}, F = {}, chi = {chi} (expected {chi_expect}), h = {h:.4}",
+        tris.len()
+    );
+    println!(
+        "  Gauss-Bonnet: int K dA = {total:.6}, 2 pi chi = {want:.6}, error {:.2e}",
+        (total - want).abs()
+    );
+    println!(
+        "  raw angle defect sum = {raw:.6} (combinatorial, must equal 2 pi chi), \
+              error {:.2e}",
+        (raw - want).abs()
+    );
     println!("  vertices with non-positive dual area: {bad} of {n}");
     // 2 pi V - pi F is the identity the raw sum must satisfy. When it does not,
     // the triangles are not all honest triangles.
     let ident = std::f64::consts::TAU * n as f64 - std::f64::consts::PI * tris.len() as f64;
-    let degen = tris.iter().filter(|t| t[0] == t[1] || t[1] == t[2] || t[0] == t[2]).count();
+    let degen = tris
+        .iter()
+        .filter(|t| t[0] == t[1] || t[1] == t[2] || t[0] == t[2])
+        .count();
     let tiny = tris
         .iter()
         .filter(|t| {
@@ -436,19 +461,29 @@ fn probe<M: cartan_core::Manifold>(
         }
     }
     let orphan = used.iter().filter(|&&u| !u).count();
-    println!("  2 pi V - pi F = {ident:.6}; repeated-vertex tris {degen}, \
-              zero-area tris {tiny}, unused vertices {orphan}");
+    println!(
+        "  2 pi V - pi F = {ident:.6}; repeated-vertex tris {degen}, \
+              zero-area tris {tiny}, unused vertices {orphan}"
+    );
     print!("  Delta + 2K, six smallest |lambda|:");
     for v in &low {
         print!(" {:.3e}", v.abs());
     }
     println!();
-    println!("  h^2 = {:.3e}; solver's three-candidate count: {}", h * h, a.kernel_dimension());
+    println!(
+        "  h^2 = {:.3e}; solver's three-candidate count: {}",
+        h * h,
+        a.kernel_dimension()
+    );
     // Whether the triangles are good enough for the DEC to be meaningful:
     // non-negative cotangent weights, and dual cells that are not inverted.
     let q = cartan_dec::mesh_quality::quality_report(mesh_ref, manifold_ref);
-    println!("  quality: min angle {:.2} deg, max {:.2} deg, non-Delaunay edges {}",
-             q.min_angle.to_degrees(), q.max_angle.to_degrees(), q.non_delaunay_edges);
+    println!(
+        "  quality: min angle {:.2} deg, max {:.2} deg, non-Delaunay edges {}",
+        q.min_angle.to_degrees(),
+        q.max_angle.to_degrees(),
+        q.non_delaunay_edges
+    );
 
     // Reproduce the heuristic's own numbers. It divides the response of a
     // linear coordinate by the response of a PSEUDO-RANDOM probe. A random
@@ -457,7 +492,11 @@ fn probe<M: cartan_core::Manifold>(
     // once the mesh is fine enough, kernel or no kernel.
     let m = a.mass();
     let mdot = |x: &[f64], y: &[f64]| -> f64 {
-        x.iter().zip(y).zip(m).map(|((p, q), w)| p * q * w).sum::<f64>()
+        x.iter()
+            .zip(y)
+            .zip(m)
+            .map(|((p, q), w)| p * q * w)
+            .sum::<f64>()
     };
     let mnorm = |x: &[f64]| mdot(x, x).sqrt();
     let probe: Vec<f64> = (0..n)
@@ -467,7 +506,10 @@ fn probe<M: cartan_core::Manifold>(
     print!("  heuristic: random-probe scale {pscale:.3e}, per-axis ratio");
     for axis in 0..3 {
         let v: Vec<f64> = coords.iter().map(|c| c[axis]).collect();
-        print!(" {:.2e}", mnorm(&a.apply_operator(&v)) / (pscale * mnorm(&v)));
+        print!(
+            " {:.2e}",
+            mnorm(&a.apply_operator(&v)) / (pscale * mnorm(&v))
+        );
     }
     println!("  (kept when < 1e-3)");
 
@@ -491,7 +533,10 @@ fn probe<M: cartan_core::Manifold>(
         let v: Vec<f64> = coords.iter().map(|c| c[axis]).collect();
         let mm = mdot(&v, &v);
         let rp = mdot(&v, &a.apply_unshifted(&v)) / mm;
-        print!(" {:.2e}", mnorm(&a.apply_operator(&v)) / (rp.abs().max(1e-300) * mnorm(&v)));
+        print!(
+            " {:.2e}",
+            mnorm(&a.apply_operator(&v)) / (rp.abs().max(1e-300) * mnorm(&v))
+        );
     }
     println!();
 }
@@ -506,8 +551,21 @@ fn main() {
         let mesh = icosphere(level);
         let dom = DecDomain::new(mesh, Sphere::<3>).unwrap();
         let coords = extract_coords(&dom.mesh);
-        let tris: Vec<[usize; 3]> = dom.mesh.simplices.iter().map(|s| [s[0], s[1], s[2]]).collect();
-        probe(&format!("sphere, icosphere level {level}"), &coords, &tris, &dom.ops, &dom.mesh, &Sphere::<3>, 2);
+        let tris: Vec<[usize; 3]> = dom
+            .mesh
+            .simplices
+            .iter()
+            .map(|s| [s[0], s[1], s[2]])
+            .collect();
+        probe(
+            &format!("sphere, icosphere level {level}"),
+            &coords,
+            &tris,
+            &dom.ops,
+            &dom.mesh,
+            &Sphere::<3>,
+            2,
+        );
     }
 
     // The genus-2 tube, with the resolution chosen to land near the sphere
@@ -535,8 +593,10 @@ fn main() {
             println!("  NOT CLOSED: {bnd} edge(s) without two faces; skipping");
             continue;
         }
-        let sv: Vec<nalgebra::SVector<f64, 3>> =
-            verts.iter().map(|p| nalgebra::SVector::from([p[0], p[1], p[2]])).collect();
+        let sv: Vec<nalgebra::SVector<f64, 3>> = verts
+            .iter()
+            .map(|p| nalgebra::SVector::from([p[0], p[1], p[2]]))
+            .collect();
         let mesh = cartan_dec::mesh::Mesh::from_simplices(
             &cartan_manifolds::euclidean::Euclidean::<3>,
             sv,
@@ -545,7 +605,15 @@ fn main() {
         match DecDomain::new(mesh, cartan_manifolds::euclidean::Euclidean::<3>) {
             Ok(dom) => {
                 let coords = extract_coords(&dom.mesh);
-                probe(&format!("genus-2 tube, grid {n}"), &coords, &tris, &dom.ops, &dom.mesh, &cartan_manifolds::euclidean::Euclidean::<3>, -2);
+                probe(
+                    &format!("genus-2 tube, grid {n}"),
+                    &coords,
+                    &tris,
+                    &dom.ops,
+                    &dom.mesh,
+                    &cartan_manifolds::euclidean::Euclidean::<3>,
+                    -2,
+                );
             }
             Err(e) => println!("\n=== genus-2 tube, grid {n} ===\n  DEC assembly failed: {e:?}"),
         }

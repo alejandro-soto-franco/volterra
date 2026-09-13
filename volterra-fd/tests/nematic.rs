@@ -5,8 +5,8 @@
 //! Rust kernels, and asserts element-wise max |diff| < 1e-9 vs Python output.
 
 use volterra_fd::{
-    nematic::{calculate_pi, h_s_from_q},
     Boundary,
+    nematic::{calculate_pi, h_s_from_q},
 };
 
 const LX: usize = 24;
@@ -52,19 +52,26 @@ fn rect_interior_boundary() -> Boundary {
 
 /// Load a flat text file (one value per line) into a Vec<f64>.
 fn load_txt(path: &str) -> Vec<f64> {
-    let content = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let content =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
     content
         .lines()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| l.trim().parse::<f64>().unwrap_or_else(|e| panic!("parse error in {path}: {e}")))
+        .map(|l| {
+            l.trim()
+                .parse::<f64>()
+                .unwrap_or_else(|e| panic!("parse error in {path}: {e}"))
+        })
         .collect()
 }
 
 /// Max absolute difference between two slices of equal length.
 fn max_abs_diff(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len(), "length mismatch");
-    a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).fold(0.0_f64, f64::max)
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0_f64, f64::max)
 }
 
 // ---------------------------------------------------------------------------
@@ -77,13 +84,13 @@ fn h_s_vs_python() {
 
     let q_flat = load_txt(&format!("{ref_dir}/Q_input.txt"));
     let u_flat = load_txt(&format!("{ref_dir}/u_input.txt"));
-    let h_ref  = load_txt(&format!("{ref_dir}/H_ref.txt"));
-    let s_ref  = load_txt(&format!("{ref_dir}/S_ref.txt"));
+    let h_ref = load_txt(&format!("{ref_dir}/H_ref.txt"));
+    let s_ref = load_txt(&format!("{ref_dir}/S_ref.txt"));
 
     assert_eq!(q_flat.len(), N * 2, "Q_input.txt length");
     assert_eq!(u_flat.len(), N * 2, "u_input.txt length");
-    assert_eq!(h_ref.len(),  N * 2, "H_ref.txt length");
-    assert_eq!(s_ref.len(),  N * 2, "S_ref.txt length");
+    assert_eq!(h_ref.len(), N * 2, "H_ref.txt length");
+    assert_eq!(s_ref.len(), N * 2, "S_ref.txt length");
 
     let bounds = rect_interior_boundary();
 
@@ -117,28 +124,45 @@ fn h_s_vs_python() {
 fn calculate_pi_vs_python() {
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let q_flat   = load_txt(&format!("{ref_dir}/Q_input.txt"));
-    let u_flat   = load_txt(&format!("{ref_dir}/u_input.txt"));
+    let q_flat = load_txt(&format!("{ref_dir}/Q_input.txt"));
+    let u_flat = load_txt(&format!("{ref_dir}/u_input.txt"));
     let pi_s_ref = load_txt(&format!("{ref_dir}/Pi_S_ref.txt"));
     let pi_a_ref = load_txt(&format!("{ref_dir}/Pi_A_ref.txt"));
 
-    assert_eq!(q_flat.len(),   N * 2, "Q_input.txt length");
+    assert_eq!(q_flat.len(), N * 2, "Q_input.txt length");
     assert_eq!(pi_s_ref.len(), N * 2, "Pi_S_ref.txt length");
-    assert_eq!(pi_a_ref.len(), N,     "Pi_A_ref.txt length");
+    assert_eq!(pi_a_ref.len(), N, "Pi_A_ref.txt length");
 
     let bounds = rect_interior_boundary();
 
     // First compute H (needed as input to calculate_pi)
     let mut h = vec![0.0_f64; N * 2];
     let mut s_unused = vec![0.0_f64; N * 2];
-    h_s_from_q(&u_flat, &q_flat, &mut h, &mut s_unused, A, C, K, LAMBDA, &bounds);
+    h_s_from_q(
+        &u_flat,
+        &q_flat,
+        &mut h,
+        &mut s_unused,
+        A,
+        C,
+        K,
+        LAMBDA,
+        &bounds,
+    );
 
     let mut pi_s = vec![0.0_f64; N * 2];
     let mut pi_a = vec![0.0_f64; N];
 
     calculate_pi(
-        &mut pi_s, &mut pi_a, &h, &q_flat, LAMBDA, ZETA, K,
-        volterra_fd::StressModel::Full, &bounds,
+        &mut pi_s,
+        &mut pi_a,
+        &h,
+        &q_flat,
+        LAMBDA,
+        ZETA,
+        K,
+        volterra_fd::StressModel::Full,
+        &bounds,
     );
 
     let diff_pi_s = max_abs_diff(&pi_s, &pi_s_ref);

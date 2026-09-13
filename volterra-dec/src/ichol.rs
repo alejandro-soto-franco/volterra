@@ -85,7 +85,13 @@ impl IChol {
         let mut shift = 0.0f64;
         loop {
             if let Some(l) = Self::try_factor(n, &cols, &vals, &row_start, &diag, shift) {
-                return Some(Self { n, cols: l.0, vals: l.1, row_start, shift });
+                return Some(Self {
+                    n,
+                    cols: l.0,
+                    vals: l.1,
+                    row_start,
+                    shift,
+                });
             }
             shift = if shift == 0.0 { 1e-3 } else { shift * 2.0 };
             if shift > (1 << 20) as f64 {
@@ -249,7 +255,9 @@ mod tests {
             assert!(m[i][i] > 0.0, "M^-1 diagonal {i} is {}", m[i][i]);
         }
         for s in 0..8 {
-            let v: Vec<f64> = (0..n).map(|i| ((i * 31 + s * 17) as f64 * 0.61).sin()).collect();
+            let v: Vec<f64> = (0..n)
+                .map(|i| ((i * 31 + s * 17) as f64 * 0.61).sin())
+                .collect();
             let mv = ic.apply(&v);
             let q: f64 = v.iter().zip(&mv).map(|(a, b)| a * b).sum();
             assert!(q > 0.0, "quadratic form {q} not positive on direction {s}");

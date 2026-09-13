@@ -14,10 +14,10 @@
 //! Noise injection (`Q += noise_amp * sqrt(dt) * W`) is applied by the
 //! integrators, not in the RHS, matching the 2D convention.
 
+use crate::mol_field_3d::{co_rotation_3d, molecular_field_3d, molecular_field_3d_par};
 use rayon::prelude::*;
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::{QField3D, VelocityField3D};
-use crate::mol_field_3d::{molecular_field_3d, molecular_field_3d_par, co_rotation_3d};
 
 /// Full Beris-Edwards RHS: `dQ/dt = -u · nabla Q + S(W, Q) + Gamma_r * H`.
 ///
@@ -139,8 +139,8 @@ impl RK4Integrator3D {
         let mut out = q.clone();
         for k in 0..q.len() {
             for c in 0..5 {
-                out.q[k][c] += (dt / 6.0)
-                    * (k1.q[k][c] + 2.0 * k2.q[k][c] + 2.0 * k3.q[k][c] + k4.q[k][c]);
+                out.q[k][c] +=
+                    (dt / 6.0) * (k1.q[k][c] + 2.0 * k2.q[k][c] + 2.0 * k3.q[k][c] + k4.q[k][c]);
             }
         }
         out
@@ -182,11 +182,7 @@ pub fn beris_edwards_rhs_3d_par_dry_into(
     crate::mol_field_3d::molecular_field_3d_par_into(q, p, t, p.gamma_r, out);
 }
 
-pub fn beris_edwards_rhs_3d_par_dry(
-    q: &QField3D,
-    p: &ActiveNematicParams3D,
-    t: f64,
-) -> QField3D {
+pub fn beris_edwards_rhs_3d_par_dry(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QField3D {
     let h = molecular_field_3d_par(q, p, t);
     let gamma_r = p.gamma_r;
     let n = q.len();
@@ -300,7 +296,10 @@ mod tests {
         let h_seq = molecular_field_3d(&q, &p, 0.5);
         let h_par = molecular_field_3d_par(&q, &p, 0.5);
 
-        let max_diff: f64 = h_seq.q.iter().zip(&h_par.q)
+        let max_diff: f64 = h_seq
+            .q
+            .iter()
+            .zip(&h_par.q)
             .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
             .fold(0.0_f64, f64::max);
 
@@ -319,7 +318,10 @@ mod tests {
         let rhs_seq = beris_edwards_rhs_3d(&q, None, &p, 0.3);
         let rhs_par = beris_edwards_rhs_3d_par_dry(&q, &p, 0.3);
 
-        let max_diff: f64 = rhs_seq.q.iter().zip(&rhs_par.q)
+        let max_diff: f64 = rhs_seq
+            .q
+            .iter()
+            .zip(&rhs_par.q)
             .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
             .fold(0.0_f64, f64::max);
 
@@ -340,7 +342,10 @@ mod tests {
         let q_seq = EulerIntegrator3D.step(&q, dt, &rhs);
         let q_par = euler_step_par(&q, dt, &rhs);
 
-        let max_diff: f64 = q_seq.q.iter().zip(&q_par.q)
+        let max_diff: f64 = q_seq
+            .q
+            .iter()
+            .zip(&q_par.q)
             .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
             .fold(0.0_f64, f64::max);
 
@@ -367,7 +372,10 @@ mod tests {
         let mut q_fused = q_init.clone();
         euler_step_fused_par(&mut q_fused, &p, 0.5);
 
-        let max_diff: f64 = q_twostep.q.iter().zip(&q_fused.q)
+        let max_diff: f64 = q_twostep
+            .q
+            .iter()
+            .zip(&q_fused.q)
             .flat_map(|(a, b)| a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()))
             .fold(0.0_f64, f64::max);
 

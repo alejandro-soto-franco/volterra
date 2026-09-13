@@ -127,7 +127,11 @@ impl Epitrochoid {
         let (p1, p2) = (self.d1(u), self.d2(u));
         let cross = (p1[0] * p2[1] - p1[1] * p2[0]).abs();
         let s = self.speed(u);
-        if cross <= 1e-300 { f64::INFINITY } else { s * s * s / cross }
+        if cross <= 1e-300 {
+            f64::INFINITY
+        } else {
+            s * s * s / cross
+        }
     }
 
     /// Radius of curvature at a cusp.
@@ -236,7 +240,14 @@ impl Epitrochoid {
         if cusps == 0 {
             return 1.0;
         }
-        let at = |d: f64| Epitrochoid { q: 1.0 + cusps as f64 / 2.0, d, r: 1.0 }.aliasing_deficit();
+        let at = |d: f64| {
+            Epitrochoid {
+                q: 1.0 + cusps as f64 / 2.0,
+                d,
+                r: 1.0,
+            }
+            .aliasing_deficit()
+        };
         let (mut lo, mut hi) = (0.5, 1.0 - 1e-9);
         for _ in 0..80 {
             let mid = 0.5 * (lo + hi);
@@ -324,11 +335,14 @@ impl Epitrochoid {
         }
         for _ in 0..90 {
             let mid = 0.5 * (lo + hi);
-            if along(mid) < edge { lo = mid } else { hi = mid }
+            if along(mid) < edge {
+                lo = mid
+            } else {
+                hi = mid
+            }
         }
         0.5 * (lo + hi)
     }
-
 }
 
 /// The epitrochoid as a boundary geometry.
@@ -409,7 +423,11 @@ impl MeshOpts {
         } else {
             h_bulk
         };
-        Self { h_bulk, h_min, ..Default::default() }
+        Self {
+            h_bulk,
+            h_min,
+            ..Default::default()
+        }
     }
 }
 
@@ -529,11 +547,7 @@ fn target_size(p: [f64; 2], cusps: &[[f64; 2]], o: &MeshOpts) -> f64 {
 /// round leaves the stride wherever the previous step ended, and beside a cusp
 /// that gave edges of 0.60 approaching against 1.24 leaving, a factor of two at
 /// the one feature whose symmetry holds a defect in place.
-fn cusp_to_tip_offsets<C: PlaneCurve + ?Sized>(
-    curve: &C,
-    o: &MeshOpts,
-    trunc: f64,
-) -> Vec<f64> {
+fn cusp_to_tip_offsets<C: PlaneCurve + ?Sized>(curve: &C, o: &MeshOpts, trunc: f64) -> Vec<f64> {
     let feats = curve.features();
     let half = 0.5 * curve.period() / feats.len() as f64;
     let uc = feats[0];
@@ -552,7 +566,11 @@ fn cusp_to_tip_offsets<C: PlaneCurve + ?Sized>(
         let u = uc + t;
         let p = curve.point(u);
         let rc = curve.curvature_radius(u);
-        let h_geom = if rc.is_finite() { o.boundary_frac * rc } else { o.h_bulk };
+        let h_geom = if rc.is_finite() {
+            o.boundary_frac * rc
+        } else {
+            o.h_bulk
+        };
         let ds = h_geom.min(target_size(p, &cusps, o)).max(floor);
         let mut dt = arc_step(curve, u, ds, curve.period() / 16.0);
         // Share the run to the tip out evenly, so the last edge before it is not
@@ -578,10 +596,7 @@ fn cusp_to_tip_offsets<C: PlaneCurve + ?Sized>(
 /// boundary is built from one cusp-to-tip arc, reflected and rotated, which is
 /// exactly symmetric. Otherwise it walks once round, which is what every smooth
 /// `d < 1` mesh was calibrated against.
-fn sample_boundary<C: PlaneCurve + ?Sized>(
-    curve: &C,
-    o: &MeshOpts,
-) -> (Vec<[f64; 2]>, Vec<f64>) {
+fn sample_boundary<C: PlaneCurve + ?Sized>(curve: &C, o: &MeshOpts) -> (Vec<[f64; 2]>, Vec<f64>) {
     let feats = curve.features();
     let sharp = if curve.feature_symmetric() && !feats.is_empty() {
         curve.feature_edge_param(o.cusp_edge)
@@ -625,7 +640,11 @@ fn sample_boundary_walk<C: PlaneCurve + ?Sized>(
         pts.push(p);
         params.push(u);
         let rc = curve.curvature_radius(u);
-        let h_geom = if rc.is_finite() { o.boundary_frac * rc } else { o.h_bulk };
+        let h_geom = if rc.is_finite() {
+            o.boundary_frac * rc
+        } else {
+            o.h_bulk
+        };
         let mut ds = h_geom
             .min(target_size(p, &cusps, o))
             .max(o.h_min.min(o.h_bulk) * 0.25);
@@ -704,19 +723,28 @@ impl WallSizeField {
         for k in 0..n {
             let prev = bpts[(k + n - 1) % n];
             let next = bpts[(k + 1) % n];
-            let d = |a: [f64; 2], b: [f64; 2]| {
-                ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
-            };
+            let d =
+                |a: [f64; 2], b: [f64; 2]| ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
             // The shorter of the two incident edges, so the field reads the
             // spacing the fill actually has to match. It is NOT clamped up to
             // the floor: where the curvature bound has sampled the wall finer
             // than `h_min`, the fill beside it has to be that fine too, and
             // clamping here is what leaves the sliver in place.
             let s = d(bpts[k], prev).min(d(bpts[k], next));
-            let key = ((bpts[k][0] / cell).floor() as i64, (bpts[k][1] / cell).floor() as i64);
+            let key = (
+                (bpts[k][0] / cell).floor() as i64,
+                (bpts[k][1] / cell).floor() as i64,
+            );
             map.entry(key).or_default().push((bpts[k], s));
         }
-        Self { cell, reach, grade_minus_one: g, floor, h_bulk: o.h_bulk, map }
+        Self {
+            cell,
+            reach,
+            grade_minus_one: g,
+            floor,
+            h_bulk: o.h_bulk,
+            map,
+        }
     }
 
     fn at(&self, p: [f64; 2]) -> f64 {
@@ -751,11 +779,17 @@ struct HashGrid {
 
 impl HashGrid {
     fn new(cell: f64) -> Self {
-        Self { cell: cell.max(1e-12), map: HashMap::new() }
+        Self {
+            cell: cell.max(1e-12),
+            map: HashMap::new(),
+        }
     }
 
     fn key(&self, p: [f64; 2]) -> (i64, i64) {
-        ((p[0] / self.cell).floor() as i64, (p[1] / self.cell).floor() as i64)
+        (
+            (p[0] / self.cell).floor() as i64,
+            (p[1] / self.cell).floor() as i64,
+        )
     }
 
     fn insert(&mut self, p: [f64; 2], i: usize) {
@@ -1157,8 +1191,7 @@ pub fn confined_mesh<C: PlaneCurve + 'static>(curve: C, o: MeshOpts) -> Confined
     // the director is well defined there by continuity even though the tangent
     // vector is not, because the limits from either side differ by a half turn
     // and a director is headless.
-    let boundary_normals: Vec<[f64; 2]> =
-        bparams.iter().map(|&u| curve.inward_normal(u)).collect();
+    let boundary_normals: Vec<[f64; 2]> = bparams.iter().map(|&u| curve.inward_normal(u)).collect();
     let mesh = FlatMesh::from_triangles(pts, tris);
 
     ConfinedMesh2 {
@@ -1243,7 +1276,11 @@ mod tests {
     /// Curve for the lattice-matched nephroid: the paper's own epicycloid at the
     /// size that carries its effective system length.
     fn latmatch() -> Epitrochoid {
-        Epitrochoid { q: 2.0, d: 1.0, r: 49.778_694_002 }
+        Epitrochoid {
+            q: 2.0,
+            d: 1.0,
+            r: 49.778_694_002,
+        }
     }
 
     /// Curve for the lattice-matched cardioid, the golden braid's geometry.
@@ -1254,11 +1291,20 @@ mod tests {
     /// With `sqrt(A) / r = sqrt(2 pi / 3)` at `d = 1` that puts `r` at 49.725,
     /// so both shapes sit inscribed in a 100 lattice.
     fn cardmatch() -> Epitrochoid {
-        Epitrochoid { q: 1.5, d: 1.0, r: 49.725 }
+        Epitrochoid {
+            q: 1.5,
+            d: 1.0,
+            r: 49.725,
+        }
     }
 
     fn sharp_opts() -> MeshOpts {
-        MeshOpts { h_bulk: 1.0, h_min: 1.0, cusp_edge: 1.0, ..Default::default() }
+        MeshOpts {
+            h_bulk: 1.0,
+            h_min: 1.0,
+            cusp_edge: 1.0,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1310,7 +1356,11 @@ mod tests {
         let c = neph(0.9);
         let m = confined_mesh(
             c,
-            MeshOpts { h_bulk: 4.0, h_min: c.cusp_radius() / 4.0, ..Default::default() },
+            MeshOpts {
+                h_bulk: 4.0,
+                h_min: c.cusp_radius() / 4.0,
+                ..Default::default()
+            },
         );
         for (k, &vi) in m.boundary_vertices.iter().enumerate() {
             let v = m.mesh.vertex(vi);
@@ -1332,7 +1382,11 @@ mod tests {
             let c = neph(d);
             let m = confined_mesh(
                 c,
-                MeshOpts { h_bulk: 4.0, h_min: c.cusp_radius() / 4.0, ..Default::default() },
+                MeshOpts {
+                    h_bulk: 4.0,
+                    h_min: c.cusp_radius() / 4.0,
+                    ..Default::default()
+                },
             );
             for q_anchor in [1.0, 2.0] {
                 let (charge, worst, big) = m.imposed_charge(q_anchor);
@@ -1381,7 +1435,11 @@ mod tests {
         let smooth = neph(0.99);
         let m = confined_mesh(
             smooth,
-            MeshOpts { h_bulk: 4.0, h_min: smooth.cusp_radius() / 4.0, ..Default::default() },
+            MeshOpts {
+                h_bulk: 4.0,
+                h_min: smooth.cusp_radius() / 4.0,
+                ..Default::default()
+            },
         );
         let (charge, _, _) = m.imposed_charge(1.0);
         assert!(
@@ -1391,10 +1449,18 @@ mod tests {
 
         // And the cardioid rounds the same way, so neither shape gets its
         // winding from anything except the corner.
-        let smooth = Epitrochoid { q: 1.5, d: 0.9, r: 98.0 };
+        let smooth = Epitrochoid {
+            q: 1.5,
+            d: 0.9,
+            r: 98.0,
+        };
         let m = confined_mesh(
             smooth,
-            MeshOpts { h_bulk: 4.0, h_min: smooth.cusp_radius() / 4.0, ..Default::default() },
+            MeshOpts {
+                h_bulk: 4.0,
+                h_min: smooth.cusp_radius() / 4.0,
+                ..Default::default()
+            },
         );
         let (charge, _, _) = m.imposed_charge(1.0);
         assert!(
@@ -1428,7 +1494,10 @@ mod tests {
                 })
                 .unwrap();
             let miss = (pts[k][0] - cusp[0]).hypot(pts[k][1] - cusp[1]);
-            assert!(miss < 1e-9, "no vertex on the cusp at {uc}, nearest is {miss} away");
+            assert!(
+                miss < 1e-9,
+                "no vertex on the cusp at {uc}, nearest is {miss} away"
+            );
             // Both edges meeting it are the requested length, so nothing finer
             // than an element is left behind the corner for the mesher to choke
             // on. Sampling the cusp naively instead left sub-element structure
@@ -1474,8 +1543,11 @@ mod tests {
             // The sharp path builds the whole boundary from one cusp-to-tip
             // arc, reflected and rotated, so its symmetry is exact everywhere.
             let span = f64::INFINITY;
-            let near: Vec<[f64; 2]> =
-                pts.iter().copied().filter(|p| p[1] > 0.0 && p[0].abs() <= span).collect();
+            let near: Vec<[f64; 2]> = pts
+                .iter()
+                .copied()
+                .filter(|p| p[1] > 0.0 && p[0].abs() <= span)
+                .collect();
             assert!(near.len() >= 3, "only {} points at the cusp", near.len());
             for p in &near {
                 let best = near
@@ -1524,10 +1596,21 @@ mod tests {
             let p = c.point(uc + e);
             let pc = c.point(uc);
             let got = (p[0] - pc[0]).hypot(p[1] - pc[1]);
-            assert!((got - edge).abs() < 1e-9 * edge, "edge {edge}: realised {got}");
+            assert!(
+                (got - edge).abs() < 1e-9 * edge,
+                "edge {edge}: realised {got}"
+            );
         }
         // No cusp to treat, and nothing asked for.
-        assert_eq!(Epitrochoid { q: 1.0, d: 1.0, r: 50.0 }.cusp_edge_param(1.0), 0.0);
+        assert_eq!(
+            Epitrochoid {
+                q: 1.0,
+                d: 1.0,
+                r: 50.0
+            }
+            .cusp_edge_param(1.0),
+            0.0
+        );
         assert_eq!(c.cusp_edge_param(0.0), 0.0);
         assert_eq!(c.cusp_edge_param(-1.0), 0.0);
     }
@@ -1562,9 +1645,19 @@ mod tests {
         // Off by default, and off leaves a smooth curve's sampling alone.
         assert_eq!(MeshOpts::default().cusp_edge, 0.0);
         let smooth = neph(0.9);
-        let o = MeshOpts { h_bulk: 4.0, h_min: smooth.cusp_radius() / 4.0, ..Default::default() };
+        let o = MeshOpts {
+            h_bulk: 4.0,
+            h_min: smooth.cusp_radius() / 4.0,
+            ..Default::default()
+        };
         let m1 = confined_mesh(smooth, o);
-        let m2 = confined_mesh(smooth, MeshOpts { cusp_edge: 0.0, ..o });
+        let m2 = confined_mesh(
+            smooth,
+            MeshOpts {
+                cusp_edge: 0.0,
+                ..o
+            },
+        );
         assert_eq!(m1.boundary_params.len(), m2.boundary_params.len());
         for (x, y) in m1.boundary_params.iter().zip(m2.boundary_params.iter()) {
             assert_eq!(x, y);

@@ -10,15 +10,27 @@ use std::path::Path;
 
 pub fn norm3(v: [f64; 3]) -> [f64; 3] {
     let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if n > 1e-300 { [v[0] / n, v[1] / n, v[2] / n] } else { v }
+    if n > 1e-300 {
+        [v[0] / n, v[1] / n, v[2] / n]
+    } else {
+        v
+    }
 }
-pub fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
+pub fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
 pub fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 pub fn geodesic(a: [f64; 3], b: [f64; 3]) -> f64 {
     let c = cross3(a, b);
-    (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt().atan2(dot3(a, b))
+    (c[0] * c[0] + c[1] * c[1] + c[2] * c[2])
+        .sqrt()
+        .atan2(dot3(a, b))
 }
 
 pub fn read_npy(path: &Path, rows: usize, cols: usize) -> std::io::Result<Vec<f64>> {
@@ -35,7 +47,10 @@ pub fn read_npy(path: &Path, rows: usize, cols: usize) -> std::io::Result<Vec<f6
     let header = String::from_utf8_lossy(&header).to_string();
     let want = format!("'shape': ({rows}, {cols})");
     if !header.contains(&want) {
-        return Err(Error::new(ErrorKind::InvalidData, format!("header is {header}")));
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("header is {header}"),
+        ));
     }
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;
@@ -108,10 +123,10 @@ impl Buckets {
 /// faces of a different mesh.
 #[derive(Clone, Copy)]
 pub struct MeshRef<'a> {
-    pub verts:      &'a [[f64; 3]],
-    pub tris:       &'a [[usize; 3]],
+    pub verts: &'a [[f64; 3]],
+    pub tris: &'a [[usize; 3]],
     pub vert_faces: &'a [Vec<usize>],
-    pub buckets:    &'a Buckets,
+    pub buckets: &'a Buckets,
 }
 
 /// Velocity at a point, from the incident faces of the nearest vertex.
@@ -121,7 +136,12 @@ pub struct MeshRef<'a> {
 /// order in the mesh spacing, which a measurement of exponential separation
 /// cannot afford.
 pub fn velocity_at(p: [f64; 3], mesh: &MeshRef<'_>, u: &[f64]) -> [f64; 3] {
-    let MeshRef { verts, tris, vert_faces, buckets } = *mesh;
+    let MeshRef {
+        verts,
+        tris,
+        vert_faces,
+        buckets,
+    } = *mesh;
     let v0 = buckets.nearest(p, verts);
     for &f in &vert_faces[v0] {
         let [a, b, c] = tris[f];
@@ -166,8 +186,11 @@ pub fn advect(p: [f64; 3], dt: f64, mesh: &MeshRef<'_>, u0: &[f64], u1: &[f64]) 
         [v[0] - r * x[0], v[1] - r * x[1], v[2] - r * x[2]]
     };
     let k1 = vel(p, 0.0);
-    let mid = norm3([p[0] + 0.5 * dt * k1[0], p[1] + 0.5 * dt * k1[1], p[2] + 0.5 * dt * k1[2]]);
+    let mid = norm3([
+        p[0] + 0.5 * dt * k1[0],
+        p[1] + 0.5 * dt * k1[1],
+        p[2] + 0.5 * dt * k1[2],
+    ]);
     let k2 = vel(mid, 0.5);
     norm3([p[0] + dt * k2[0], p[1] + dt * k2[1], p[2] + dt * k2[2]])
 }
-

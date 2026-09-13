@@ -15,12 +15,16 @@ impl LangevinNoise {
         let seed = (nx as u64).wrapping_mul(6364136223846793005)
             ^ (ny as u64).wrapping_mul(1442695040888963407)
             ^ n_steps as u64;
-        Self { rng: SmallRng::seed_from_u64(seed) }
+        Self {
+            rng: SmallRng::seed_from_u64(seed),
+        }
     }
 
     /// 3D convention: per-step RNG, seeded from the step index and a tag.
     pub fn per_step_seed(step: usize, tag: u64) -> Self {
-        Self { rng: SmallRng::seed_from_u64(step as u64 ^ tag) }
+        Self {
+            rng: SmallRng::seed_from_u64(step as u64 ^ tag),
+        }
     }
 
     /// Fill `buf` (length even) with Box-Muller pairs scaled by `amp * sqrt(dt)`.
@@ -77,7 +81,14 @@ mod tests {
     }
 
     // Helper that runs the exact legacy inline arithmetic, for the oracle.
-    fn legacy_2d_reference(nx: usize, ny: usize, n_steps: usize, amp: f64, dt: f64, pairs: usize) -> Vec<f64> {
+    fn legacy_2d_reference(
+        nx: usize,
+        ny: usize,
+        n_steps: usize,
+        amp: f64,
+        dt: f64,
+        pairs: usize,
+    ) -> Vec<f64> {
         use rand::rngs::SmallRng;
         use rand::{RngExt, SeedableRng};
         let noise_scale = amp * dt.sqrt();
@@ -105,7 +116,10 @@ mod tests {
         noise.fill5(&mut out);
 
         let expected = legacy_box_muller_5(0, 0xdead_beef_cafe_1234);
-        assert_eq!(out, expected, "fill5 must match legacy box_muller_5 bit-for-bit");
+        assert_eq!(
+            out, expected,
+            "fill5 must match legacy box_muller_5 bit-for-bit"
+        );
     }
 
     // Helper that runs the exact legacy box_muller_5 arithmetic.

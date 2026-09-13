@@ -134,13 +134,21 @@ impl ConnectionLaplacian {
 
     // Accessors used only by the test oracle.
     #[doc(hidden)]
-    pub fn edges_ref(&self) -> &[[usize; 2]] { &self.conn.edges }
+    pub fn edges_ref(&self) -> &[[usize; 2]] {
+        &self.conn.edges
+    }
     #[doc(hidden)]
-    pub fn cot_weight_ref(&self, e: usize) -> f64 { self.cot_weights[e] }
+    pub fn cot_weight_ref(&self, e: usize) -> f64 {
+        self.cot_weights[e]
+    }
     #[doc(hidden)]
-    pub fn phase_2x_ref(&self, e: usize) -> f64 { self.phases_2x[e] }
+    pub fn phase_2x_ref(&self, e: usize) -> f64 {
+        self.phases_2x[e]
+    }
     #[doc(hidden)]
-    pub fn dual_area_ref(&self, v: usize) -> f64 { self.dual_areas[v] }
+    pub fn dual_area_ref(&self, v: usize) -> f64 {
+        self.dual_areas[v]
+    }
 }
 
 /// Compute the molecular field using the connection Laplacian.
@@ -185,7 +193,11 @@ fn section_to_qfield(sec: &VecSection<U1Spin2>, nv: usize) -> QField {
         q1[i] = e[0];
         q2[i] = e[1];
     }
-    QField { q1, q2, n_vertices: nv }
+    QField {
+        q1,
+        q2,
+        n_vertices: nv,
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,28 +225,53 @@ fn compute_vertex_normals(simplices: &[[usize; 3]], coords: &[[f64; 3]]) -> Vec<
 }
 
 fn compute_tangent_frames(normals: &[[f64; 3]]) -> Vec<[f64; 3]> {
-    normals.iter().map(|n| {
-        // Pick a reference direction not aligned with n.
-        let ref_dir = if n[0].abs() < 0.9 {
-            [1.0, 0.0, 0.0]
-        } else {
-            [0.0, 1.0, 0.0]
-        };
-        // Project onto tangent plane and normalise.
-        let d = dot3(*n, ref_dir);
-        let t = [ref_dir[0] - d * n[0], ref_dir[1] - d * n[1], ref_dir[2] - d * n[2]];
-        let len = norm3(t);
-        if len > 1e-14 { scale3(t, 1.0 / len) } else { [1.0, 0.0, 0.0] }
-    }).collect()
+    normals
+        .iter()
+        .map(|n| {
+            // Pick a reference direction not aligned with n.
+            let ref_dir = if n[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            // Project onto tangent plane and normalise.
+            let d = dot3(*n, ref_dir);
+            let t = [
+                ref_dir[0] - d * n[0],
+                ref_dir[1] - d * n[1],
+                ref_dir[2] - d * n[2],
+            ];
+            let len = norm3(t);
+            if len > 1e-14 {
+                scale3(t, 1.0 / len)
+            } else {
+                [1.0, 0.0, 0.0]
+            }
+        })
+        .collect()
 }
 
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]-b[0], a[1]-b[1], a[2]-b[2]] }
-fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]+b[0], a[1]+b[1], a[2]+b[2]] }
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0]*s, a[1]*s, a[2]*s] }
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
-fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
+fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn norm3(a: [f64; 3]) -> f64 {
+    dot3(a, a).sqrt()
+}
 fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 #[cfg(test)]
@@ -275,7 +312,11 @@ mod tests {
                 lap_q2[i] *= inv_a;
             }
         }
-        QField { q1: lap_q1, q2: lap_q2, n_vertices: nv }
+        QField {
+            q1: lap_q1,
+            q2: lap_q2,
+            n_vertices: nv,
+        }
     }
 
     #[test]
@@ -284,15 +325,21 @@ mod tests {
         let coords = extract_coords_sphere(&mesh);
         let manifold = Sphere::<3>;
         let ops = Operators::from_mesh_generic(&mesh, &manifold).unwrap();
-        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
-        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len())
+            .map(|i| ops.hodge.star0()[i])
+            .collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len())
+            .map(|i| ops.hodge.star1()[i])
+            .collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
         let q = QField::random_perturbation(mesh.n_vertices(), 0.1, 7);
         let got = cl.apply(&q);
         let want = legacy_apply(&cl, &q);
         let mut maxd = 0.0_f64;
         for i in 0..mesh.n_vertices() {
-            maxd = maxd.max((got.q1[i]-want.q1[i]).abs()).max((got.q2[i]-want.q2[i]).abs());
+            maxd = maxd
+                .max((got.q1[i] - want.q1[i]).abs())
+                .max((got.q2[i] - want.q2[i]).abs());
         }
         assert!(maxd < 1e-12, "rotor vs legacy max diff = {maxd}");
     }
@@ -303,8 +350,12 @@ mod tests {
         let coords = extract_coords_sphere(&mesh);
         let manifold = Sphere::<3>;
         let ops = Operators::from_mesh_generic(&mesh, &manifold).unwrap();
-        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
-        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len())
+            .map(|i| ops.hodge.star0()[i])
+            .collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len())
+            .map(|i| ops.hodge.star1()[i])
+            .collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
         assert_eq!(cl.n_vertices, 162);
     }
@@ -315,8 +366,12 @@ mod tests {
         let coords = extract_coords_sphere(&mesh);
         let manifold = Sphere::<3>;
         let ops = Operators::from_mesh_generic(&mesh, &manifold).unwrap();
-        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
-        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len())
+            .map(|i| ops.hodge.star0()[i])
+            .collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len())
+            .map(|i| ops.hodge.star1()[i])
+            .collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
         let q = QField::zeros(162);
         let lap = cl.apply(&q);
@@ -328,8 +383,8 @@ mod tests {
     fn connection_laplacian_flat_mesh_matches_scalar() {
         // On a flat mesh (Euclidean<2>), the connection angles are all zero,
         // so the connection Laplacian should equal the scalar Laplacian.
-        use cartan_dec::mesh::FlatMesh;
         use cartan_dec::Operators;
+        use cartan_dec::mesh::FlatMesh;
         use cartan_manifolds::euclidean::Euclidean;
         use nalgebra::DVector;
 
@@ -338,8 +393,12 @@ mod tests {
         let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], 0.0]).collect();
 
         let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
-        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
-        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len())
+            .map(|i| ops.hodge.star0()[i])
+            .collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len())
+            .map(|i| ops.hodge.star1()[i])
+            .collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
 
         // Random Q field.
@@ -382,15 +441,21 @@ mod tests {
         let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
         let manifold = Euclidean::<3>;
         let ops = Operators::from_mesh_generic(&mesh, &manifold).unwrap();
-        let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
-        let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+        let star0: Vec<f64> = (0..ops.hodge.star0().len())
+            .map(|i| ops.hodge.star0()[i])
+            .collect();
+        let star1: Vec<f64> = (0..ops.hodge.star1().len())
+            .map(|i| ops.hodge.star1()[i])
+            .collect();
         let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
         let q = QField::random_perturbation(mesh.n_vertices(), 0.1, 11);
         let got = cl.apply(&q);
         let want = legacy_apply(&cl, &q);
         let mut maxd = 0.0_f64;
         for i in 0..mesh.n_vertices() {
-            maxd = maxd.max((got.q1[i] - want.q1[i]).abs()).max((got.q2[i] - want.q2[i]).abs());
+            maxd = maxd
+                .max((got.q1[i] - want.q1[i]).abs())
+                .max((got.q2[i] - want.q2[i]).abs());
         }
         assert!(maxd < 1e-12, "torus rotor vs legacy max diff = {maxd}");
     }

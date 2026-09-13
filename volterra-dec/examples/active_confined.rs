@@ -50,16 +50,22 @@ use std::io::Write;
 
 use volterra_dec::confined::{Epitrochoid, MeshOpts, confined_mesh};
 use volterra_dec::confined_ldg::LdgProblem;
-use volterra_dec::semi_lagrangian::SemiLagrangian;
 use volterra_dec::nematic_params::NematicParams;
+use volterra_dec::semi_lagrangian::SemiLagrangian;
 use volterra_dec::stokes::{SurfaceStokes, VelocityField};
 
 fn env_f64(k: &str, d: f64) -> f64 {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+    std::env::var(k)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(d)
 }
 
 fn env_usize(k: &str, d: usize) -> usize {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+    std::env::var(k)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(d)
 }
 
 fn env_str(k: &str, d: &str) -> String {
@@ -139,7 +145,11 @@ fn main() {
     // grading. The binding constraint is the explicit diffusive limit
     // `gamma h^2 / (4 K)`, which has to stay above `dt`.
     let h_min = if cusp_edge > 0.0 {
-        if h_floor > 0.0 { h_floor.min(h_bulk) } else { h_bulk }
+        if h_floor > 0.0 {
+            h_floor.min(h_bulk)
+        } else {
+            h_bulk
+        }
     } else {
         (rc / 4.0).max(h_floor).min(h_bulk)
     };
@@ -212,7 +222,9 @@ fn main() {
     // boundary unknowns, so a badly conditioned boundary system pollutes the
     // whole domain rather than a layer, and only holding everything else fixed
     // separates that from the physics.
-    let slip_wall = std::env::var("ACT_WALL").map(|v| v == "slip").unwrap_or(false);
+    let slip_wall = std::env::var("ACT_WALL")
+        .map(|v| v == "slip")
+        .unwrap_or(false);
     let stokes = if slip_wall {
         SurfaceStokes::new_confined(&p.ops, &p.mesh.mesh, &noslip)
     } else {
@@ -221,8 +233,11 @@ fn main() {
     .expect("confined Stokes factorisation");
     println!(
         "  wall: {} on {} vertices",
-        if slip_wall { "simply supported (free slip), psi = 0, lap psi = 0" }
-        else { "clamped (no-slip), psi = 0, dpsi/dn = 0" },
+        if slip_wall {
+            "simply supported (free slip), psi = 0, lap psi = 0"
+        } else {
+            "clamped (no-slip), psi = 0, dpsi/dn = 0"
+        },
         noslip.len()
     );
 
@@ -293,7 +308,9 @@ fn main() {
     println!(
         "{shape} d {d} q {q_anchor}: {nv} vertices, {} triangles, {} boundary, \
          min angle {:.1} deg, {} obtuse, worst cot {:.4}",
-        quality.triangles, quality.boundary_vertices, quality.min_angle_deg,
+        quality.triangles,
+        quality.boundary_vertices,
+        quality.min_angle_deg,
         quality.obtuse,
         quality.worst_cot_weight
     );
@@ -351,9 +368,19 @@ fn main() {
         let mut buckets: Vec<(f64, f64, f64, usize)> = vec![(0.0, 0.0, 0.0, 0); 6];
         for i in 0..nv {
             let h = hloc[i];
-            let b = if h < 0.005 { 0 } else if h < 0.05 { 1 }
-                else if h < 0.2 { 2 } else if h < 0.6 { 3 }
-                else if h < 1.2 { 4 } else { 5 };
+            let b = if h < 0.005 {
+                0
+            } else if h < 0.05 {
+                1
+            } else if h < 0.2 {
+                2
+            } else if h < 0.6 {
+                3
+            } else if h < 1.2 {
+                4
+            } else {
+                5
+            };
             let sp_i = vel.speed(i);
             buckets[b].0 += sp_i;
             buckets[b].1 = buckets[b].1.max(sp_i);
@@ -361,12 +388,23 @@ fn main() {
             buckets[b].3 += 1;
         }
         println!("  local h        vertices   mean |u|    max |u|    max CFL");
-        let names = ["< 0.005", "0.005-0.05", "0.05-0.2", "0.2-0.6", "0.6-1.2", "> 1.2"];
+        let names = [
+            "< 0.005",
+            "0.005-0.05",
+            "0.05-0.2",
+            "0.2-0.6",
+            "0.6-1.2",
+            "> 1.2",
+        ];
         for (b, n) in names.iter().enumerate() {
             let (sum, mx, cfl, cnt) = buckets[b];
-            if cnt == 0 { continue; }
-            println!("  {n:<12} {cnt:>8}  {:>9.3}  {mx:>9.3}  {cfl:>9.3}",
-                     sum / cnt as f64);
+            if cnt == 0 {
+                continue;
+            }
+            println!(
+                "  {n:<12} {cnt:>8}  {:>9.3}  {mx:>9.3}  {cfl:>9.3}",
+                sum / cnt as f64
+            );
         }
         return;
     }
@@ -426,7 +464,11 @@ fn main() {
     // times under one frame index. Rows from the checkpoint frame onward are
     // dropped and rewritten, so the record is a single consistent series with no
     // instant recorded twice.
-    let frame0 = if resuming { resume_step / save_every } else { 0 };
+    let frame0 = if resuming {
+        resume_step / save_every
+    } else {
+        0
+    };
     if resuming {
         for (name, key) in [("defects.tsv", 0usize), ("series.tsv", 0usize)] {
             let _ = key;
@@ -652,7 +694,13 @@ fn main() {
             let (vel_p, psi_p, pits_p) = if full_stress {
                 let (s1, s2, sa) = p.beris_edwards_stress_masked(src, &elastic_mask);
                 stokes.solve_stress_warm(
-                    &s1, &s2, &sa, p.params.eta, &p.mesh.mesh, psi.as_deref(), stokes_tol,
+                    &s1,
+                    &s2,
+                    &sa,
+                    p.params.eta,
+                    &p.mesh.mesh,
+                    psi.as_deref(),
+                    stokes_tol,
                 )
             } else {
                 stokes.solve_warm(src, &sp, &p.ops, &p.mesh.mesh, psi.as_deref(), stokes_tol)
@@ -677,7 +725,9 @@ fn main() {
             }
             picard_gap = (0..nv)
                 .map(|i| {
-                    (trial.q1[i] - q_next.q1[i]).abs().max((trial.q2[i] - q_next.q2[i]).abs())
+                    (trial.q1[i] - q_next.q1[i])
+                        .abs()
+                        .max((trial.q2[i] - q_next.q2[i]).abs())
                 })
                 .fold(0.0_f64, f64::max);
             q_next = trial;
@@ -846,7 +896,11 @@ fn main() {
         cfl_worst = cfl_worst.max(p.courant(&v2, dt, &hloc).0);
         let t_b = std::time::Instant::now();
         let dq_max = (0..nv)
-            .map(|i| (q_next.q1[i] - q.q1[i]).abs().max((q_next.q2[i] - q.q2[i]).abs()))
+            .map(|i| {
+                (q_next.q1[i] - q.q1[i])
+                    .abs()
+                    .max((q_next.q2[i] - q.q2[i]).abs())
+            })
             .fold(0.0_f64, f64::max);
         let its = 0usize;
         q = q_next;
@@ -868,7 +922,10 @@ fn main() {
         // hundredfold is far outside any transient.
         let (worst_v, s_max) = (0..nv)
             .map(|i| (i, (2.0 * (q.q1[i] * q.q1[i] + q.q2[i] * q.q2[i])).sqrt()))
-            .fold((0usize, 0.0_f64), |acc, x| if x.1 > acc.1 { x } else { acc });
+            .fold(
+                (0usize, 0.0_f64),
+                |acc, x| if x.1 > acc.1 { x } else { acc },
+            );
         if !dq_max.is_finite() || !s_max.is_finite() || s_max > 100.0 * s0_ref {
             // WHERE it diverges decides what is wrong. A blow-up sitting on the
             // wall is the boundary condition or the recovery there; one in the
@@ -892,13 +949,17 @@ fn main() {
             eprintln!(
                 "ABORT at step {step}, t {:.4}: S reached {s_max:.3e} against an equilibrium \
                  s0 of {s0_ref:.4} (worst dQ {dq_max:.3e}). The explicit stress is unstable at \
-                 this step and mesh grading; reduce ACT_DT or raise ACT_HMIN."
-            , step as f64 * dt);
+                 this step and mesh grading; reduce ACT_DT or raise ACT_HMIN.",
+                step as f64 * dt
+            );
             eprintln!(
                 "  worst vertex {worst_v} at ({:.3}, {:.3}), h {:.4}, {} the wall \
                  ({:.3} away); {hot} of {nv} vertices are above 2 s0",
-                pw[0], pw[1], hloc[worst_v],
-                if on_wall { "ON" } else { "off" }, d_wall
+                pw[0],
+                pw[1],
+                hloc[worst_v],
+                if on_wall { "ON" } else { "off" },
+                d_wall
             );
             // Flush before leaving. `process::exit` runs no destructors, so an
             // aborted run used to discard every buffered series row since the

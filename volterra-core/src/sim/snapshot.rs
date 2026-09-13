@@ -1,8 +1,8 @@
 //! Canonical `.npy` writer and snapshot sinks.
 
+use super::stats::StepStats;
 use std::io::Write;
 use std::path::Path;
-use super::stats::StepStats;
 
 /// Write a flat C-contiguous `f64` buffer as NumPy `.npy` v1.0 with on-disk
 /// shape `(nx, ny, nz, n_comp)`. `data.len()` must equal `nx*ny*nz*n_comp`.
@@ -31,7 +31,9 @@ pub fn write_npy(
     };
     let padding = header_len - dict_plus_newline;
     let mut padded_header = header_dict;
-    for _ in 0..padding { padded_header.push(' '); }
+    for _ in 0..padding {
+        padded_header.push(' ');
+    }
     padded_header.push('\n');
     debug_assert_eq!((8 + 2 + header_len) % 64, 0);
 

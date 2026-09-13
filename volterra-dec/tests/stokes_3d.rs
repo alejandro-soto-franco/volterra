@@ -6,7 +6,7 @@
 
 use volterra_dec::mimetic::assemble_star;
 use volterra_dec::stokes_3d::BoundedStokes3D;
-use volterra_dec::tet_mesh::{box_mesh, TetComplex};
+use volterra_dec::tet_mesh::{TetComplex, box_mesh};
 
 // ---------------------------------------------------------------------------
 // The manufactured solution.
@@ -33,17 +33,15 @@ fn dddphi(s: f64) -> f64 {
 
 fn velocity(x: [f64; 3]) -> [f64; 3] {
     let (a, b, c) = (x[0], x[1], x[2]);
-    [
-        0.0,
-        phi(a) * phi(b) * dphi(c),
-        -phi(a) * dphi(b) * phi(c),
-    ]
+    [0.0, phi(a) * phi(b) * dphi(c), -phi(a) * dphi(b) * phi(c)]
 }
 
 fn laplacian_velocity(x: [f64; 3]) -> [f64; 3] {
     let (a, b, c) = (x[0], x[1], x[2]);
-    let vy = ddphi(a) * phi(b) * dphi(c) + phi(a) * ddphi(b) * dphi(c) + phi(a) * phi(b) * dddphi(c);
-    let vz = ddphi(a) * dphi(b) * phi(c) + phi(a) * dddphi(b) * phi(c) + phi(a) * dphi(b) * ddphi(c);
+    let vy =
+        ddphi(a) * phi(b) * dphi(c) + phi(a) * ddphi(b) * dphi(c) + phi(a) * phi(b) * dddphi(c);
+    let vz =
+        ddphi(a) * dphi(b) * phi(c) + phi(a) * dddphi(b) * phi(c) + phi(a) * dphi(b) * ddphi(c);
     [0.0, vy, -vz]
 }
 
@@ -75,12 +73,7 @@ fn manufactured_error(n: usize, eta: f64) -> (f64, f64, f64) {
     let solver = BoundedStokes3D::new(mesh).unwrap();
     let flow = solver.solve(&f, &wall, eta).unwrap();
 
-    let err: Vec<f64> = flow
-        .flux
-        .iter()
-        .zip(&exact)
-        .map(|(a, b)| a - b)
-        .collect();
+    let err: Vec<f64> = flow.flux.iter().zip(&exact).map(|(a, b)| a - b).collect();
     let rel = m2_norm(&m2, &err) / m2_norm(&m2, &exact);
     let slip = flow.wall_slip(solver.mesh()).rms;
     (rel, flow.divergence_residual, slip)
@@ -166,11 +159,20 @@ fn the_manufactured_solution_converges() {
     for n in [4usize, 6, 8] {
         let (rel, div, _) = manufactured_error(n, eta);
         assert!(div < 1e-11, "n = {n}: divergence residual {div}");
-        assert!(rel < 1.0, "n = {n}: relative error {rel} is not a solution at all");
+        assert!(
+            rel < 1.0,
+            "n = {n}: relative error {rel} is not a solution at all"
+        );
         errs.push(rel);
     }
-    assert!(errs[1] < errs[0], "error grew from n = 4 to n = 6: {errs:?}");
-    assert!(errs[2] < errs[1], "error grew from n = 6 to n = 8: {errs:?}");
+    assert!(
+        errs[1] < errs[0],
+        "error grew from n = 4 to n = 6: {errs:?}"
+    );
+    assert!(
+        errs[2] < errs[1],
+        "error grew from n = 6 to n = 8: {errs:?}"
+    );
     let rate = (errs[0] / errs[2]).ln() / (8.0_f64 / 4.0).ln();
     assert!(
         rate > 0.8,
@@ -199,7 +201,10 @@ fn the_wall_slip_falls_with_mesh_size() {
     let eta = 1.0;
     let ns = [4usize, 6, 10];
     let slips: Vec<f64> = ns.iter().map(|&n| manufactured_error(n, eta).2).collect();
-    assert!(slips[2] < slips[1] && slips[1] < slips[0], "wall slip did not fall: {slips:?}");
+    assert!(
+        slips[2] < slips[1] && slips[1] < slips[0],
+        "wall slip did not fall: {slips:?}"
+    );
     let rate = (slips[0] / slips[2]).ln() / (10.0_f64 / 4.0).ln();
     assert!(
         rate > 0.6,
@@ -223,8 +228,7 @@ fn duct_profile(x: f64, y: f64, a: f64, b: f64, g: f64, eta: f64) -> f64 {
     let mut n = 1usize;
     while n <= 81 {
         let k = n as f64 * std::f64::consts::PI / a;
-        let amp = 4.0 * g * a * a
-            / (eta * (n as f64).powi(3) * std::f64::consts::PI.powi(3));
+        let amp = 4.0 * g * a * a / (eta * (n as f64).powi(3) * std::f64::consts::PI.powi(3));
         let shape = 1.0 - (k * (y - 0.5 * b)).cosh() / (0.5 * k * b).cosh();
         acc += amp * shape * (k * x).sin();
         n += 2;
@@ -308,7 +312,10 @@ fn the_duct_reproduces_the_series_solution() {
         let nn = n as f64;
         grads.push(-(spz - sz * sp / nn) / (szz - sz * sz / nn) / g);
     }
-    assert!(errs[1] < errs[0], "duct error grew under refinement: {errs:?}");
+    assert!(
+        errs[1] < errs[0],
+        "duct error grew under refinement: {errs:?}"
+    );
     assert!(
         grads[1] > grads[0] && grads[1] > 0.8,
         "the pressure gradient over the driving gradient is {grads:?}, which should \
@@ -356,7 +363,11 @@ fn a_constant_field_survives_the_round_trip() {
             );
         }
     }
-    for (v, _) in flow.velocity_at_vertices(&mesh).iter().zip(0..mesh.n_vertices()) {
+    for (v, _) in flow
+        .velocity_at_vertices(&mesh)
+        .iter()
+        .zip(0..mesh.n_vertices())
+    {
         for i in 0..3 {
             assert!((v[i] - v0[i]).abs() < 1e-12);
         }
@@ -369,7 +380,10 @@ fn a_constant_field_survives_the_round_trip() {
     let speed = (v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2]).sqrt();
     let want = speed * mesh.volume().sqrt();
     let got = flow.velocity_norm(&m2);
-    assert!((got - want).abs() < 1e-11 * want, "velocity norm {got} against {want}");
+    assert!(
+        (got - want).abs() < 1e-11 * want,
+        "velocity norm {got} against {want}"
+    );
 }
 
 /// A boundary condition whose fluxes do not sum to zero has no incompressible
@@ -379,7 +393,9 @@ fn a_constant_field_survives_the_round_trip() {
 fn an_incompatible_boundary_flux_is_rejected() {
     let mesh: TetComplex = box_mesh(2, 2, 2, 1.0, 1.0, 1.0).unwrap();
     let mut wall = vec![0.0; mesh.n_faces()];
-    let f = (0..mesh.n_faces()).find(|&f| mesh.is_boundary_face(f)).unwrap();
+    let f = (0..mesh.n_faces())
+        .find(|&f| mesh.is_boundary_face(f))
+        .unwrap();
     wall[f] = 1.0;
     let zero = vec![0.0; mesh.n_faces()];
     let solver = BoundedStokes3D::new(mesh).unwrap();
@@ -444,7 +460,10 @@ fn a_chamber_with_a_pillar_leaves_no_harmonic_mode() {
     let mut sv: Vec<f64> = a.singular_values().iter().cloned().collect();
     sv.sort_by(|p, q| q.partial_cmp(p).unwrap());
     let top = sv[0];
-    let rank = sv.iter().filter(|&&x| x > 1e-10 * top * a.nrows() as f64).count();
+    let rank = sv
+        .iter()
+        .filter(|&&x| x > 1e-10 * top * a.nrows() as f64)
+        .count();
     assert_eq!(free.len() - rank, 0, "harmonic dimension is not zero");
     assert!(
         sv[rank - 1] / top > 1e-3,
@@ -458,7 +477,11 @@ fn a_chamber_with_a_pillar_leaves_no_harmonic_mode() {
     let f = mesh.flux_dofs(|x: [f64; 3]| [0.3 * x[2], -0.4, 0.2 * x[0]]);
     let solver = BoundedStokes3D::new(mesh).unwrap();
     let flow = solver.solve(&f, &vec![0.0; nf], 1.0).unwrap();
-    assert!(flow.divergence_residual < 1e-16, "divergence {}", flow.divergence_residual);
+    assert!(
+        flow.divergence_residual < 1e-16,
+        "divergence {}",
+        flow.divergence_residual
+    );
 }
 
 /// MINRES against the Riesz map reaches the direct answer.
@@ -480,18 +503,36 @@ fn minres_reaches_the_direct_answer() {
 
     let direct = BoundedStokes3D::new(mesh.clone()).unwrap();
     let reference = direct.solve(&f, &wall, eta).unwrap();
-    assert!(reference.report.is_none(), "a direct solve has no iteration report");
+    assert!(
+        reference.report.is_none(),
+        "a direct solve has no iteration report"
+    );
 
     let iterative = BoundedStokes3D::with_inversion(
         mesh,
-        Inversion::Minres { mode: RieszMode::Exact, tol: 1e-10, max_iter: 5000 },
+        Inversion::Minres {
+            mode: RieszMode::Exact,
+            tol: 1e-10,
+            max_iter: 5000,
+        },
     )
     .unwrap();
     let flow = iterative.solve(&f, &wall, eta).unwrap();
-    let report = flow.report.expect("an iterative solve reports its iterations");
-    assert!(report.converged, "MINRES stopped at {} iterations", report.iterations);
+    let report = flow
+        .report
+        .expect("an iterative solve reports its iterations");
+    assert!(
+        report.converged,
+        "MINRES stopped at {} iterations",
+        report.iterations
+    );
 
-    let d: Vec<f64> = flow.flux.iter().zip(&reference.flux).map(|(p, q)| p - q).collect();
+    let d: Vec<f64> = flow
+        .flux
+        .iter()
+        .zip(&reference.flux)
+        .map(|(p, q)| p - q)
+        .collect();
     let rel = m2_norm(&m2, &d) / m2_norm(&m2, &reference.flux);
     assert!(rel < 1e-6, "MINRES differs from the direct answer by {rel}");
     assert!(
@@ -525,12 +566,20 @@ fn the_graph_norm_on_the_edges_beats_the_mass_norm() {
     for mode in [RieszMode::Exact, RieszMode::ExactMass] {
         let s = BoundedStokes3D::with_inversion(
             mesh.clone(),
-            Inversion::Minres { mode, tol: 1e-10, max_iter: 20000 },
+            Inversion::Minres {
+                mode,
+                tol: 1e-10,
+                max_iter: 20000,
+            },
         )
         .unwrap();
         let flow = s.solve(&f, &wall, eta).unwrap();
         let r = flow.report.unwrap();
-        assert!(r.converged, "{mode:?} stopped at {} iterations", r.iterations);
+        assert!(
+            r.converged,
+            "{mode:?} stopped at {} iterations",
+            r.iterations
+        );
         counts.push(r.iterations);
     }
     assert!(
@@ -551,7 +600,7 @@ fn the_graph_norm_on_the_edges_beats_the_mass_norm() {
 /// uses.
 #[test]
 fn an_arbitrary_chip_footprint_extrudes_and_solves() {
-    use volterra_dec::confined::{confined_mesh, MeshOpts};
+    use volterra_dec::confined::{MeshOpts, confined_mesh};
     use volterra_dec::curve::PolyCurve;
     use volterra_dec::tet_mesh::prism_extrude_flat;
 
@@ -567,7 +616,11 @@ fn an_arbitrary_chip_footprint_extrudes_and_solves() {
         [0.0, 0.6],
     ];
     let curve = PolyCurve::new_auto(&outline).expect("the outline is a valid polygon");
-    let opts = MeshOpts { h_bulk: 0.075, h_min: 0.04, ..Default::default() };
+    let opts = MeshOpts {
+        h_bulk: 0.075,
+        h_min: 0.04,
+        ..Default::default()
+    };
     let planar = confined_mesh(curve, opts);
 
     let depth = 0.15;

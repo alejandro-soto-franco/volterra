@@ -55,7 +55,13 @@ pub struct NematicParams {
 impl NematicParams {
     /// Construct from dimensionless numbers directly.
     pub fn new(pe: f64, er: f64, la: f64, lc: f64, lambda: f64) -> Self {
-        Self { pe, er, la, lc, lambda }
+        Self {
+            pe,
+            er,
+            la,
+            lc,
+            lambda,
+        }
     }
 
     /// Construct from physical (dimensional) parameters.
@@ -70,8 +76,14 @@ impl NematicParams {
     /// - `lambda`: flow alignment parameter
     #[allow(clippy::too_many_arguments)]
     pub fn from_physical(
-        k: f64, alpha: f64, gamma: f64, eta: f64,
-        a: f64, c: f64, r: f64, lambda: f64,
+        k: f64,
+        alpha: f64,
+        gamma: f64,
+        eta: f64,
+        a: f64,
+        c: f64,
+        r: f64,
+        lambda: f64,
     ) -> Self {
         let r2 = r * r;
         Self {
@@ -86,13 +98,25 @@ impl NematicParams {
     /// Default parameters for testing: Pe = 1, moderate ordering.
     /// 4 tetrahedral defects on S^2, gentle oscillation.
     pub fn default_low_activity() -> Self {
-        Self { pe: 1.0, er: 1.0, la: 1.0, lc: 1.0, lambda: 0.7 }
+        Self {
+            pe: 1.0,
+            er: 1.0,
+            la: 1.0,
+            lc: 1.0,
+            lambda: 0.7,
+        }
     }
 
     /// Parameters for active turbulence: Pe = 10^4.
     /// ~100-200 defects on S^2, chaotic dynamics.
     pub fn default_turbulent() -> Self {
-        Self { pe: 1e4, er: 100.0, la: 1.0, lc: 1.0, lambda: 0.7 }
+        Self {
+            pe: 1e4,
+            er: 100.0,
+            la: 1.0,
+            lc: 1.0,
+            lambda: 0.7,
+        }
     }
 
     /// Equilibrium scalar order parameter: S_eq = 2 sqrt(La / Lc).
@@ -154,14 +178,14 @@ mod tests {
     #[test]
     fn from_physical_unit_sphere() {
         let p = NematicParams::from_physical(
-            0.01,  // K
-            0.5,   // alpha
-            1.0,   // gamma
-            0.1,   // eta
-            0.01,  // A (|A| = 0.01)
-            0.01,  // C
-            1.0,   // R = 1 (unit sphere)
-            0.7,   // lambda
+            0.01, // K
+            0.5,  // alpha
+            1.0,  // gamma
+            0.1,  // eta
+            0.01, // A (|A| = 0.01)
+            0.01, // C
+            1.0,  // R = 1 (unit sphere)
+            0.7,  // lambda
         );
         assert!((p.pe - 50.0).abs() < 1e-10);
         assert!((p.er - 500.0).abs() < 1e-10);

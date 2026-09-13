@@ -21,15 +21,19 @@ fn dddphi(s: f64) -> f64 {
     -12.0 + 24.0 * s
 }
 fn velocity(x: [f64; 3]) -> [f64; 3] {
-    [0.0, phi(x[0]) * phi(x[1]) * dphi(x[2]), -phi(x[0]) * dphi(x[1]) * phi(x[2])]
+    [
+        0.0,
+        phi(x[0]) * phi(x[1]) * dphi(x[2]),
+        -phi(x[0]) * dphi(x[1]) * phi(x[2]),
+    ]
 }
 fn source(eta: f64) -> impl Fn([f64; 3]) -> [f64; 3] + Copy {
     move |x: [f64; 3]| {
         let (a, b, c) = (x[0], x[1], x[2]);
-        let ly = ddphi(a) * phi(b) * dphi(c) + phi(a) * ddphi(b) * dphi(c)
-            + phi(a) * phi(b) * dddphi(c);
-        let lz = ddphi(a) * dphi(b) * phi(c) + phi(a) * dddphi(b) * phi(c)
-            + phi(a) * dphi(b) * ddphi(c);
+        let ly =
+            ddphi(a) * phi(b) * dphi(c) + phi(a) * ddphi(b) * dphi(c) + phi(a) * phi(b) * dddphi(c);
+        let lz =
+            ddphi(a) * dphi(b) * phi(c) + phi(a) * dddphi(b) * phi(c) + phi(a) * dphi(b) * ddphi(c);
         [1.0, -eta * ly, eta * lz]
     }
 }
@@ -95,7 +99,8 @@ fn main() {
     for n in [3usize, 4, 6, 8, 10] {
         let mesh = box_mesh(n, n, n, a, b, len).unwrap();
         let m2 = assemble_star(&mesh, 2).unwrap();
-        let exact = mesh.flux_dofs(|x: [f64; 3]| [0.0, 0.0, duct_profile(x[0], x[1], a, b, g, veta)]);
+        let exact =
+            mesh.flux_dofs(|x: [f64; 3]| [0.0, 0.0, duct_profile(x[0], x[1], a, b, g, veta)]);
         let zero = vec![0.0; mesh.n_faces()];
         let mut wall = vec![0.0; mesh.n_faces()];
         for fi in 0..mesh.n_faces() {
@@ -143,7 +148,8 @@ fn main() {
     for n in [4usize, 8] {
         let mesh = box_mesh(n, n, 2, a, b, len).unwrap();
         let m2 = assemble_star(&mesh, 2).unwrap();
-        let exact = mesh.flux_dofs(|x: [f64; 3]| [0.0, 0.0, duct_profile(x[0], x[1], a, b, g, veta)]);
+        let exact =
+            mesh.flux_dofs(|x: [f64; 3]| [0.0, 0.0, duct_profile(x[0], x[1], a, b, g, veta)]);
         // The plug of equal flow rate: free slip on the side walls answers this
         // shape rather than the parabolic one.
         let mut q = 0.0;

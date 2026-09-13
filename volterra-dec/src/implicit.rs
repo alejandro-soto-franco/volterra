@@ -80,24 +80,29 @@ pub fn marching_tets(
     // closes.
     let mut on_edge: HashMap<(usize, usize), usize> = HashMap::new();
 
-    let mut cut = |a: usize, b: usize, verts: &mut Vec<[f64; 3]>, at_pt: &dyn Fn(usize) -> [f64; 3]| {
-        let key = if a < b { (a, b) } else { (b, a) };
-        if let Some(&v) = on_edge.get(&key) {
-            return v;
-        }
-        let (fa, fb) = (val[key.0], val[key.1]);
-        let t = if (fb - fa).abs() < 1e-300 { 0.5 } else { (fa / (fa - fb)).clamp(1e-6, 1.0 - 1e-6) };
-        let (pa, pb) = (at_pt(key.0), at_pt(key.1));
-        let p = [
-            pa[0] + t * (pb[0] - pa[0]),
-            pa[1] + t * (pb[1] - pa[1]),
-            pa[2] + t * (pb[2] - pa[2]),
-        ];
-        verts.push(p);
-        let v = verts.len() - 1;
-        on_edge.insert(key, v);
-        v
-    };
+    let mut cut =
+        |a: usize, b: usize, verts: &mut Vec<[f64; 3]>, at_pt: &dyn Fn(usize) -> [f64; 3]| {
+            let key = if a < b { (a, b) } else { (b, a) };
+            if let Some(&v) = on_edge.get(&key) {
+                return v;
+            }
+            let (fa, fb) = (val[key.0], val[key.1]);
+            let t = if (fb - fa).abs() < 1e-300 {
+                0.5
+            } else {
+                (fa / (fa - fb)).clamp(1e-6, 1.0 - 1e-6)
+            };
+            let (pa, pb) = (at_pt(key.0), at_pt(key.1));
+            let p = [
+                pa[0] + t * (pb[0] - pa[0]),
+                pa[1] + t * (pb[1] - pa[1]),
+                pa[2] + t * (pb[2] - pa[2]),
+            ];
+            verts.push(p);
+            let v = verts.len() - 1;
+            on_edge.insert(key, v);
+            v
+        };
 
     let at_pt = |flat: usize| -> [f64; 3] {
         let k = flat % (n + 1);
@@ -275,7 +280,10 @@ pub fn orient(tris: &mut [[usize; 3]]) -> (bool, usize) {
     let mut by_edge: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     for (fi, t) in tris.iter().enumerate() {
         for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-            by_edge.entry(if a < b { (a, b) } else { (b, a) }).or_default().push(fi);
+            by_edge
+                .entry(if a < b { (a, b) } else { (b, a) })
+                .or_default()
+                .push(fi);
         }
     }
     let boundary = by_edge.values().filter(|v| v.len() != 2).count();
@@ -314,4 +322,3 @@ pub fn orient(tris: &mut [[usize; 3]]) -> (bool, usize) {
     }
     (ok, boundary)
 }
-

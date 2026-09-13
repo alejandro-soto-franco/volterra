@@ -8,8 +8,8 @@
 use std::f64::consts::PI;
 
 use cartan_manifolds::euclidean::Euclidean;
-use volterra_dec::mesh_gen::{torus_gaussian_curvature, torus_mesh};
 use volterra_dec::DecDomain;
+use volterra_dec::mesh_gen::{torus_gaussian_curvature, torus_mesh};
 
 const R: f64 = 1.0; // major radius
 const R_MINOR: f64 = 0.4; // minor radius
@@ -42,7 +42,11 @@ fn gauss_bonnet_torus_integrates_to_zero() {
 
     let integral_k: f64 = k.iter().zip(&d.dual_areas).map(|(&ki, &ai)| ki * ai).sum();
     // Normalise by the integral of |K| so the tolerance is dimensionless.
-    let integral_abs_k: f64 = k.iter().zip(&d.dual_areas).map(|(&ki, &ai)| ki.abs() * ai).sum();
+    let integral_abs_k: f64 = k
+        .iter()
+        .zip(&d.dual_areas)
+        .map(|(&ki, &ai)| ki.abs() * ai)
+        .sum();
     let rel = integral_k.abs() / integral_abs_k;
     assert!(
         rel < 0.02,

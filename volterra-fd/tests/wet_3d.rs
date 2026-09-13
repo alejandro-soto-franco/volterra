@@ -71,7 +71,10 @@ fn without_activity_the_fluid_stays_at_rest() {
         .map(|u| (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt())
         .fold(0.0_f64, f64::max);
 
-    assert!(fastest < 1e-12, "an inactive nematic drove a flow of {fastest:.3e}");
+    assert!(
+        fastest < 1e-12,
+        "an inactive nematic drove a flow of {fastest:.3e}"
+    );
     assert!(stats.last().unwrap().max_speed < 1e-12);
 }
 
@@ -137,7 +140,10 @@ fn the_active_flow_is_divergence_free() {
             }
         }
     }
-    assert!(speed > 1e-6, "the active flow was too weak to test, {speed:.3e}");
+    assert!(
+        speed > 1e-6,
+        "the active flow was too weak to test, {speed:.3e}"
+    );
     assert!(
         worst < 1e-9 * speed / p.dx,
         "divergence {worst:.3e} against a speed of {speed:.3e}"
@@ -167,6 +173,9 @@ fn activity_drives_a_flow_that_changes_the_field() {
         .map(|(a, b)| (0..5).map(|c| (a[c] - b[c]).powi(2)).sum::<f64>())
         .sum::<f64>()
         .sqrt();
-    assert!(drift > 1e-8, "the flow left the field unchanged, drift {drift:.3e}");
+    assert!(
+        drift > 1e-8,
+        "the flow left the field unchanged, drift {drift:.3e}"
+    );
     assert!(stats.last().unwrap().max_speed > 0.0);
 }

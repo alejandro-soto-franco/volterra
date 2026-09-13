@@ -74,5 +74,8 @@ fn spatial_zeta_field_changes_flow() {
         .zip(v_field.v.iter())
         .map(|(a, b)| (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2))
         .sum();
-    assert!(diff > 1e-6, "spatial zeta should change the flow, diff={diff}");
+    assert!(
+        diff > 1e-6,
+        "spatial zeta should change the flow, diff={diff}"
+    );
 }

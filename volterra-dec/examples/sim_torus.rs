@@ -7,13 +7,13 @@ use std::path::Path;
 use std::time::Instant;
 
 use volterra_core::ActiveNematicParams;
+use volterra_dec::DecDomain;
+use volterra_dec::QField;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::torus_mesh;
 #[allow(unused_imports)]
 use volterra_dec::snapshot::write_snapshot;
 use volterra_dec::stokes::{SurfaceStokes, advect_q};
-use volterra_dec::QField;
-use volterra_dec::DecDomain;
 
 fn main() {
     let major_r = 3.0;
@@ -32,7 +32,10 @@ fn main() {
     let mesh = torus_mesh(major_r, minor_r, n_major, n_minor);
     let nv = mesh.n_vertices();
     let nf = mesh.n_simplices();
-    println!("  vertices: {nv}, faces: {nf}, chi: {}", mesh.euler_characteristic());
+    println!(
+        "  vertices: {nv}, faces: {nf}, chi: {}",
+        mesh.euler_characteristic()
+    );
 
     println!("Assembling DEC operators...");
     let domain = DecDomain::new(mesh, cartan_manifolds::euclidean::Euclidean::<3>)
@@ -45,18 +48,28 @@ fn main() {
             .collect::<Vec<_>>(),
         "triangles": domain.mesh.simplices,
     });
-    std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
-        .expect("failed to write mesh.json");
+    std::fs::write(
+        out.join("mesh.json"),
+        serde_json::to_string(&mesh_json).unwrap(),
+    )
+    .expect("failed to write mesh.json");
 
     // Extract vertex coordinates.
-    let coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| {
-        [v[0], v[1], v[2]]
-    }).collect();
+    let coords: Vec<[f64; 3]> = domain
+        .mesh
+        .vertices
+        .iter()
+        .map(|v| [v[0], v[1], v[2]])
+        .collect();
 
     // Build connection Laplacian (curvature enters automatically via holonomy).
     println!("Building connection Laplacian...");
-    let star0: Vec<f64> = (0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect();
-    let star1: Vec<f64> = (0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect();
+    let star0: Vec<f64> = (0..domain.ops.hodge.star0().len())
+        .map(|i| domain.ops.hodge.star0()[i])
+        .collect();
+    let star1: Vec<f64> = (0..domain.ops.hodge.star1().len())
+        .map(|i| domain.ops.hodge.star1()[i])
+        .collect();
     let conn_lap = ConnectionLaplacian::new(&domain.mesh, &coords, &star0, &star1);
 
     // Same parameters as the sphere (reduced activity, increased viscosity).
@@ -71,8 +84,8 @@ fn main() {
     params.lambda = 0.7;
 
     println!("Factorising Stokes solver...");
-    let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh)
-        .expect("Stokes solver factorisation failed");
+    let stokes =
+        SurfaceStokes::new(&domain.ops, &domain.mesh).expect("Stokes solver factorisation failed");
 
     let mut q = QField::random_perturbation(nv, 0.2, 42);
 
@@ -113,11 +126,16 @@ fn main() {
 
             let rhs = |qq: &QField| -> QField {
                 let h = molecular_field_conn(
-                    qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
+                    qq,
+                    params.k_r,
+                    params.a_eff(),
+                    params.c_landau,
+                    &conn_lap,
                 );
                 let mut dq = h.scale(params.gamma_r);
                 let adv = advect_q(
-                    qq, &vel,
+                    qq,
+                    &vel,
                     &domain.mesh.boundaries,
                     &domain.mesh.vertex_boundaries,
                     &coords,

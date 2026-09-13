@@ -15,9 +15,8 @@
 //!     below a generous bound (e.g. 10 * S0) everywhere
 
 use volterra_fd::{
-    nephroid_boundary,
-    step::{update_step_inner, State},
-    Params,
+    Params, nephroid_boundary,
+    step::{State, update_step_inner},
 };
 
 const LX: usize = 30;
@@ -41,8 +40,8 @@ const P_TARGET_REL_CHANGE: f64 = 1e-4;
 
 /// Load a flat text file (one value per line) into a Vec<f64>.
 fn load_txt(path: &str) -> Vec<f64> {
-    let content = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let content =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
     content
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -104,10 +103,10 @@ fn one_step_vs_python() {
 
     assert_eq!(q_ic.len(), N2, "Q_ic length");
     assert_eq!(u_ic.len(), N2, "u_ic length");
-    assert_eq!(p_ic.len(), N,  "p_ic length");
+    assert_eq!(p_ic.len(), N, "p_ic length");
     assert_eq!(q_ref.len(), N2, "Q_ref length");
     assert_eq!(u_ref.len(), N2, "u_ref length");
-    assert_eq!(p_ref.len(), N,  "p_ref length");
+    assert_eq!(p_ref.len(), N, "p_ref length");
 
     // Build boundary
     let bnd = nephroid_boundary(LX, LY);

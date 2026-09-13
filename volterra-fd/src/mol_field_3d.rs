@@ -184,12 +184,10 @@ pub fn molecular_field_3d(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -> QF
     for k in 0..q.len() {
         let [q11, q12, q13, q22, q23] = q.q[k];
         let q33 = -(q11 + q22);
-        let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
-            + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+        let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
         let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
         for comp in 0..5 {
-            out.q[k][comp] = k_r * lap.q[k][comp]
-                + (-a_eff) * q.q[k][comp]
+            out.q[k][comp] = k_r * lap.q[k][comp] + (-a_eff) * q.q[k][comp]
                 - 2.0 * c * tr_q2 * q.q[k][comp]
                 + h_cubic[comp]
                 + h_mag[comp];
@@ -243,8 +241,8 @@ pub fn molecular_field_3d_par(q: &QField3D, p: &ActiveNematicParams3D, t: f64) -
             let qk = q_data[k];
             let [q11, q12, q13, q22, q23] = qk;
             let q33 = -(q11 + q22);
-            let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
-                + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+            let tr_q2 =
+                q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
             let bulk = -a_eff - 2.0 * c * tr_q2;
             let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
 
@@ -305,43 +303,38 @@ pub fn molecular_field_3d_par_into(
     let q_data = &q.q;
     let nynz = ny * nz;
 
-    out.q
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(k, out_k)| {
-            let l = k % nz;
-            let ij = k / nz;
-            let j = ij % ny;
-            let i = ij / ny;
+    out.q.par_iter_mut().enumerate().for_each(|(k, out_k)| {
+        let l = k % nz;
+        let ij = k / nz;
+        let j = ij % ny;
+        let i = ij / ny;
 
-            let ip = ((i + 1) % nx) * nynz + j * nz + l;
-            let im = ((i + nx - 1) % nx) * nynz + j * nz + l;
-            let jp = i * nynz + ((j + 1) % ny) * nz + l;
-            let jm = i * nynz + ((j + ny - 1) % ny) * nz + l;
-            let lp = i * nynz + j * nz + (l + 1) % nz;
-            let lm = i * nynz + j * nz + (l + nz - 1) % nz;
+        let ip = ((i + 1) % nx) * nynz + j * nz + l;
+        let im = ((i + nx - 1) % nx) * nynz + j * nz + l;
+        let jp = i * nynz + ((j + 1) % ny) * nz + l;
+        let jm = i * nynz + ((j + ny - 1) % ny) * nz + l;
+        let lp = i * nynz + j * nz + (l + 1) % nz;
+        let lm = i * nynz + j * nz + (l + nz - 1) % nz;
 
-            let qk = q_data[k];
-            let [q11, q12, q13, q22, q23] = qk;
-            let q33 = -(q11 + q22);
-            let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
-                + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
-            let bulk = -a_eff - 2.0 * c * tr_q2;
-            let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
+        let qk = q_data[k];
+        let [q11, q12, q13, q22, q23] = qk;
+        let q33 = -(q11 + q22);
+        let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+        let bulk = -a_eff - 2.0 * c * tr_q2;
+        let h_cubic = cubic_bulk_term(q11, q12, q13, q22, q23, q33, tr_q2, b_landau);
 
-            for comp in 0..5 {
-                let lap = (q_data[ip][comp]
-                    + q_data[im][comp]
-                    + q_data[jp][comp]
-                    + q_data[jm][comp]
-                    + q_data[lp][comp]
-                    + q_data[lm][comp]
-                    - 6.0 * qk[comp])
-                    * inv_dx2;
-                out_k[comp] =
-                    scale * (k_r * lap + bulk * qk[comp] + h_cubic[comp] + h_mag[comp]);
-            }
-        });
+        for comp in 0..5 {
+            let lap = (q_data[ip][comp]
+                + q_data[im][comp]
+                + q_data[jp][comp]
+                + q_data[jm][comp]
+                + q_data[lp][comp]
+                + q_data[lm][comp]
+                - 6.0 * qk[comp])
+                * inv_dx2;
+            out_k[comp] = scale * (k_r * lap + bulk * qk[comp] + h_cubic[comp] + h_mag[comp]);
+        }
+    });
 }
 
 /// Fused Euler step: computes the molecular field and applies the Euler
@@ -405,11 +398,14 @@ pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64)
             let qk = q_src[k];
 
             // Bulk LdG: dt * gamma_r * (-a_eff - 2c Tr(Q^2))
-            let q11 = qk[0]; let q12 = qk[1]; let q13 = qk[2];
-            let q22 = qk[3]; let q23 = qk[4];
+            let q11 = qk[0];
+            let q12 = qk[1];
+            let q13 = qk[2];
+            let q22 = qk[3];
+            let q23 = qk[4];
             let q33 = -(q11 + q22);
-            let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
-                + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+            let tr_q2 =
+                q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
             let dt_bulk = dt_gr * (-a_eff - 2.0 * c_ldg * tr_q2);
 
             // Cubic bulk term is not proportional to q_ij (unlike the a/c
@@ -431,17 +427,35 @@ pub fn euler_step_fused_par(q: &mut QField3D, p: &ActiveNematicParams3D, t: f64)
             let sc = 1.0 + dt_bulk - 6.0 * elastic_coeff;
 
             // Load 6 neighbours.
-            let n0 = q_src[ip]; let n1 = q_src[im];
-            let n2 = q_src[jp]; let n3 = q_src[jm];
-            let n4 = q_src[lp]; let n5 = q_src[lm];
+            let n0 = q_src[ip];
+            let n1 = q_src[im];
+            let n2 = q_src[jp];
+            let n3 = q_src[jm];
+            let n4 = q_src[lp];
+            let n5 = q_src[lm];
 
             // Fused stencil + bulk + cubic + magnetic + Euler, unrolled.
             [
-                qk[0]*sc + elastic_coeff*(n0[0]+n1[0]+n2[0]+n3[0]+n4[0]+n5[0]) + dt_cubic[0] + dt_hmag[0],
-                qk[1]*sc + elastic_coeff*(n0[1]+n1[1]+n2[1]+n3[1]+n4[1]+n5[1]) + dt_cubic[1] + dt_hmag[1],
-                qk[2]*sc + elastic_coeff*(n0[2]+n1[2]+n2[2]+n3[2]+n4[2]+n5[2]) + dt_cubic[2] + dt_hmag[2],
-                qk[3]*sc + elastic_coeff*(n0[3]+n1[3]+n2[3]+n3[3]+n4[3]+n5[3]) + dt_cubic[3] + dt_hmag[3],
-                qk[4]*sc + elastic_coeff*(n0[4]+n1[4]+n2[4]+n3[4]+n4[4]+n5[4]) + dt_cubic[4] + dt_hmag[4],
+                qk[0] * sc
+                    + elastic_coeff * (n0[0] + n1[0] + n2[0] + n3[0] + n4[0] + n5[0])
+                    + dt_cubic[0]
+                    + dt_hmag[0],
+                qk[1] * sc
+                    + elastic_coeff * (n0[1] + n1[1] + n2[1] + n3[1] + n4[1] + n5[1])
+                    + dt_cubic[1]
+                    + dt_hmag[1],
+                qk[2] * sc
+                    + elastic_coeff * (n0[2] + n1[2] + n2[2] + n3[2] + n4[2] + n5[2])
+                    + dt_cubic[2]
+                    + dt_hmag[2],
+                qk[3] * sc
+                    + elastic_coeff * (n0[3] + n1[3] + n2[3] + n3[3] + n4[3] + n5[3])
+                    + dt_cubic[3]
+                    + dt_hmag[3],
+                qk[4] * sc
+                    + elastic_coeff * (n0[4] + n1[4] + n2[4] + n3[4] + n4[4] + n5[4])
+                    + dt_cubic[4]
+                    + dt_hmag[4],
             ]
         })
         .collect();

@@ -37,10 +37,18 @@ fn from_dimensionless_reproduces_the_reference_constants() {
     assert!((p.k_elastic - 65536.0).abs() < 1e-9, "K = {}", p.k_elastic);
     assert!((p.eta - 2560.0).abs() < 1e-9, "eta = {}", p.eta);
     assert!((p.gamma - 5.0 * 256.0).abs() < 1e-9, "gamma = {}", p.gamma);
-    assert!((p.zeta - (256.0_f64 / 3.0).powi(2)).abs() < 1e-9, "zeta = {}", p.zeta);
+    assert!(
+        (p.zeta - (256.0_f64 / 3.0).powi(2)).abs() < 1e-9,
+        "zeta = {}",
+        p.zeta
+    );
     assert!((p.c_landau - 65536.0).abs() < 1e-9, "C = {}", p.c_landau);
     // C = -2A puts equilibrium at S = 1, the convention the switch width is in.
-    assert!((p.a_landau + 0.5 * p.c_landau).abs() < 1e-9, "A = {}", p.a_landau);
+    assert!(
+        (p.a_landau + 0.5 * p.c_landau).abs() < 1e-9,
+        "A = {}",
+        p.a_landau
+    );
     assert!((p.s0 - 1.0).abs() < 1e-12, "S_eq = {}", p.s0);
 
     assert!((p.active_length() - 3.0).abs() < 1e-9);
@@ -50,16 +58,32 @@ fn from_dimensionless_reproduces_the_reference_constants() {
     assert!((p.gamma * p.eta / p.k_elastic - 50.0).abs() < 1e-9);
     assert!((p.c_landau / p.zeta - 9.0).abs() < 1e-9);
     // t_a = K / (zeta nu), the factor the entropy is made dimensionless with.
-    assert!((p.active_time() - 3.515625e-3).abs() < 1e-12, "t_a = {}", p.active_time());
+    assert!(
+        (p.active_time() - 3.515625e-3).abs() < 1e-12,
+        "t_a = {}",
+        p.active_time()
+    );
 }
 
 /// Mitchell et al. (2024) take `C = -A`, so the same groups give `S_eq = sqrt 2`.
 #[test]
 fn the_two_papers_differ_only_in_the_order_parameter_normalisation() {
     let a = Params::from_dimensionless(
-        100, 100, Dimensionless::mitchell(3.0), Dimensionless::MITCHELL_K, 1e-4, 50);
+        100,
+        100,
+        Dimensionless::mitchell(3.0),
+        Dimensionless::MITCHELL_K,
+        1e-4,
+        50,
+    );
     let b = Params::from_dimensionless(
-        100, 100, Dimensionless::nematic_locking(3.0), Dimensionless::MITCHELL_K, 1e-4, 50);
+        100,
+        100,
+        Dimensionless::nematic_locking(3.0),
+        Dimensionless::MITCHELL_K,
+        1e-4,
+        50,
+    );
     assert_eq!(a.k_elastic, b.k_elastic);
     assert_eq!(a.eta, b.eta);
     assert_eq!(a.gamma, b.gamma);
@@ -77,14 +101,23 @@ fn locking_is_off_by_default_and_absent_from_a_config_means_off() {
     assert!(Params::new(32, 2.8, 4.8, 1.0, 1e-4, -1).locking.is_none());
     assert!(
         Params::from_dimensionless(
-            32, 32, Dimensionless::mitchell(3.0), Dimensionless::MITCHELL_K, 1e-4, 50)
+            32,
+            32,
+            Dimensionless::mitchell(3.0),
+            Dimensionless::MITCHELL_K,
+            1e-4,
+            50
+        )
         .locking
         .is_none()
     );
 
     let p = Params::new(32, 2.8, 4.8, 1.0, 1e-4, -1);
     let mut v: serde_json::Value = serde_json::to_value(&p).unwrap();
-    v.as_object_mut().unwrap().remove("locking").expect("field present");
+    v.as_object_mut()
+        .unwrap()
+        .remove("locking")
+        .expect("field present");
     let back: Params = serde_json::from_value(v).expect("deserialises without the field");
     assert!(back.locking.is_none());
 
@@ -118,13 +151,15 @@ fn the_switch_changes_the_step_only_when_it_is_on() {
     // Two standard runs from the same state agree bit for bit.
     assert_eq!(a.q, b.q);
     // The modified one does not.
-    let diff: f64 = a
-        .q
-        .iter()
-        .zip(c.q.iter())
-        .map(|(x, y)| (x - y).abs())
-        .fold(0.0_f64, f64::max);
-    assert!(diff > 1e-6, "enhanced locking changed nothing: max diff {diff}");
+    let diff: f64 =
+        a.q.iter()
+            .zip(c.q.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0_f64, f64::max);
+    assert!(
+        diff > 1e-6,
+        "enhanced locking changed nothing: max diff {diff}"
+    );
 }
 
 /// The reference's central measurement, in miniature: enhanced locking must

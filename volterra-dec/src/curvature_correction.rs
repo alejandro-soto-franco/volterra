@@ -62,12 +62,21 @@ mod tests {
         let cb = variable_curvature_2d(curvatures);
 
         let m0 = cb(0);
-        assert!(m0[0][0].abs() < 1e-15, "vertex 0: K=0, correction should be 0");
+        assert!(
+            m0[0][0].abs() < 1e-15,
+            "vertex 0: K=0, correction should be 0"
+        );
 
         let m1 = cb(1);
-        assert!((m1[0][0] - (-4.0)).abs() < 1e-15, "vertex 1: K=1, correction should be -4");
+        assert!(
+            (m1[0][0] - (-4.0)).abs() < 1e-15,
+            "vertex 1: K=1, correction should be -4"
+        );
 
         let m2 = cb(2);
-        assert!((m2[0][0] - 2.0).abs() < 1e-15, "vertex 2: K=-0.5, correction should be +2");
+        assert!(
+            (m2[0][0] - 2.0).abs() < 1e-15,
+            "vertex 2: K=-0.5, correction should be +2"
+        );
     }
 }

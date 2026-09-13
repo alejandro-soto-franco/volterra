@@ -11,8 +11,8 @@ use volterra_core::{ActiveNematicParams, Screening};
 
 use std::cell::RefCell;
 
-use crate::poisson::PoissonSolver;
 use crate::QField;
+use crate::poisson::PoissonSolver;
 
 /// Precomputed Stokes solver with cached vertex coordinates and Poisson factorisation.
 pub struct SurfaceStokes {
@@ -114,9 +114,15 @@ impl VelocityField {
     }
 
     /// Convenience accessors for backward compatibility.
-    pub fn vx(&self, i: usize) -> f64 { self.v[i][0] }
-    pub fn vy(&self, i: usize) -> f64 { self.v[i][1] }
-    pub fn vz(&self, i: usize) -> f64 { self.v[i][2] }
+    pub fn vx(&self, i: usize) -> f64 {
+        self.v[i][0]
+    }
+    pub fn vy(&self, i: usize) -> f64 {
+        self.v[i][1]
+    }
+    pub fn vz(&self, i: usize) -> f64 {
+        self.v[i][2]
+    }
 
     /// Velocity magnitude at vertex i.
     pub fn speed(&self, i: usize) -> f64 {
@@ -128,21 +134,32 @@ impl VelocityField {
 /// Extract vertex coordinates from a generic mesh by formatting via Debug.
 /// All cartan manifold Point types are SVector<f64, N>.
 pub fn extract_coords<M: Manifold>(mesh: &Mesh<M, 3, 2>) -> Vec<[f64; 3]> {
-    mesh.vertices.iter().map(|v| {
-        let s = format!("{:?}", v);
-        let nums: Vec<f64> = s
-            .chars()
-            .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == ',' || *c == ' ' || *c == 'e' || *c == '+')
-            .collect::<String>()
-            .split(',')
-            .filter_map(|t| t.trim().parse::<f64>().ok())
-            .collect();
-        match nums.len() {
-            2 => [nums[0], nums[1], 0.0],
-            n if n >= 3 => [nums[0], nums[1], nums[2]],
-            _ => [0.0, 0.0, 0.0],
-        }
-    }).collect()
+    mesh.vertices
+        .iter()
+        .map(|v| {
+            let s = format!("{:?}", v);
+            let nums: Vec<f64> = s
+                .chars()
+                .filter(|c| {
+                    c.is_ascii_digit()
+                        || *c == '.'
+                        || *c == '-'
+                        || *c == ','
+                        || *c == ' '
+                        || *c == 'e'
+                        || *c == '+'
+                })
+                .collect::<String>()
+                .split(',')
+                .filter_map(|t| t.trim().parse::<f64>().ok())
+                .collect();
+            match nums.len() {
+                2 => [nums[0], nums[1], 0.0],
+                n if n >= 3 => [nums[0], nums[1], nums[2]],
+                _ => [0.0, 0.0, 0.0],
+            }
+        })
+        .collect()
 }
 
 /// Compute barycentric dual cell areas from triangles.
@@ -166,7 +183,10 @@ impl SurfaceStokes {
     ///
     /// Uses the closed-manifold Poisson solver (pin vertex 0 + zero-mean projection).
     /// Correct for periodic/closed meshes (sphere, torus, flat torus).
-    pub fn new<M: Manifold>(ops: &Operators<M, 3, 2>, mesh: &Mesh<M, 3, 2>) -> Result<Self, String> {
+    pub fn new<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        mesh: &Mesh<M, 3, 2>,
+    ) -> Result<Self, String> {
         let n_vertices = ops.laplace_beltrami.rows();
         let poisson = PoissonSolver::new(ops)?;
         let coords = extract_coords(mesh);
@@ -179,8 +199,17 @@ impl SurfaceStokes {
         let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
         let e1_frames = compute_tangent_frames_stokes(&normals);
         Ok(Self {
-            poisson, outer, n_vertices, coords, dual_areas, star1, normals, e1_frames,
-            no_slip_vertices: Vec::new(), clamped: None, inner_cache: Default::default(),
+            poisson,
+            outer,
+            n_vertices,
+            coords,
+            dual_areas,
+            star1,
+            normals,
+            e1_frames,
+            no_slip_vertices: Vec::new(),
+            clamped: None,
+            inner_cache: Default::default(),
         })
     }
 
@@ -274,7 +303,10 @@ impl SurfaceStokes {
     fn solve_inner(&self, slot: usize, rhs: &DVector<f64>, tol: f64) -> (DVector<f64>, usize) {
         let (inner, its) = {
             let seed = self.inner_cache[slot].borrow();
-            let x0 = seed.as_ref().filter(|v| v.len() == self.n_vertices).map(|v| v.as_slice());
+            let x0 = seed
+                .as_ref()
+                .filter(|v| v.len() == self.n_vertices)
+                .map(|v| v.as_slice());
             self.poisson.solve_from(rhs, x0, tol)
         };
         *self.inner_cache[slot].borrow_mut() = Some(inner.as_slice().to_vec());
@@ -304,8 +336,14 @@ impl SurfaceStokes {
             return (VelocityField::zeros(nv), vec![0.0; nv], 0);
         }
         let omega = compute_vorticity_source(
-            q, zeta, eta, mesh, &self.coords, &self.dual_areas,
-            &self.normals, &self.e1_frames,
+            q,
+            zeta,
+            eta,
+            mesh,
+            &self.coords,
+            &self.dual_areas,
+            &self.normals,
+            &self.e1_frames,
         );
         // Two sequential Poisson solves, as in `solve`; see the note there for
         // why one is wrong. The inner solve starts cold, since the caller's
@@ -343,8 +381,14 @@ impl SurfaceStokes {
 
         // Compute vorticity source from active stress (covariant divergence).
         let omega = compute_vorticity_source(
-            q, zeta, eta, mesh, &self.coords, &self.dual_areas,
-            &self.normals, &self.e1_frames,
+            q,
+            zeta,
+            eta,
+            mesh,
+            &self.coords,
+            &self.dual_areas,
+            &self.normals,
+            &self.e1_frames,
         );
 
         // Solve for the stream function. Steady Stokes is the BIHARMONIC
@@ -392,11 +436,22 @@ impl SurfaceStokes {
         tol: f64,
     ) -> (VelocityField, Vec<f64>, usize) {
         if eta.abs() < 1e-30 {
-            return (VelocityField::zeros(self.n_vertices), vec![0.0; self.n_vertices], 0);
+            return (
+                VelocityField::zeros(self.n_vertices),
+                vec![0.0; self.n_vertices],
+                0,
+            );
         }
         let omega = compute_vorticity_source_from_stress(
-            sym1, sym2, anti, eta, mesh, &self.coords, &self.dual_areas,
-            &self.normals, &self.e1_frames,
+            sym1,
+            sym2,
+            anti,
+            eta,
+            mesh,
+            &self.coords,
+            &self.dual_areas,
+            &self.normals,
+            &self.e1_frames,
         );
         let (inner, its_inner) = self.solve_inner(1, &omega, tol);
         let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
@@ -404,7 +459,12 @@ impl SurfaceStokes {
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let mut vel = velocity_from_psi(
-            self.n_vertices, &psi, mesh, &self.coords, &self.dual_areas, &self.star1,
+            self.n_vertices,
+            &psi,
+            mesh,
+            &self.coords,
+            &self.dual_areas,
+            &self.star1,
         );
         for &bv in &self.no_slip_vertices {
             vel.v[bv] = [0.0, 0.0, 0.0];
@@ -454,16 +514,19 @@ impl SurfaceStokes {
         let mass = self.poisson.mass_diagonal();
         let mut rhs = DVector::zeros(nv);
         for i in 0..nv {
-            rhs[i] = if mass[i].abs() > 1e-30 { b[i] / mass[i] } else { 0.0 };
+            rhs[i] = if mass[i].abs() > 1e-30 {
+                b[i] / mass[i]
+            } else {
+                0.0
+            };
         }
         let (inner, its_inner) = self.solve_inner(2, &rhs, tol);
         let (psi_raw, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = (psi_raw / eta).iter().copied().collect();
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
-        let mut vel = velocity_from_psi(
-            nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1,
-        );
+        let mut vel =
+            velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1);
         for &bv in &self.no_slip_vertices {
             vel.v[bv] = [0.0, 0.0, 0.0];
         }
@@ -492,7 +555,13 @@ impl SurfaceStokes {
         poisson: &PoissonSolver,
     ) -> Vec<f64> {
         let f = vertex_force_from_stress(
-            sym1, sym2, anti, mesh, &self.coords, &self.normals, &self.e1_frames,
+            sym1,
+            sym2,
+            anti,
+            mesh,
+            &self.coords,
+            &self.normals,
+            &self.e1_frames,
         );
         let rhs = pressure_rhs_from_force(&f, mesh, &self.coords, poisson.mass_diagonal());
         let sol = poisson.solve(&rhs);
@@ -586,7 +655,11 @@ impl SurfaceStokes {
                     }
                 }
                 let n = norm3(d);
-                if n > 1e-30 { scale3(d, 1.0 / n) } else { [0.0; 3] }
+                if n > 1e-30 {
+                    scale3(d, 1.0 / n)
+                } else {
+                    [0.0; 3]
+                }
             })
             .collect();
 
@@ -648,13 +721,18 @@ impl SurfaceStokes {
 
     /// Apply the clamped correction to a simply supported stream function.
     fn clamp<M: Manifold>(&self, psi: &mut [f64], mesh: &Mesh<M, 3, 2>) {
-        let Some(c) = self.clamped.as_ref() else { return };
+        let Some(c) = self.clamped.as_ref() else {
+            return;
+        };
         let nv = self.n_vertices;
         let (inv, _) = gradient_frames(nv, mesh, &self.coords);
         let grad = vertex_gradients(nv, psi, mesh, &self.coords, &inv);
         let rhs = nalgebra::DVector::from_iterator(
             c.boundary.len(),
-            c.boundary.iter().enumerate().map(|(i, &b)| -dot3(grad[b], c.inward[i])),
+            c.boundary
+                .iter()
+                .enumerate()
+                .map(|(i, &b)| -dot3(grad[b], c.inward[i])),
         );
         // A silent `return` here would drop the correction and leave the wall at
         // free slip, which is a different physical problem reported as success.
@@ -721,12 +799,21 @@ impl SurfaceStokes {
         source: &DVector<f64>,
         mesh: &Mesh<M, 3, 2>,
     ) -> (VelocityField, Vec<f64>) {
-        let mut psi_v: Vec<f64> = self.outer.solve(&self.poisson.solve(source))
-            .iter().copied().collect();
+        let mut psi_v: Vec<f64> = self
+            .outer
+            .solve(&self.poisson.solve(source))
+            .iter()
+            .copied()
+            .collect();
         self.clamp(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let mut vel = velocity_from_psi(
-            self.n_vertices, &psi, mesh, &self.coords, &self.dual_areas, &self.star1,
+            self.n_vertices,
+            &psi,
+            mesh,
+            &self.coords,
+            &self.dual_areas,
+            &self.star1,
         );
         // Zero velocity at boundary vertices. The discrete curl recovery spreads
         // contributions from interior edges onto boundary vertices, so it leaves
@@ -843,7 +930,9 @@ fn assemble_vertex_force<M: Manifold>(
     let mut tri_grads: Vec<TriGrad> = Vec::with_capacity(mesh.simplices.len());
 
     for &[i0, i1, i2] in &mesh.simplices {
-        let p0 = coords[i0]; let p1 = coords[i1]; let p2 = coords[i2];
+        let p0 = coords[i0];
+        let p1 = coords[i1];
+        let p2 = coords[i2];
         let e01 = sub3(p1, p0);
         let e02 = sub3(p2, p0);
         let e12 = sub3(p2, p1);
@@ -851,7 +940,9 @@ fn assemble_vertex_force<M: Manifold>(
 
         let fn_vec = cross3(e01, e02);
         let area2 = norm3(fn_vec);
-        if area2 < 1e-30 { continue; }
+        if area2 < 1e-30 {
+            continue;
+        }
 
         let fn_hat = scale3(fn_vec, 1.0 / area2);
         let inv_2a = 1.0 / area2;
@@ -1306,7 +1397,10 @@ fn velocity_from_psi<M: Manifold>(
     let psiv: Vec<f64> = psi.iter().copied().collect();
     let g = vertex_gradients(nv, &psiv, mesh, coords, &inv);
     let vel: Vec<[f64; 3]> = (0..nv).map(|v| cross3(nrm[v], g[v])).collect();
-    VelocityField { v: vel, n_vertices: nv }
+    VelocityField {
+        v: vel,
+        n_vertices: nv,
+    }
 }
 
 /// Advect Q along velocity: computes (u · grad Q) at each vertex.
@@ -1381,7 +1475,11 @@ pub fn advect_q(
         adv_q2[v] = u[0] * g2[0] + u[1] * g2[1];
     }
 
-    QField { q1: adv_q1, q2: adv_q2, n_vertices: nv }
+    QField {
+        q1: adv_q1,
+        q2: adv_q2,
+        n_vertices: nv,
+    }
 }
 
 /// Covariant advection: computes (u . grad Q) with parallel transport.
@@ -1471,7 +1569,11 @@ pub fn advect_q_covariant(
         adv_q2[v] = u[0] * g2[0] + u[1] * g2[1];
     }
 
-    QField { q1: adv_q1, q2: adv_q2, n_vertices: nv }
+    QField {
+        q1: adv_q1,
+        q2: adv_q2,
+        n_vertices: nv,
+    }
 }
 
 fn average_edge_normal<M: Manifold>(
@@ -1488,7 +1590,11 @@ fn average_edge_normal<M: Manifold>(
         n = add3(n, cr);
     }
     let len = norm3(n);
-    if len > 1e-14 { scale3(n, 1.0 / len) } else { [0.0, 0.0, 1.0] }
+    if len > 1e-14 {
+        scale3(n, 1.0 / len)
+    } else {
+        [0.0, 0.0, 1.0]
+    }
 }
 
 /// Compute area-weighted vertex normals from a triangle mesh.
@@ -1517,27 +1623,52 @@ fn compute_vertex_normals_stokes(simplices: &[[usize; 3]], coords: &[[f64; 3]]) 
 /// Uses the same algorithm as `ConnectionLaplacian` so that the frames are
 /// consistent with the covariant Laplacian used by the molecular field.
 fn compute_tangent_frames_stokes(normals: &[[f64; 3]]) -> Vec<[f64; 3]> {
-    normals.iter().map(|n| {
-        let ref_dir = if n[0].abs() < 0.9 {
-            [1.0, 0.0, 0.0]
-        } else {
-            [0.0, 1.0, 0.0]
-        };
-        let d = dot3(*n, ref_dir);
-        let t = [ref_dir[0] - d * n[0], ref_dir[1] - d * n[1], ref_dir[2] - d * n[2]];
-        let len = norm3(t);
-        if len > 1e-14 { scale3(t, 1.0 / len) } else { [1.0, 0.0, 0.0] }
-    }).collect()
+    normals
+        .iter()
+        .map(|n| {
+            let ref_dir = if n[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let d = dot3(*n, ref_dir);
+            let t = [
+                ref_dir[0] - d * n[0],
+                ref_dir[1] - d * n[1],
+                ref_dir[2] - d * n[2],
+            ];
+            let len = norm3(t);
+            if len > 1e-14 {
+                scale3(t, 1.0 / len)
+            } else {
+                [1.0, 0.0, 0.0]
+            }
+        })
+        .collect()
 }
 
 // Vector helpers (pub(crate) for use by curved_stokes).
-pub(crate) fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]-b[0], a[1]-b[1], a[2]-b[2]] }
-pub(crate) fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]+b[0], a[1]+b[1], a[2]+b[2]] }
-pub(crate) fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0]*s, a[1]*s, a[2]*s] }
-pub(crate) fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
-pub(crate) fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
+pub(crate) fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+pub(crate) fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+pub(crate) fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+pub(crate) fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+pub(crate) fn norm3(a: [f64; 3]) -> f64 {
+    dot3(a, a).sqrt()
+}
 pub(crate) fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 #[cfg(test)]
@@ -1552,9 +1683,10 @@ mod tests {
         let ax = x.abs();
         if ax < 3.75 {
             let t = (x / 3.75) * (x / 3.75);
-            1.0 + t * (3.5156229
-                + t * (3.0899424
-                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+            1.0 + t
+                * (3.5156229
+                    + t * (3.0899424
+                        + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
         } else {
             let t = 3.75 / ax;
             (ax.exp() / ax.sqrt())
@@ -1592,7 +1724,6 @@ mod tests {
             * ((bessel_i0(k * r) / bessel_i0(k * rad) - 1.0) / k2 + (rad * rad - r * r) / 4.0)
     }
 
-
     #[test]
     fn stokes_zero_activity_zero_velocity() {
         let mesh = FlatMesh::unit_square_grid(4);
@@ -1606,7 +1737,10 @@ mod tests {
         let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
         let v = solver.solve(&q, &params, &ops, &mesh);
 
-        let v_norm: f64 = v.v.iter().map(|[x, y, z]| x.abs() + y.abs() + z.abs()).sum();
+        let v_norm: f64 =
+            v.v.iter()
+                .map(|[x, y, z]| x.abs() + y.abs() + z.abs())
+                .sum();
         assert!(v_norm < 1e-12, "zero activity should give zero velocity");
     }
 
@@ -1624,11 +1758,15 @@ mod tests {
         let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
         let v = solver.solve(&q, &params, &ops, &mesh);
 
-        let v_norm: f64 = v.v.iter()
-            .map(|[x, y, z]| x * x + y * y + z * z)
-            .sum::<f64>()
-            .sqrt();
-        assert!(v_norm > 1e-6, "nonzero activity should give nonzero velocity, got {v_norm}");
+        let v_norm: f64 =
+            v.v.iter()
+                .map(|[x, y, z]| x * x + y * y + z * z)
+                .sum::<f64>()
+                .sqrt();
+        assert!(
+            v_norm > 1e-6,
+            "nonzero activity should give nonzero velocity, got {v_norm}"
+        );
     }
 
     #[test]
@@ -1664,8 +1802,16 @@ mod tests {
         // solve has to return it.
         use crate::confined::{Epitrochoid, MeshOpts, confined_mesh};
         let cm = confined_mesh(
-            Epitrochoid { q: 2.0, d: 0.72, r: 53.071676 },
-            MeshOpts { h_bulk: 2.0, h_min: 2.0, ..Default::default() },
+            Epitrochoid {
+                q: 2.0,
+                d: 0.72,
+                r: 53.071676,
+            },
+            MeshOpts {
+                h_bulk: 2.0,
+                h_min: 2.0,
+                ..Default::default()
+            },
         );
         let mesh = &cm.mesh;
         let ops = Operators::from_mesh(mesh, &Euclidean::<2>);
@@ -1676,12 +1822,17 @@ mod tests {
         let total: f64 = area.iter().sum();
 
         let k = 2.0 * std::f64::consts::PI / 53.071676;
-        let phi: Vec<f64> =
-            (0..nv).map(|i| (k * coords[i][0]).cos() * (k * coords[i][1]).cos()).collect();
+        let phi: Vec<f64> = (0..nv)
+            .map(|i| (k * coords[i][0]).cos() * (k * coords[i][1]).cos())
+            .collect();
         let f: Vec<[f64; 3]> = (0..nv)
             .map(|i| {
                 let (x, y) = (coords[i][0], coords[i][1]);
-                [-k * (k * x).sin() * (k * y).cos(), -k * (k * x).cos() * (k * y).sin(), 0.0]
+                [
+                    -k * (k * x).sin() * (k * y).cos(),
+                    -k * (k * x).cos() * (k * y).sin(),
+                    0.0,
+                ]
             })
             .collect();
 
@@ -1689,8 +1840,9 @@ mod tests {
         let sol = poisson.solve(&rhs);
         let mp: f64 = (0..nv).map(|i| area[i] * sol[i]).sum::<f64>() / total;
         let me: f64 = (0..nv).map(|i| area[i] * phi[i]).sum::<f64>() / total;
-        let num: f64 =
-            (0..nv).map(|i| area[i] * (sol[i] - mp - (phi[i] - me)).powi(2)).sum();
+        let num: f64 = (0..nv)
+            .map(|i| area[i] * (sol[i] - mp - (phi[i] - me)).powi(2))
+            .sum();
         let den: f64 = (0..nv).map(|i| area[i] * (phi[i] - me).powi(2)).sum();
         let err = (num / den).sqrt();
         // A sign error returns the potential negated, which is a relative error
@@ -1710,8 +1862,16 @@ mod tests {
         // `d = 1` with `3.0 / 3.0`. This one has the widest margin, so the
         // fixture is not on a knife edge.
         let cm = confined_mesh(
-            Epitrochoid { q: 2.0, d: 0.9, r: 53.071676 },
-            MeshOpts { h_bulk: 1.5, h_min: 0.3, ..Default::default() },
+            Epitrochoid {
+                q: 2.0,
+                d: 0.9,
+                r: 53.071676,
+            },
+            MeshOpts {
+                h_bulk: 1.5,
+                h_min: 0.3,
+                ..Default::default()
+            },
         );
         let mesh = &cm.mesh;
         let ops = Operators::from_mesh(mesh, &Euclidean::<2>);
@@ -1740,7 +1900,9 @@ mod tests {
             let g = debug_vertex_gradient(&psi, mesh);
             let mut worst = 0.0_f64;
             for &b in bv {
-                let n = (acc[b][0] * acc[b][0] + acc[b][1] * acc[b][1]).sqrt().max(1e-30);
+                let n = (acc[b][0] * acc[b][0] + acc[b][1] * acc[b][1])
+                    .sqrt()
+                    .max(1e-30);
                 worst = worst.max((g[b][0] * acc[b][0] + g[b][1] * acc[b][1]).abs() / n);
             }
             let scale = (0..nv)
@@ -1823,7 +1985,13 @@ mod tests {
             }
         }
         (0..nv)
-            .map(|i| if w[i] > 1e-30 { [acc[i][0] / w[i], acc[i][1] / w[i]] } else { [0.0; 2] })
+            .map(|i| {
+                if w[i] > 1e-30 {
+                    [acc[i][0] / w[i], acc[i][1] / w[i]]
+                } else {
+                    [0.0; 2]
+                }
+            })
             .collect()
     }
 
@@ -1840,21 +2008,35 @@ mod tests {
     ) {
         use crate::confined::{Epitrochoid, MeshOpts, confined_mesh};
         let cm = confined_mesh(
-            Epitrochoid { q: 2.0, d: 0.72, r: 53.071676 },
-            MeshOpts { h_bulk: 2.0, h_min: 2.0, ..Default::default() },
+            Epitrochoid {
+                q: 2.0,
+                d: 0.72,
+                r: 53.071676,
+            },
+            MeshOpts {
+                h_bulk: 2.0,
+                h_min: 2.0,
+                ..Default::default()
+            },
         );
         let ops = Operators::from_mesh(&cm.mesh, &Euclidean::<2>);
         let solver = SurfaceStokes::new_confined(&ops, &cm.mesh, &cm.boundary_vertices).unwrap();
         let nv = cm.mesh.n_vertices();
-        let xy: Vec<[f64; 2]> =
-            (0..nv).map(|i| [cm.mesh.vertices[i].x, cm.mesh.vertices[i].y]).collect();
-        let tris: Vec<[usize; 3]> =
-            (0..cm.mesh.n_simplices()).map(|t| cm.mesh.simplices[t]).collect();
+        let xy: Vec<[f64; 2]> = (0..nv)
+            .map(|i| [cm.mesh.vertices[i].x, cm.mesh.vertices[i].y])
+            .collect();
+        let tris: Vec<[usize; 3]> = (0..cm.mesh.n_simplices())
+            .map(|t| cm.mesh.simplices[t])
+            .collect();
         let (k, zeta) = (0.09_f64, 16384.0_f64);
-        let s1: Vec<f64> =
-            xy.iter().map(|c| -zeta * (k * c[0]).cos() * (k * c[1]).cos()).collect();
-        let s2: Vec<f64> =
-            xy.iter().map(|c| -zeta * (k * c[0]).sin() * (k * c[1]).sin()).collect();
+        let s1: Vec<f64> = xy
+            .iter()
+            .map(|c| -zeta * (k * c[0]).cos() * (k * c[1]).cos())
+            .collect();
+        let s2: Vec<f64> = xy
+            .iter()
+            .map(|c| -zeta * (k * c[0]).sin() * (k * c[1]).sin())
+            .collect();
         let f = divergence_of_stress(&s1, &s2, &xy, &tris);
         (cm, solver, s1, s2, f, 404.7715405015526)
     }
@@ -1878,9 +2060,7 @@ mod tests {
             .map(|i| da[i] * (f[i][0] * vel.v[i][0] + f[i][1] * vel.v[i][1]))
             .sum();
         let scale: f64 = (0..nv)
-            .map(|i| {
-                da[i] * (f[i][0].hypot(f[i][1])) * (vel.v[i][0].hypot(vel.v[i][1]))
-            })
+            .map(|i| da[i] * (f[i][0].hypot(f[i][1])) * (vel.v[i][0].hypot(vel.v[i][1])))
             .sum();
         assert!(scale > 0.0, "the fixture drove no flow at all");
         assert!(
@@ -1923,13 +2103,21 @@ mod tests {
              covering both"
         );
         let nd = cd.mesh.n_vertices();
-        let xyd: Vec<[f64; 2]> =
-            (0..nd).map(|i| [cd.mesh.vertices[i].x, cd.mesh.vertices[i].y]).collect();
-        let trisd: Vec<[usize; 3]> =
-            (0..cd.mesh.n_simplices()).map(|t| cd.mesh.simplices[t]).collect();
+        let xyd: Vec<[f64; 2]> = (0..nd)
+            .map(|i| [cd.mesh.vertices[i].x, cd.mesh.vertices[i].y])
+            .collect();
+        let trisd: Vec<[usize; 3]> = (0..cd.mesh.n_simplices())
+            .map(|t| cd.mesh.simplices[t])
+            .collect();
         let k = 3.0_f64;
-        let d1: Vec<f64> = xyd.iter().map(|c| -2.0 * (k * c[0]).cos() * (k * c[1]).cos()).collect();
-        let d2: Vec<f64> = xyd.iter().map(|c| -2.0 * (k * c[0]).sin() * (k * c[1]).sin()).collect();
+        let d1: Vec<f64> = xyd
+            .iter()
+            .map(|c| -2.0 * (k * c[0]).cos() * (k * c[1]).cos())
+            .collect();
+        let d2: Vec<f64> = xyd
+            .iter()
+            .map(|c| -2.0 * (k * c[0]).sin() * (k * c[1]).sin())
+            .collect();
         let fd = divergence_of_stress(&d1, &d2, &xyd, &trisd);
         stress_and_force_agree_on(&cd.mesh, &sd, &d1, &d2, &fd, 3.0);
     }
@@ -1952,7 +2140,10 @@ mod tests {
             nf += vf.v[i][0].powi(2) + vf.v[i][1].powi(2);
             ns += vs.v[i][0].powi(2) + vs.v[i][1].powi(2);
         }
-        assert!(nf > 0.0 && ns > 0.0, "one of the two paths produced no flow");
+        assert!(
+            nf > 0.0 && ns > 0.0,
+            "one of the two paths produced no flow"
+        );
         let cos = dot / (nf.sqrt() * ns.sqrt());
         eprintln!(
             "stress against force, mesh oriented {:+}: cos {cos:+.6}, magnitude ratio {:.4}",
@@ -2004,7 +2195,13 @@ mod tests {
         }
         let orient = solver.normals()[0][2].signum();
         let got = compute_vorticity_source(
-            &q, zeta, eta, &mesh, &coords, solver.dual_areas(), solver.normals(),
+            &q,
+            zeta,
+            eta,
+            &mesh,
+            &coords,
+            solver.dual_areas(),
+            solver.normals(),
             solver.e1_frames(),
         );
         let (mut dot, mut ng, mut nw) = (0.0_f64, 0.0_f64, 0.0_f64);
@@ -2013,8 +2210,7 @@ mod tests {
             if (x * x + y * y).sqrt() > 0.75 * rad {
                 continue;
             }
-            let want =
-                -orient * 2.0 * zeta * k * k * (k * x).sin() * (k * y).sin() / eta;
+            let want = -orient * 2.0 * zeta * k * k * (k * x).sin() * (k * y).sin() / eta;
             dot += got[i] * want;
             ng += got[i] * got[i];
             nw += want * want;
@@ -2096,7 +2292,11 @@ mod tests {
 
         // psi = 0 on the boundary, which is the no-flux half of the condition.
         for &b in &bverts {
-            assert!(psi[b].abs() < 1e-8, "psi should vanish on the boundary, got {}", psi[b]);
+            assert!(
+                psi[b].abs() < 1e-8,
+                "psi should vanish on the boundary, got {}",
+                psi[b]
+            );
         }
 
         // And the single inversion, which is what this file used to do, must not
@@ -2135,10 +2335,9 @@ mod tests {
         let nv = mesh.n_vertices();
 
         let k = 4.0_f64;
-        let solver = SurfaceStokes::new_confined_screened(
-            &ops, &mesh, &bverts, Screening::Length(1.0 / k),
-        )
-        .unwrap();
+        let solver =
+            SurfaceStokes::new_confined_screened(&ops, &mesh, &bverts, Screening::Length(1.0 / k))
+                .unwrap();
 
         let s_src = -4.0_f64;
         let source = DVector::from_element(nv, s_src);
@@ -2160,7 +2359,11 @@ mod tests {
         assert!(err < 0.05, "screened solve, relative L2 error {err:.4}");
 
         for &b in &bverts {
-            assert!(psi[b].abs() < 1e-8, "psi should vanish on the wall, got {}", psi[b]);
+            assert!(
+                psi[b].abs() < 1e-8,
+                "psi should vanish on the wall, got {}",
+                psi[b]
+            );
         }
 
         // And the UNSCREENED solver must fail it, so the screening is stated
@@ -2190,10 +2393,9 @@ mod tests {
         let nv = mesh.n_vertices();
 
         let k = 0.1_f64;
-        let solver = SurfaceStokes::new_confined_screened(
-            &ops, &mesh, &bverts, Screening::Length(1.0 / k),
-        )
-        .unwrap();
+        let solver =
+            SurfaceStokes::new_confined_screened(&ops, &mesh, &bverts, Screening::Length(1.0 / k))
+                .unwrap();
         let source = DVector::from_element(nv, -4.0);
         let (_vel, psi) = solver.stream_and_velocity(&source, &mesh);
 
@@ -2205,7 +2407,10 @@ mod tests {
         let num: f64 = psi.iter().zip(&exact).map(|(a, b)| (a - b) * (a - b)).sum();
         let den: f64 = exact.iter().map(|b| b * b).sum();
         let err = (num / den).sqrt();
-        assert!(err < 0.05, "weak screening should recover psi_exact, error {err:.4}");
+        assert!(
+            err < 0.05,
+            "weak screening should recover psi_exact, error {err:.4}"
+        );
     }
 
     /// In the Darcy limit the interior vorticity is uniform at `S l_s^2` and the
@@ -2228,7 +2433,10 @@ mod tests {
             .iter()
             .map(|&ls| {
                 let s = SurfaceStokes::new_confined_screened(
-                    &ops, &mesh, &bverts, Screening::Length(ls),
+                    &ops,
+                    &mesh,
+                    &bverts,
+                    Screening::Length(ls),
                 )
                 .unwrap();
                 let (vel, _psi) = s.stream_and_velocity(&source, &mesh);
@@ -2328,7 +2536,11 @@ mod tests {
                         }
                     }
                     let n = norm3(d);
-                    let dir = if n > 1e-30 { scale3(d, 1.0 / n) } else { [0.0; 3] };
+                    let dir = if n > 1e-30 {
+                        scale3(d, 1.0 / n)
+                    } else {
+                        [0.0; 3]
+                    };
                     dot3(grad[b], dir).abs()
                 })
                 .fold(0.0_f64, f64::max)
@@ -2336,8 +2548,16 @@ mod tests {
 
         // psi vanishes on the wall for both, which is the condition they share.
         for &b in &bverts {
-            assert!(psi_c[b].abs() < 1e-8, "clamped psi on the wall: {}", psi_c[b]);
-            assert!(psi_s[b].abs() < 1e-8, "supported psi on the wall: {}", psi_s[b]);
+            assert!(
+                psi_c[b].abs() < 1e-8,
+                "clamped psi on the wall: {}",
+                psi_c[b]
+            );
+            assert!(
+                psi_s[b].abs() < 1e-8,
+                "supported psi on the wall: {}",
+                psi_s[b]
+            );
         }
 
         // The normal derivative is what separates them.
@@ -2361,8 +2581,7 @@ mod tests {
             ax * (0.5
                 + t * (0.87890594
                     + t * (0.51498869
-                        + t * (0.15084934
-                            + t * (0.02658733 + t * (0.00301532 + t * 0.00032411))))))
+                        + t * (0.15084934 + t * (0.02658733 + t * (0.00301532 + t * 0.00032411))))))
         } else {
             let t = 3.75 / ax;
             let a = 0.02282967 + t * (-0.02895312 + t * (0.01787654 - t * 0.00420059));
@@ -2501,14 +2720,10 @@ mod tests {
         let nv = mesh.n_vertices();
         let source = DVector::from_element(nv, -4.0);
 
-        let a = SurfaceStokes::new_confined_screened(
-            &ops, &mesh, &bverts, Screening::Length(0.1),
-        )
-        .unwrap();
-        let b = SurfaceStokes::new_confined_screened(
-            &ops, &mesh, &bverts, Screening::Length(0.1),
-        )
-        .unwrap();
+        let a = SurfaceStokes::new_confined_screened(&ops, &mesh, &bverts, Screening::Length(0.1))
+            .unwrap();
+        let b = SurfaceStokes::new_confined_screened(&ops, &mesh, &bverts, Screening::Length(0.1))
+            .unwrap();
         let (_va, pa) = a.stream_and_velocity(&source, &mesh);
         let (_vb, pb) = b.stream_and_velocity(&source, &mesh);
         for i in 0..nv {
@@ -2573,7 +2788,10 @@ mod tests {
                 q2: (0..nv).map(|i| (k * coords[i][1]).sin()).collect(),
                 n_vertices: nv,
             };
-            let vel = VelocityField { v: vec![[u_x, u_y, 0.0]; nv], n_vertices: nv };
+            let vel = VelocityField {
+                v: vec![[u_x, u_y, 0.0]; nv],
+                n_vertices: nv,
+            };
             let mut vb: Vec<Vec<usize>> = vec![Vec::new(); nv];
             for e in 0..mesh.n_boundaries() {
                 let [v0, v1] = mesh.boundaries[e];
@@ -2620,7 +2838,8 @@ mod tests {
         let (vel, _psi) = solver.stream_and_velocity(&source, &mesh);
 
         let coords = extract_coords(&mesh);
-        let (mut num, mut den, mut worst, mut got_max, mut want_max) = (0.0, 0.0, 0.0_f64, 0.0_f64, 0.0_f64);
+        let (mut num, mut den, mut worst, mut got_max, mut want_max) =
+            (0.0, 0.0, 0.0_f64, 0.0_f64, 0.0_f64);
         for (i, p) in coords.iter().enumerate() {
             let r = (p[0] * p[0] + p[1] * p[1]).sqrt();
             // Skip the outermost ring, where the boundary layer of the discrete
@@ -2690,7 +2909,11 @@ mod tests {
         // psi vanishes on the wall, as the free-slip solve already gave, and the
         // NORMAL DERIVATIVE now vanishes too, which is the whole point.
         for &b in &bverts {
-            assert!(psi[b].abs() < 1e-8, "psi should vanish on the wall, got {}", psi[b]);
+            assert!(
+                psi[b].abs() < 1e-8,
+                "psi should vanish on the wall, got {}",
+                psi[b]
+            );
         }
 
         // And the free-slip solver on the same mesh must NOT reproduce it, so the
@@ -2752,7 +2975,9 @@ mod tests {
         let q = QField::random_perturbation(mesh1.n_vertices(), 0.3, 42);
 
         let rms = |v: &VelocityField| -> f64 {
-            (v.v.iter().map(|[x, y, z]| x * x + y * y + z * z).sum::<f64>()
+            (v.v.iter()
+                .map(|[x, y, z]| x * x + y * y + z * z)
+                .sum::<f64>()
                 / v.n_vertices as f64)
                 .sqrt()
         };
@@ -2782,7 +3007,9 @@ mod tests {
             p.zeta_eff = zeta;
             p.eta = eta;
             let v = solver.solve(&q, &p, &ops, &mesh);
-            (v.v.iter().map(|[x, y, z]| x * x + y * y + z * z).sum::<f64>()
+            (v.v.iter()
+                .map(|[x, y, z]| x * x + y * y + z * z)
+                .sum::<f64>()
                 / v.n_vertices as f64)
                 .sqrt()
         };
@@ -2791,8 +3018,14 @@ mod tests {
         assert!(base > 1e-12, "baseline velocity should be nonzero");
         let by_zeta = rms(3.0, 1.0) / base;
         let by_eta = rms(1.0, 4.0) / base;
-        assert!((by_zeta - 3.0).abs() < 1e-9, "u should be linear in zeta, got {by_zeta}");
-        assert!((by_eta - 0.25).abs() < 1e-9, "u should go as 1/eta, got {by_eta}");
+        assert!(
+            (by_zeta - 3.0).abs() < 1e-9,
+            "u should be linear in zeta, got {by_zeta}"
+        );
+        assert!(
+            (by_eta - 0.25).abs() < 1e-9,
+            "u should go as 1/eta, got {by_eta}"
+        );
     }
 
     /// `solve` and `solve_warm` must agree. They carry the biharmonic separately,
@@ -2817,9 +3050,16 @@ mod tests {
             .zip(&warm.v)
             .map(|(a, b)| (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f64>())
             .sum();
-        let den: f64 = direct.v.iter().map(|a| a.iter().map(|c| c * c).sum::<f64>()).sum();
+        let den: f64 = direct
+            .v
+            .iter()
+            .map(|a| a.iter().map(|c| c * c).sum::<f64>())
+            .sum();
         let rel = (num / den.max(1e-300)).sqrt();
-        assert!(rel < 1e-6, "warm and direct solves should agree, relative difference {rel:.3e}");
+        assert!(
+            rel < 1e-6,
+            "warm and direct solves should agree, relative difference {rel:.3e}"
+        );
     }
 
     /// The antisymmetric stress must reach the force.
@@ -2848,7 +3088,11 @@ mod tests {
             solver.solve_stress_warm(&zero, &zero, &zero, 1.0, &mesh, None, 1e-10);
 
         let rms = |v: &VelocityField| -> f64 {
-            (v.v.iter().map(|[x, y, z]| x * x + y * y + z * z).sum::<f64>() / nv as f64).sqrt()
+            (v.v.iter()
+                .map(|[x, y, z]| x * x + y * y + z * z)
+                .sum::<f64>()
+                / nv as f64)
+                .sqrt()
         };
         assert!(rms(&without) < 1e-12, "a zero stress should give no flow");
         assert!(
@@ -2887,7 +3131,9 @@ mod tests {
                 .collect()
         };
         let dot = |f: &[[f64; 2]], u: &VelocityField| -> f64 {
-            (0..nv).map(|i| f[i][0] * u.v[i][0] + f[i][1] * u.v[i][1]).sum()
+            (0..nv)
+                .map(|i| f[i][0] * u.v[i][0] + f[i][1] * u.v[i][1])
+                .sum()
         };
 
         let f1 = field(11);
@@ -2927,17 +3173,18 @@ mod tests {
         let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
         let v = solver.solve(&q, &params, &ops, &mesh);
 
-        let v_rms: f64 = (v.v.iter()
-            .map(|[x, y, z]| x * x + y * y + z * z)
-            .sum::<f64>() / nv as f64)
-            .sqrt();
+        let v_rms: f64 =
+            (v.v.iter()
+                .map(|[x, y, z]| x * x + y * y + z * z)
+                .sum::<f64>()
+                / nv as f64)
+                .sqrt();
         assert!(
             v_rms > 1e-6,
             "nonzero activity on sphere should give nonzero velocity, got v_rms = {v_rms:.3e}"
         );
     }
 }
-
 
 /// Discrete Gaussian curvature at each vertex, by angle defect.
 ///

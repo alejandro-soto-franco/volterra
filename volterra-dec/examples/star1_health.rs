@@ -38,11 +38,26 @@ fn main() {
 
     // Production resolutions, taken from the call sites in the crate.
     let cases: Vec<(String, _)> = vec![
-        ("circle r=1, 240 bdy, h=0.04".to_string(), disk_mesh(1.0, 1.0, 240, 0.04)),
-        ("circle r=5, 32 bdy, h=1.0".to_string(), disk_mesh(5.0, 1.5, 32, 1.0)),
-        ("cardioid q=1, r=3, 128 bdy".to_string(), epitrochoid_mesh(1.0, 3.0, 128, 0.3)),
-        ("nephroid q=2, r=3, 128 bdy".to_string(), epitrochoid_mesh(2.0, 3.0, 128, 0.3)),
-        ("epitrochoid q=3, r=3, 128 bdy".to_string(), epitrochoid_mesh(3.0, 3.0, 128, 0.3)),
+        (
+            "circle r=1, 240 bdy, h=0.04".to_string(),
+            disk_mesh(1.0, 1.0, 240, 0.04),
+        ),
+        (
+            "circle r=5, 32 bdy, h=1.0".to_string(),
+            disk_mesh(5.0, 1.5, 32, 1.0),
+        ),
+        (
+            "cardioid q=1, r=3, 128 bdy".to_string(),
+            epitrochoid_mesh(1.0, 3.0, 128, 0.3),
+        ),
+        (
+            "nephroid q=2, r=3, 128 bdy".to_string(),
+            epitrochoid_mesh(2.0, 3.0, 128, 0.3),
+        ),
+        (
+            "epitrochoid q=3, r=3, 128 bdy".to_string(),
+            epitrochoid_mesh(3.0, 3.0, 128, 0.3),
+        ),
     ];
 
     for (name, cm) in cases {

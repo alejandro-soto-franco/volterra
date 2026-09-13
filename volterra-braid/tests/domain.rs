@@ -7,7 +7,7 @@
 //! compare bit for bit.
 
 use volterra_braid::disclination::{decompose, disclination_density, level_set_curvature};
-use volterra_braid::domain::{disclination_density_on, CartesianDomain, Domain3};
+use volterra_braid::domain::{CartesianDomain, Domain3, disclination_density_on};
 
 fn uniaxial(n: [f64; 3], q_mag: f64) -> [f64; 5] {
     let t = 1.0 / 3.0;
@@ -119,14 +119,24 @@ fn the_domains_scalar_derivatives_match_the_level_set_stencil() {
         let (a, b, cc) = (h[(0, 0)], h[(0, 1)], h[(0, 2)]);
         let (d, e, f) = (h[(1, 1)], h[(1, 2)], h[(2, 2)]);
         let adj = nalgebra::Matrix3::new(
-            d * f - e * e, cc * e - b * f, b * e - cc * d,
-            cc * e - b * f, a * f - cc * cc, b * cc - a * e,
-            b * e - cc * d, b * cc - a * e, a * d - b * b,
+            d * f - e * e,
+            cc * e - b * f,
+            b * e - cc * d,
+            cc * e - b * f,
+            a * f - cc * cc,
+            b * cc - a * e,
+            b * e - cc * d,
+            b * cc - a * e,
+            a * d - b * b,
         );
         let gaussian = g.dot(&(adj * g)) / norm.powi(4);
         let mean = (g.dot(&(h * g)) - norm * norm * h.trace()) / (2.0 * norm.powi(3));
 
-        assert!((mean - k.mean).abs() < 1e-12, "mean at {i},{j},{l}: {mean} against {}", k.mean);
+        assert!(
+            (mean - k.mean).abs() < 1e-12,
+            "mean at {i},{j},{l}: {mean} against {}",
+            k.mean
+        );
         assert!(
             (gaussian - k.gaussian).abs() < 1e-12,
             "gaussian at {i},{j},{l}: {gaussian} against {}",
@@ -153,7 +163,10 @@ fn the_lattice_offers_twenty_six_neighbours_inside_and_fewer_at_a_corner() {
     let mut back = Vec::new();
     for &m in &out {
         domain.neighbours(m, &mut back);
-        assert!(back.contains(&site), "{m} adjoins {site} but not the reverse");
+        assert!(
+            back.contains(&site),
+            "{m} adjoins {site} but not the reverse"
+        );
     }
 }
 

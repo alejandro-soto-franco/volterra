@@ -32,7 +32,7 @@
 
 use std::path::Path;
 
-use volterra_dec::tracers::{advect, geodesic, norm3, cross3, dot3, read_npy, Buckets, MeshRef};
+use volterra_dec::tracers::{Buckets, MeshRef, advect, cross3, dot3, geodesic, norm3, read_npy};
 
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
@@ -43,9 +43,18 @@ fn main() {
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
-            "--seeds" => { i += 1; seeds = raw[i].parse().unwrap(); }
-            "--delta" => { i += 1; delta = raw[i].parse().unwrap(); }
-            "--from" => { i += 1; from = raw[i].parse().unwrap(); }
+            "--seeds" => {
+                i += 1;
+                seeds = raw[i].parse().unwrap();
+            }
+            "--delta" => {
+                i += 1;
+                delta = raw[i].parse().unwrap();
+            }
+            "--from" => {
+                i += 1;
+                from = raw[i].parse().unwrap();
+            }
             other => run = other.to_string(),
         }
         i += 1;
@@ -60,13 +69,23 @@ fn main() {
         serde_json::from_str(&std::fs::read_to_string(run.join("meta.json")).unwrap()).unwrap();
     let mesh: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(run.join("mesh.json")).unwrap()).unwrap();
-    let verts: Vec<[f64; 3]> = mesh["vertices"].as_array().unwrap().iter()
+    let verts: Vec<[f64; 3]> = mesh["vertices"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|v| {
             let a = v.as_array().unwrap();
-            [a[0].as_f64().unwrap(), a[1].as_f64().unwrap(), a[2].as_f64().unwrap()]
+            [
+                a[0].as_f64().unwrap(),
+                a[1].as_f64().unwrap(),
+                a[2].as_f64().unwrap(),
+            ]
         })
         .collect();
-    let tris: Vec<[usize; 3]> = mesh["triangles"].as_array().unwrap().iter()
+    let tris: Vec<[usize; 3]> = mesh["triangles"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|v| {
             let a = v.as_array().unwrap();
             [
@@ -87,13 +106,22 @@ fn main() {
         }
     }
     let buckets = Buckets::new(&verts);
-    let mesh = MeshRef { verts: &verts, tris: &tris, vert_faces: &vert_faces, buckets: &buckets };
+    let mesh = MeshRef {
+        verts: &verts,
+        tris: &tris,
+        vert_faces: &vert_faces,
+        buckets: &buckets,
+    };
 
     // The velocity snapshots, in order, skipping the developing part of the run.
-    let mut steps: Vec<usize> = std::fs::read_dir(run).unwrap()
+    let mut steps: Vec<usize> = std::fs::read_dir(run)
+        .unwrap()
         .filter_map(|e| {
             let n = e.ok()?.file_name().to_string_lossy().to_string();
-            n.strip_prefix("vel_")?.strip_suffix(".npy")?.parse::<usize>().ok()
+            n.strip_prefix("vel_")?
+                .strip_suffix(".npy")?
+                .parse::<usize>()
+                .ok()
         })
         .collect();
     steps.sort_unstable();
@@ -122,7 +150,11 @@ fn main() {
         let p = [r * th.cos(), r * th.sin(), z];
         // A companion offset along an arbitrary tangent direction.
         let t = norm3(cross3(p, [0.0, 0.0, 1.0]));
-        let t = if dot3(t, t) < 0.5 { norm3(cross3(p, [1.0, 0.0, 0.0])) } else { t };
+        let t = if dot3(t, t) < 0.5 {
+            norm3(cross3(p, [1.0, 0.0, 0.0]))
+        } else {
+            t
+        };
         a.push(p);
         b.push(norm3([
             p[0] + delta * t[0],
@@ -210,6 +242,10 @@ fn main() {
         "seed_points": a,
         "convergence": curve,
     });
-    std::fs::write(run.join("stretch.json"), serde_json::to_string(&out).unwrap()).unwrap();
+    std::fs::write(
+        run.join("stretch.json"),
+        serde_json::to_string(&out).unwrap(),
+    )
+    .unwrap();
     println!("  wrote {}", run.join("stretch.json").display());
 }

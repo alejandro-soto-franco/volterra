@@ -26,8 +26,8 @@
 mod support;
 use support::*;
 
-use volterra_dec::stokes::SurfaceStokes;
 use volterra_dec::poisson::PoissonSolver;
+use volterra_dec::stokes::SurfaceStokes;
 
 /// Refinement levels swept by every convergence test (162, 642, 2562 vertices).
 const LEVELS: [usize; 3] = [2, 3, 4];
@@ -63,7 +63,10 @@ fn laplace_beltrami_second_order_spectrum() {
     // Measured threshold: observed order is ~1.15 on the icosphere (see file header). We
     // certify monotone, first-order-or-better convergence -- true here, and still failed
     // hard by a broken stencil (cf. the parked Poisson oracle at order ~0.08).
-    assert!(order > 0.9, "Laplace-Beltrami spectral order {order:.3} should be >= 1 (> 0.9)");
+    assert!(
+        order > 0.9,
+        "Laplace-Beltrami spectral order {order:.3} should be >= 1 (> 0.9)"
+    );
     assert!(
         errs.windows(2).all(|w| w[1] < w[0]),
         "error must decrease monotonically under refinement: {errs:?}"
@@ -88,13 +91,26 @@ fn poisson_solve_second_order() {
         let coords = coords_of(&d);
         let y = sph_harmonic(&coords, l, m);
         let rhs = &y * (-sph_eigenvalue(l));
-        let psi = PoissonSolver::new(&d.ops).expect("Poisson solver").solve(&rhs);
+        let psi = PoissonSolver::new(&d.ops)
+            .expect("Poisson solver")
+            .solve(&rhs);
         hs.push(mean_edge_length(&d));
-        errs.push(l2_rel_error(&zero_mean(&psi), &zero_mean(&y), &d.dual_areas));
+        errs.push(l2_rel_error(
+            &zero_mean(&psi),
+            &zero_mean(&y),
+            &d.dual_areas,
+        ));
     }
     let order = report("poisson_solve", &hs, &errs);
-    assert!(order > 1.7, "Poisson solve order {order:.3} should be ~2 (> 1.7)");
-    assert!(*errs.last().unwrap() < 5e-3, "finest error: {:.3e}", errs.last().unwrap());
+    assert!(
+        order > 1.7,
+        "Poisson solve order {order:.3} should be ~2 (> 1.7)"
+    );
+    assert!(
+        *errs.last().unwrap() < 5e-3,
+        "finest error: {:.3e}",
+        errs.last().unwrap()
+    );
 }
 
 #[test]
@@ -123,9 +139,20 @@ fn surface_stokes_mms_second_order() {
         let solver = SurfaceStokes::new(&d.ops, &d.mesh).expect("surface Stokes solver");
         let psi = solver.stream_from_vorticity(&source, er);
         hs.push(mean_edge_length(&d));
-        errs.push(l2_rel_error(&zero_mean(&psi), &zero_mean(&y), &d.dual_areas));
+        errs.push(l2_rel_error(
+            &zero_mean(&psi),
+            &zero_mean(&y),
+            &d.dual_areas,
+        ));
     }
     let order = report("surface_stokes_mms", &hs, &errs);
-    assert!(order > 1.5, "surface Stokes MMS order {order:.3} should be ~2 (> 1.5)");
-    assert!(*errs.last().unwrap() < 1e-2, "finest error: {:.3e}", errs.last().unwrap());
+    assert!(
+        order > 1.5,
+        "surface Stokes MMS order {order:.3} should be ~2 (> 1.5)"
+    );
+    assert!(
+        *errs.last().unwrap() < 1e-2,
+        "finest error: {:.3e}",
+        errs.last().unwrap()
+    );
 }

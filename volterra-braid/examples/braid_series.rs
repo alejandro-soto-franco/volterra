@@ -30,12 +30,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use volterra_braid::{
-    braidword::BraidWord,
-    defect::Defect,
-    extract_braidword,
-    track::track_core,
-};
+use volterra_braid::{braidword::BraidWord, defect::Defect, extract_braidword, track::track_core};
 
 fn arg(name: &str, default: &str) -> String {
     let args: Vec<String> = std::env::args().collect();
@@ -89,10 +84,7 @@ fn rotate(frames: &[Vec<Defect>], theta: f64) -> Vec<Vec<Defect>> {
         .map(|f| {
             f.iter()
                 .map(|d| Defect {
-                    pos: [
-                        c * d.pos[0] + s * d.pos[1],
-                        -s * d.pos[0] + c * d.pos[1],
-                    ],
+                    pos: [c * d.pos[0] + s * d.pos[1], -s * d.pos[0] + c * d.pos[1]],
                     charge: d.charge,
                 })
                 .collect()
@@ -239,13 +231,23 @@ fn self_test(axes: usize) -> i32 {
     // for the silver, and the silver is the braid this study is chasing.
     const REQUIRED_PERIODS: usize = 4;
     for (name, orbit, want) in [
-        ("golden", golden_orbit as fn(&RealizeOpts) -> Vec<Vec<Defect>>, golden),
-        ("silver", silver_orbit as fn(&RealizeOpts) -> Vec<Vec<Defect>>, silver),
+        (
+            "golden",
+            golden_orbit as fn(&RealizeOpts) -> Vec<Vec<Defect>>,
+            golden,
+        ),
+        (
+            "silver",
+            silver_orbit as fn(&RealizeOpts) -> Vec<Vec<Defect>>,
+            silver,
+        ),
     ] {
         for periods in [8usize, 6, 4, 3, 2] {
             for tail in [0usize, 1] {
-                let frames =
-                    orbit(&RealizeOpts { frames_per_gen: 8, periods: periods + 1 });
+                let frames = orbit(&RealizeOpts {
+                    frames_per_gen: 8,
+                    periods: periods + 1,
+                });
                 let per = frames.len() / (periods + 1);
                 let window = (per * periods + tail * (per / 2)).min(frames.len());
                 // Both readers are put through the same orbits. On a clean
@@ -258,39 +260,41 @@ fn self_test(axes: usize) -> i32 {
                         .expect("a reading")
                         .reads;
 
-                let hit = reads
-                    .iter()
-                    .filter(|r| (r.per_period - want).abs() < 1e-6)
-                    .count();
-                let mut tally: BTreeMap<i64, usize> = BTreeMap::new();
-                for r in &reads {
-                    *tally.entry(key(r.per_period)).or_insert(0) += 1;
-                }
-                let (&mk, &mc) = tally.iter().max_by_key(|&(_, &c)| c).unwrap();
+                    let hit = reads
+                        .iter()
+                        .filter(|r| (r.per_period - want).abs() < 1e-6)
+                        .count();
+                    let mut tally: BTreeMap<i64, usize> = BTreeMap::new();
+                    for r in &reads {
+                        *tally.entry(key(r.per_period)).or_insert(0) += 1;
+                    }
+                    let (&mk, &mc) = tally.iter().max_by_key(|&(_, &c)| c).unwrap();
 
-                // The test is on the modal reading, which is what the tool
-                // reports. A majority of axes is a stricter thing and is not
-                // required: oblique axes fail to factor an oblique word, and
-                // that is a property of the projection rather than a defect in
-                // the extraction.
-                let ok = (mk as f64 / 1e6 - want).abs() < 1e-6;
-                let required = periods >= REQUIRED_PERIODS;
-                if !ok && required {
-                    bad += 1;
-                }
-                let vals: Vec<String> =
-                    reads.iter().map(|r| format!("{:.4}", r.per_period)).collect();
-                println!(
-                    "{{\"self_test\":\"{name}\",\"periods\":{periods},\
+                    // The test is on the modal reading, which is what the tool
+                    // reports. A majority of axes is a stricter thing and is not
+                    // required: oblique axes fail to factor an oblique word, and
+                    // that is a property of the projection rather than a defect in
+                    // the extraction.
+                    let ok = (mk as f64 / 1e6 - want).abs() < 1e-6;
+                    let required = periods >= REQUIRED_PERIODS;
+                    if !ok && required {
+                        bad += 1;
+                    }
+                    let vals: Vec<String> = reads
+                        .iter()
+                        .map(|r| format!("{:.4}", r.per_period))
+                        .collect();
+                    println!(
+                        "{{\"self_test\":\"{name}\",\"periods\":{periods},\
                      \"tail\":{tail},\"period_frames\":{per},\
                      \"window\":{window},\"want\":{want:.6},\"modal\":{:.6},\
                      \"axes_at_mode\":{mc},\"axes_at_want\":{hit},\
                      \"axes\":{axes},\"required\":{required},\"pass\":{ok},\
                      \"core\":{},\"per_axis\":[{}]}}",
-                    mk as f64 / 1e6,
-                    core.is_some(),
-                    vals.join(",")
-                );
+                        mk as f64 / 1e6,
+                        core.is_some(),
+                        vals.join(",")
+                    );
                 }
             }
         }
@@ -420,8 +424,13 @@ fn main() {
                     "{{\"deg\":{:.1},\"h\":{:.6},\"per_period\":{:.6},\
                      \"period\":{},\"gens\":{},\"identity\":{},\
                      \"longest_cycle\":{}}}",
-                    r.theta_deg, r.entropy, r.per_period, r.period, r.gens,
-                    r.identity_permutation, r.longest_cycle
+                    r.theta_deg,
+                    r.entropy,
+                    r.per_period,
+                    r.period,
+                    r.gens,
+                    r.identity_permutation,
+                    r.longest_cycle
                 )
             })
             .collect();

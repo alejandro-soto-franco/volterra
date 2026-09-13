@@ -35,8 +35,17 @@ fn main() {
 
     println!(
         "{:<11} {:>5} {:>10} {:>8} {:>8} {:>7} {:>8} {:>8} {:>9} {:>9} {:>9}",
-        "shape", "d", "R_cusp", "verts", "tris", "bverts", "min ang", "obtuse",
-        "worst cot", "q=1", "q=2"
+        "shape",
+        "d",
+        "R_cusp",
+        "verts",
+        "tris",
+        "bverts",
+        "min ang",
+        "obtuse",
+        "worst cot",
+        "q=1",
+        "q=2"
     );
     println!("{}", "-".repeat(108));
 

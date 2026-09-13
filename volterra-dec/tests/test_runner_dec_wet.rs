@@ -1,7 +1,7 @@
 //! Integration tests for the wet active nematic DEC runner.
 
-use cartan_dec::mesh::FlatMesh;
 use cartan_dec::Operators;
+use cartan_dec::mesh::FlatMesh;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::ActiveNematicParams;
 use volterra_dec::QField;
@@ -22,11 +22,13 @@ fn wet_dec_nematic_runs_without_nan() {
     let nv = mesh.n_vertices();
     let q0 = QField::random_perturbation(nv, 0.001, 42);
 
-    let (q_fin, stats) = run_wet_active_nematic_dec(
-        &q0, &params, &ops, &mesh, None, 50, 50,
-    ).unwrap();
+    let (q_fin, stats) =
+        run_wet_active_nematic_dec(&q0, &params, &ops, &mesh, None, 50, 50).unwrap();
 
-    assert!(q_fin.mean_order_param().is_finite(), "mean_s should be finite");
+    assert!(
+        q_fin.mean_order_param().is_finite(),
+        "mean_s should be finite"
+    );
     assert_eq!(stats.len(), 2, "snapshots at step 0 and 50");
 }
 
@@ -45,16 +47,15 @@ fn wet_dec_zero_activity_matches_dry() {
     let nv = mesh.n_vertices();
     let q0 = QField::random_perturbation(nv, 0.001, 42);
 
-    let (q_wet, _) = run_wet_active_nematic_dec(
-        &q0, &params, &ops, &mesh, None, 100, 100,
-    ).unwrap();
+    let (q_wet, _) = run_wet_active_nematic_dec(&q0, &params, &ops, &mesh, None, 100, 100).unwrap();
 
-    let (q_dry, _) = volterra_dec::run_dry_active_nematic_dec(
-        &q0, &params, &ops, None, 100, 100,
-    );
+    let (q_dry, _) = volterra_dec::run_dry_active_nematic_dec(&q0, &params, &ops, None, 100, 100);
 
     // Should be identical (both reduce to pure molecular field RK4).
-    let diff: f64 = q_wet.q1.iter().zip(&q_dry.q1)
+    let diff: f64 = q_wet
+        .q1
+        .iter()
+        .zip(&q_dry.q1)
         .chain(q_wet.q2.iter().zip(&q_dry.q2))
         .map(|(a, b)| (a - b).abs())
         .sum();
@@ -85,9 +86,8 @@ fn wet_dec_order_grows_with_activity() {
     let s_before = q0.mean_order_param();
 
     // Run 2000 steps (t=2.0) so the uniform mode grows by e^(|a_eff|*t) = e^3 ~ 20x.
-    let (q_fin, _) = run_wet_active_nematic_dec(
-        &q0, &params, &ops, &mesh, None, 2000, 2000,
-    ).unwrap();
+    let (q_fin, _) =
+        run_wet_active_nematic_dec(&q0, &params, &ops, &mesh, None, 2000, 2000).unwrap();
 
     let s_after = q_fin.mean_order_param();
     assert!(

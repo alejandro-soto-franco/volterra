@@ -20,15 +20,30 @@ pub struct StepStats {
 
 impl StepStats {
     /// Set the time field (builder style).
-    pub fn with_time(mut self, t: f64) -> Self { self.time = Some(t); self }
+    pub fn with_time(mut self, t: f64) -> Self {
+        self.time = Some(t);
+        self
+    }
     /// Set the order parameter (builder style).
-    pub fn with_order_param(mut self, s: f64) -> Self { self.order_param = Some(s); self }
+    pub fn with_order_param(mut self, s: f64) -> Self {
+        self.order_param = Some(s);
+        self
+    }
     /// Set the energy (builder style).
-    pub fn with_energy(mut self, e: f64) -> Self { self.energy = Some(e); self }
+    pub fn with_energy(mut self, e: f64) -> Self {
+        self.energy = Some(e);
+        self
+    }
     /// Set the defect count (builder style).
-    pub fn with_defect_count(mut self, n: usize) -> Self { self.defect_count = Some(n); self }
+    pub fn with_defect_count(mut self, n: usize) -> Self {
+        self.defect_count = Some(n);
+        self
+    }
     /// Set the max divergence (builder style).
-    pub fn with_max_divergence(mut self, d: f64) -> Self { self.max_divergence = Some(d); self }
+    pub fn with_max_divergence(mut self, d: f64) -> Self {
+        self.max_divergence = Some(d);
+        self
+    }
 }
 
 #[cfg(test)]

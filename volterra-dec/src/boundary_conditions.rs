@@ -12,8 +12,8 @@
 //!
 //! For the Stokes solver: psi = 0 at boundary vertices.
 
-use crate::epitrochoid::ConfinedMesh;
 use crate::QField;
+use crate::epitrochoid::ConfinedMesh;
 
 /// Apply strong planar anchoring at boundary vertices.
 ///

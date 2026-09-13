@@ -11,9 +11,9 @@ use support::*;
 
 use nalgebra::DVector;
 use volterra_dec::connection_laplacian::ConnectionLaplacian;
-use volterra_dec::stokes::SurfaceStokes;
 use volterra_dec::poisson::PoissonSolver;
 use volterra_dec::qfield::QField;
+use volterra_dec::stokes::SurfaceStokes;
 
 /// Dual-area-weighted inner product of two scalar fields.
 fn dot_w(a: &DVector<f64>, b: &DVector<f64>, w: &[f64]) -> f64 {
@@ -31,9 +31,9 @@ fn dot_w_q(a: &QField, b: &QField, w: &[f64]) -> f64 {
         .sum()
 }
 
-fn connection_laplacian(domain: &volterra_dec::DecDomain<cartan_manifolds::sphere::Sphere<3>>)
-    -> ConnectionLaplacian
-{
+fn connection_laplacian(
+    domain: &volterra_dec::DecDomain<cartan_manifolds::sphere::Sphere<3>>,
+) -> ConnectionLaplacian {
     let coords = coords_of(domain);
     let star0: Vec<f64> = domain.ops.hodge.star0().iter().copied().collect();
     let star1: Vec<f64> = domain.ops.hodge.star1().iter().copied().collect();
@@ -48,7 +48,10 @@ fn laplace_beltrami_annihilates_constants() {
     let ones = DVector::from_element(d.n_vertices(), 1.0);
     let lap = d.ops.apply_laplace_beltrami(&ones);
     let max = lap.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    assert!(max < 1e-9, "Laplacian of a constant should vanish, got max |L1| = {max:.3e}");
+    assert!(
+        max < 1e-9,
+        "Laplacian of a constant should vanish, got max |L1| = {max:.3e}"
+    );
 }
 
 #[test]
@@ -81,9 +84,14 @@ fn poisson_recovers_l1_harmonic() {
     let coords = coords_of(&d);
     let y = sph_harmonic(&coords, 1, 0); // z, eigenvalue 2
     let rhs = &y * (-sph_eigenvalue(1));
-    let psi = PoissonSolver::new(&d.ops).expect("Poisson solver").solve(&rhs);
+    let psi = PoissonSolver::new(&d.ops)
+        .expect("Poisson solver")
+        .solve(&rhs);
     let err = l2_rel_error(&zero_mean(&psi), &zero_mean(&y), &d.dual_areas);
-    assert!(err < 0.05, "Poisson round-trip rel L2 error = {err:.4} (expected < 0.05)");
+    assert!(
+        err < 0.05,
+        "Poisson round-trip rel L2 error = {err:.4} (expected < 0.05)"
+    );
 }
 
 #[test]
@@ -112,7 +120,10 @@ fn connection_laplacian_zero_field() {
     let zero = QField::zeros(d.n_vertices());
     let out = cl.apply(&zero);
     let max = (0..d.n_vertices()).fold(0.0_f64, |m, i| m.max(out.q1[i].abs()).max(out.q2[i].abs()));
-    assert!(max < 1e-12, "connection Laplacian of zero field should vanish, got {max:.3e}");
+    assert!(
+        max < 1e-12,
+        "connection Laplacian of zero field should vanish, got {max:.3e}"
+    );
 }
 
 #[test]
@@ -173,12 +184,20 @@ fn stokes_solution_is_finite_and_linear() {
     );
 
     let psi_lin = (&psi2 - &(&psi1 * 2.0)).amax();
-    assert!(psi_lin < 1e-9, "stream function not linear in source: max dev = {psi_lin:.3e}");
+    assert!(
+        psi_lin < 1e-9,
+        "stream function not linear in source: max dev = {psi_lin:.3e}"
+    );
 
     let vel_lin = (0..d.n_vertices())
         .flat_map(|i| (0..3).map(move |c| (i, c)))
-        .fold(0.0_f64, |m, (i, c)| m.max((vel2.v[i][c] - 2.0 * vel1.v[i][c]).abs()));
-    assert!(vel_lin < 1e-9, "velocity not linear in source: max dev = {vel_lin:.3e}");
+        .fold(0.0_f64, |m, (i, c)| {
+            m.max((vel2.v[i][c] - 2.0 * vel1.v[i][c]).abs())
+        });
+    assert!(
+        vel_lin < 1e-9,
+        "velocity not linear in source: max dev = {vel_lin:.3e}"
+    );
 }
 
 /// How much of the active flow is a rigid spin of the whole sphere.
@@ -214,7 +233,9 @@ fn the_active_flow_has_no_rigid_spin() {
     let vel = solver.solve(&q, &params, &domain.ops, &domain.mesh);
 
     let dot = |a: &[[f64; 3]], b: &[[f64; 3]]| -> f64 {
-        (0..nv).map(|i| w[i] * (a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2])).sum()
+        (0..nv)
+            .map(|i| w[i] * (a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2]))
+            .sum()
     };
 
     // The three rigid rotations, mass-orthonormalised.
@@ -341,7 +362,11 @@ fn the_outer_factor_has_the_rotations_in_its_kernel() {
     assert_eq!(s1.kernel_dimension(), 0, "at K rather than 2K none is free");
     let zero = vec![0.0; nv];
     let s0 = PoissonSolver::new_shifted(&domain.ops, &zero, &coords).unwrap();
-    assert_eq!(s0.kernel_dimension(), 0, "an unshifted solve has no rotation kernel");
+    assert_eq!(
+        s0.kernel_dimension(),
+        0,
+        "an unshifted solve has no rotation kernel"
+    );
 }
 
 /// The Killing count is a property of the surface, not of the mesh.
@@ -405,13 +430,16 @@ fn the_active_stress_does_positive_work() {
         let sym2: Vec<f64> = q.q2.iter().map(|v| -zeta * v).collect();
         let anti = vec![0.0; nv];
         let f = vertex_force_from_stress(
-            &sym1, &sym2, &anti, &domain.mesh, &coords,
-            solver.normals(), solver.e1_frames(),
+            &sym1,
+            &sym2,
+            &anti,
+            &domain.mesh,
+            &coords,
+            solver.normals(),
+            solver.e1_frames(),
         );
         let power: f64 = (0..nv)
-            .map(|i| {
-                w[i] * (vel.v[i][0] * f[i][0] + vel.v[i][1] * f[i][1] + vel.v[i][2] * f[i][2])
-            })
+            .map(|i| w[i] * (vel.v[i][0] * f[i][0] + vel.v[i][1] * f[i][1] + vel.v[i][2] * f[i][2]))
             .sum();
         let speed: f64 = (0..nv)
             .map(|i| w[i] * (vel.v[i].iter().map(|c| c * c).sum::<f64>()))

@@ -107,14 +107,9 @@ impl PyConfinedRun {
             // gradient of the recovered velocity: the first is O(h^1.1) and
             // exactly divergence free at every vertex, the second O(h^0.4).
             let du = self.problem.velocity_gradients_from_psi(&psi_p);
-            let (dq_p, cg_p) = self.problem.step_active_with_du(
-                &mut trial,
-                &v2,
-                &du,
-                self.dt,
-                self.cg_tol,
-                None,
-            );
+            let (dq_p, cg_p) =
+                self.problem
+                    .step_active_with_du(&mut trial, &v2, &du, self.dt, self.cg_tol, None);
             dq = dq_p;
             cg = cg_p;
             q_next = trial;
@@ -507,7 +502,9 @@ impl PyConfinedRun {
         s.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let median = if s.is_empty() { 0.0 } else { s[s.len() / 2] };
         let speed_max = match &self.velocity {
-            Some(v) => (0..self.q.n_vertices).map(|i| v.speed(i)).fold(0.0, f64::max),
+            Some(v) => (0..self.q.n_vertices)
+                .map(|i| v.speed(i))
+                .fold(0.0, f64::max),
             None => 0.0,
         };
         let d = PyDict::new(py);

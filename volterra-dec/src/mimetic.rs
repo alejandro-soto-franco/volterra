@@ -209,7 +209,10 @@ pub fn diagonal_star(points: &[[f64; 3]; 4], k: usize) -> Option<DiagonalStar> {
 ///
 /// Returns `None` if any cell is degenerate.
 pub fn assemble_star(mesh: &TetComplex, k: usize) -> Option<CsMat<f64>> {
-    assert!((1..=3).contains(&k), "degrees one to three are what the solver uses");
+    assert!(
+        (1..=3).contains(&k),
+        "degrees one to three are what the solver uses"
+    );
     let n = match k {
         1 => mesh.n_edges(),
         2 => mesh.n_faces(),
@@ -314,8 +317,15 @@ mod tests {
             "residual {} was expected to be nonzero",
             d.residual
         );
-        assert!(!d.is_usable(), "an inconsistent diagonal star must not be usable");
-        assert!(d.residual > 1e-3, "residual {} is too small to be real", d.residual);
+        assert!(
+            !d.is_usable(),
+            "an inconsistent diagonal star must not be usable"
+        );
+        assert!(
+            d.residual > 1e-3,
+            "residual {} is too small to be real",
+            d.residual
+        );
     }
 
     /// The counting argument at `k = 1`: the diagonal exists, six conditions
@@ -332,8 +342,14 @@ mod tests {
             let lo = d.entries.iter().cloned().fold(f64::INFINITY, f64::min);
             if !d.is_positive() {
                 negatives += 1;
-                assert!(lo < 0.0, "is_positive disagreed with the entries themselves");
-                assert!(!d.is_usable(), "a negative diagonal star must not be usable");
+                assert!(
+                    lo < 0.0,
+                    "is_positive disagreed with the entries themselves"
+                );
+                assert!(
+                    !d.is_usable(),
+                    "a negative diagonal star must not be usable"
+                );
             }
             worst = worst.min(lo);
         }

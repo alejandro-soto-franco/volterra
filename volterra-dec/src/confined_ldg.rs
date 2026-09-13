@@ -1613,11 +1613,7 @@ mod tests {
     /// `~/planning/cgpo-reproduction/mesh-energy-law-2026-08-22.md`.
     #[test]
     fn the_adjoint_path_keeps_the_energy_law_on_a_graded_mesh() {
-        for (d, dt, passes) in [
-            (0.5_f64, 1e-4_f64, 1usize),
-            (0.9, 1e-4, 1),
-            (0.9, 1e-5, 1),
-        ] {
+        for (d, dt, passes) in [(0.5_f64, 1e-4_f64, 1usize), (0.9, 1e-4, 1), (0.9, 1e-5, 1)] {
             energy_law_adjoint_at(d, dt, passes);
         }
     }
@@ -1693,7 +1689,9 @@ mod tests {
             let mut q = p.random_state(3);
             // Control: the energy-law tests smooth first, so measure on the state
             // they actually use. `SMOOTH=0` in the environment keeps the raw field.
-            let smooth = std::env::var("DIAG_SMOOTH").map(|v| v != "0").unwrap_or(true);
+            let smooth = std::env::var("DIAG_SMOOTH")
+                .map(|v| v != "0")
+                .unwrap_or(true);
             if smooth {
                 for _ in 0..40 {
                     p.step_passive(&mut q, 1e-3, 1e-8);
@@ -1741,16 +1739,11 @@ mod tests {
             // `sum_T A_T |grad q|_T^2` rather than `sum_i w_i |grad q|_avg,i^2`.
             let fem = |qq: &QField| -> f64 {
                 let m = &p.mesh.mesh;
-                let (k, a, c) = (
-                    p.params.k_frank,
-                    p.params.a_landau,
-                    p.params.c_landau,
-                );
+                let (k, a, c) = (p.params.k_frank, p.params.a_landau, p.params.c_landau);
                 let mut dir = 0.0_f64;
                 for t in 0..m.n_simplices() {
                     let sv = m.simplices[t];
-                    let (p0, p1, p2) =
-                        (m.vertices[sv[0]], m.vertices[sv[1]], m.vertices[sv[2]]);
+                    let (p0, p1, p2) = (m.vertices[sv[0]], m.vertices[sv[1]], m.vertices[sv[2]]);
                     let two_a = (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
                     if two_a.abs() < 1e-30 {
                         continue;
@@ -1769,7 +1762,8 @@ mod tests {
                         dd[3] += qq.q2[sv[aa]] * g[aa][1];
                     }
                     let area = 0.5 * two_a.abs();
-                    let grad2 = 2.0 * (dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2] + dd[3] * dd[3]);
+                    let grad2 =
+                        2.0 * (dd[0] * dd[0] + dd[1] * dd[1] + dd[2] * dd[2] + dd[3] * dd[3]);
                     dir += area * 0.5 * k * grad2;
                 }
                 // Bulk, lumped exactly as `free_energy` lumps it.
@@ -1796,10 +1790,9 @@ mod tests {
                 }
                 let fd = (p.free_energy(&qp) - p.free_energy(&qm)) / (2.0 * eps);
                 let fd_fem = (fem(&qp) - fem(&qm)) / (2.0 * eps);
-                let rel =
-                    (fd - analytic).abs() / fd.abs().max(analytic.abs()).max(1e-300);
-                let rel_fem = (fd_fem - analytic).abs()
-                    / fd_fem.abs().max(analytic.abs()).max(1e-300);
+                let rel = (fd - analytic).abs() / fd.abs().max(analytic.abs()).max(1e-300);
+                let rel_fem =
+                    (fd_fem - analytic).abs() / fd_fem.abs().max(analytic.abs()).max(1e-300);
                 eprintln!(
                     "d = {d}, nv = {nv}, int = {n_int}, mass rel = {mass_rel:.1e}, \
                      eps = {eps:.0e}\n    free_energy : fd = {fd:.8e}  rel = {rel:.3e}\n\
@@ -1845,7 +1838,13 @@ mod tests {
             for _ in 0..20 {
                 let (s1, s2, sa) = p.beris_edwards_stress(&q);
                 let (vel, _psi, _its) = stokes.solve_stress_warm(
-                    &s1, &s2, &sa, p.params.eta, &p.mesh.mesh, None, 1e-10,
+                    &s1,
+                    &s2,
+                    &sa,
+                    p.params.eta,
+                    &p.mesh.mesh,
+                    None,
+                    1e-10,
                 );
                 let v2: Vec<[f64; 2]> = (0..nv).map(|i| [vel.v[i][0], vel.v[i][1]]).collect();
                 p.step_active(&mut q, &v2, dt, 1e-8, None);
@@ -2023,14 +2022,10 @@ mod tests {
             }
             let rate_relax: f64 = (0..nv)
                 .filter(|&i| !is_b[i])
-                .map(|i| {
-                    -2.0 * p.mass_lumped[i] * (h.q1[i] * h.q1[i] + h.q2[i] * h.q2[i]) / g
-                })
+                .map(|i| -2.0 * p.mass_lumped[i] * (h.q1[i] * h.q1[i] + h.q2[i] * h.q2[i]) / g)
                 .sum();
             let rate_relax_all: f64 = (0..nv)
-                .map(|i| {
-                    -2.0 * p.mass_lumped[i] * (h.q1[i] * h.q1[i] + h.q2[i] * h.q2[i]) / g
-                })
+                .map(|i| -2.0 * p.mass_lumped[i] * (h.q1[i] * h.q1[i] + h.q2[i] * h.q2[i]) / g)
                 .sum();
             let rate_transport_int: f64 = (0..nv)
                 .filter(|&i| !is_b[i])
@@ -2104,7 +2099,9 @@ mod tests {
             let (vel, _psi, _its) =
                 stokes.solve_force_warm(&fc, p.params.eta, &p.mesh.mesh, None, 1e-10);
             let u: Vec<[f64; 2]> = (0..nv).map(|i| [vel.v[i][0], vel.v[i][1]]).collect();
-            let power: f64 = (0..nv).map(|i| fc[i][0] * u[i][0] + fc[i][1] * u[i][1]).sum();
+            let power: f64 = (0..nv)
+                .map(|i| fc[i][0] * u[i][0] + fc[i][1] * u[i][1])
+                .sum();
             let h = p.molecular_field(&q);
             let t = p.transport_rate(&q, &u);
             let pairing_int: f64 = (0..nv)
@@ -2127,8 +2124,7 @@ mod tests {
                     let force = p.elastic_force(&qq);
                     let (vel, _psi, _its) =
                         stokes.solve_force_warm(&force, p.params.eta, &p.mesh.mesh, None, 1e-10);
-                    let v2: Vec<[f64; 2]> =
-                        (0..nv).map(|i| [vel.v[i][0], vel.v[i][1]]).collect();
+                    let v2: Vec<[f64; 2]> = (0..nv).map(|i| [vel.v[i][0], vel.v[i][1]]).collect();
                     let umax = v2
                         .iter()
                         .map(|v| (v[0] * v[0] + v[1] * v[1]).sqrt())

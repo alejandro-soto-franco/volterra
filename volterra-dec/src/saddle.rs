@@ -67,7 +67,12 @@ impl SymOperator {
             val[fill[r]] = v;
             fill[r] += 1;
         }
-        Self { row_ptr, col_idx, val, n }
+        Self {
+            row_ptr,
+            col_idx,
+            val,
+            n,
+        }
     }
 
     /// Dimension of the square operator.
@@ -193,11 +198,17 @@ impl Riesz {
     pub fn apply(&self, r: &[f64]) -> Vec<f64> {
         match self {
             Self::Jacobi(inv) => r.iter().zip(inv).map(|(a, b)| a * b).collect(),
-            Self::Exact { w, u, p_inverse, n_w, n_u } => {
+            Self::Exact {
+                w,
+                u,
+                p_inverse,
+                n_w,
+                n_u,
+            } => {
                 let mut out = vec![0.0f64; r.len()];
                 let solve = |llt: &faer::sparse::linalg::solvers::Llt<usize, f64>,
-                                 src: &[f64],
-                                 dst: &mut [f64]| {
+                             src: &[f64],
+                             dst: &mut [f64]| {
                     let mut m = Mat::<f64>::zeros(src.len(), 1);
                     for (i, &v) in src.iter().enumerate() {
                         m[(i, 0)] = v;
@@ -255,7 +266,11 @@ pub fn minres(
     if beta1sq <= 0.0 {
         return (
             x,
-            MinresReport { iterations: 0, relative_residual: 0.0, converged: true },
+            MinresReport {
+                iterations: 0,
+                relative_residual: 0.0,
+                converged: true,
+            },
         );
     }
     let beta1 = beta1sq.sqrt();

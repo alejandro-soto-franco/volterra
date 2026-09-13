@@ -54,12 +54,21 @@ fn imposed(curve: Epitrochoid, o: MeshOpts) -> (f64, f64) {
 /// The spacing a production run uses: `ACT_H=1.0 ACT_HMIN=1.0`, so `h_min` is
 /// pinned at `h_bulk` and nothing refines towards the tip.
 fn production_opts() -> MeshOpts {
-    MeshOpts { h_bulk: 1.0, h_min: 1.0, cusp_edge: 0.0, ..Default::default() }
+    MeshOpts {
+        h_bulk: 1.0,
+        h_min: 1.0,
+        cusp_edge: 0.0,
+        ..Default::default()
+    }
 }
 
 /// A boundary that refines to a quarter of the tip's own radius of curvature.
 fn resolving_opts(c: &Epitrochoid) -> MeshOpts {
-    MeshOpts { h_bulk: 4.0, h_min: c.cusp_radius() / 4.0, ..Default::default() }
+    MeshOpts {
+        h_bulk: 4.0,
+        h_min: c.cusp_radius() / 4.0,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -68,17 +77,28 @@ fn a_cusped_domain_imposes_one_plus_half_the_cusp_count() {
         let c = Epitrochoid { q, d: 1.0, r };
         let (charge, worst) = imposed(
             c,
-            MeshOpts { h_bulk: 1.5, h_min: 1.5, cusp_edge: 1.5, ..Default::default() },
+            MeshOpts {
+                h_bulk: 1.5,
+                h_min: 1.5,
+                cusp_edge: 1.5,
+                ..Default::default()
+            },
         );
         let want = 1.0 + k as f64 / 2.0;
         assert!(
             (charge - want).abs() < 1e-9,
             "k = {k}: imposed {charge:+.6} where the index law wants {want:+.2}"
         );
-        assert!((c.exact_winding() - want).abs() < 1e-12, "k = {k}: exact_winding disagrees");
+        assert!(
+            (c.exact_winding() - want).abs() < 1e-12,
+            "k = {k}: exact_winding disagrees"
+        );
         // A boundary sampled too coarsely to follow the anchoring would give the
         // right number by luck, so the step is checked as well.
-        assert!(worst < 60.0, "k = {k}: worst boundary step {worst:.1} deg is too coarse");
+        assert!(
+            worst < 60.0,
+            "k = {k}: worst boundary step {worst:.1} deg is too coarse"
+        );
     }
 }
 
@@ -152,7 +172,11 @@ fn below_the_alias_threshold_every_spacing_agrees() {
             c.aliasing_deficit()
         );
         for o in [
-            MeshOpts { h_bulk: 4.0, h_min: 4.0, ..Default::default() },
+            MeshOpts {
+                h_bulk: 4.0,
+                h_min: 4.0,
+                ..Default::default()
+            },
             production_opts(),
             resolving_opts(&c),
         ] {
@@ -180,7 +204,11 @@ fn the_alias_threshold_sits_inside_its_closed_form_brackets() {
             1.0 / 2.0_f64.sqrt() < dc && dc < upper,
             "k = {k}: d_c {dc:.6} outside [1/sqrt(2), {upper:.6}]"
         );
-        assert!((dc - WANT[i]).abs() < 1e-5, "k = {k}: d_c {dc:.6}, wanted {:.6}", WANT[i]);
+        assert!(
+            (dc - WANT[i]).abs() < 1e-5,
+            "k = {k}: d_c {dc:.6}, wanted {:.6}",
+            WANT[i]
+        );
         assert!(dc < prev, "k = {k}: d_c should fall with the lobe count");
         prev = dc;
     }
@@ -198,7 +226,12 @@ fn a_misreading_is_always_a_whole_number_of_half_turns() {
         for d in [0.5, 0.7, dc - 0.02, dc + 0.02, 0.95, 0.99] {
             let c = Epitrochoid { q, d, r };
             for h in [1.0, 2.0, 4.0] {
-                let o = MeshOpts { h_bulk: h, h_min: h, cusp_edge: 0.0, ..Default::default() };
+                let o = MeshOpts {
+                    h_bulk: h,
+                    h_min: h,
+                    cusp_edge: 0.0,
+                    ..Default::default()
+                };
                 let (charge, worst) = imposed(c, o);
                 let j = 2.0 * (charge - 1.0);
                 assert!(
@@ -237,7 +270,12 @@ fn the_production_spacing_starts_misreading_once_the_tip_falls_below_a_fortieth(
     // runs are on both sides of it depending on the lobe count. Only the two
     // ends are asserted, since the middle is where the sampling decides.
     for (q, k, r) in SHAPES {
-        let coarse = MeshOpts { h_bulk: 1.0, h_min: 1.0, cusp_edge: 0.0, ..Default::default() };
+        let coarse = MeshOpts {
+            h_bulk: 1.0,
+            h_min: 1.0,
+            cusp_edge: 0.0,
+            ..Default::default()
+        };
         let (loose, _) = imposed(Epitrochoid { q, d: 0.995, r }, coarse);
         assert!(
             (loose - (1.0 + k as f64 / 2.0)).abs() < 1e-9,
@@ -262,10 +300,20 @@ fn the_cusp_radius_vanishes_only_at_d_equals_one() {
     for (q, k, r) in SHAPES {
         let sharp = Epitrochoid { q, d: 1.0, r }.cusp_radius();
         let round = Epitrochoid { q, d: 0.72, r }.cusp_radius();
-        assert!(sharp < 1e-12, "k = {k}: d = 1 should be a true cusp, got R = {sharp:.3e}");
-        assert!(round > 1.0, "k = {k}: d = 0.72 should have a finite tip, got R = {round:.3e}");
+        assert!(
+            sharp < 1e-12,
+            "k = {k}: d = 1 should be a true cusp, got R = {sharp:.3e}"
+        );
+        assert!(
+            round > 1.0,
+            "k = {k}: d = 0.72 should have a finite tip, got R = {round:.3e}"
+        );
         // The tip scale and the aliasing criterion are different things: R_cusp
         // has no lobe-count dependence and the threshold does.
-        assert!(Epitrochoid { q, d: 1.0, r }.aliasing_deficit().is_infinite());
+        assert!(
+            Epitrochoid { q, d: 1.0, r }
+                .aliasing_deficit()
+                .is_infinite()
+        );
     }
 }

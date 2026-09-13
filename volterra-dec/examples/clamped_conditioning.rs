@@ -51,14 +51,27 @@ fn main() {
                         "{:>10} {:>7.3} {:>9} {:>9.2} {:>12.3e} {:>12.3e} {:>12.3e}",
                         bverts.len(),
                         arc,
-                        if ls.is_infinite() { "inf".to_string() } else { format!("{ls}") },
-                        if ls.is_infinite() { f64::INFINITY } else { ls / arc },
+                        if ls.is_infinite() {
+                            "inf".to_string()
+                        } else {
+                            format!("{ls}")
+                        },
+                        if ls.is_infinite() {
+                            f64::INFINITY
+                        } else {
+                            ls / arc
+                        },
                         cond,
                         hi,
                         lo
                     );
                 }
-                Err(e) => println!("{:>10} {:>7.3} {:>9} construction failed: {e}", bverts.len(), arc, ls),
+                Err(e) => println!(
+                    "{:>10} {:>7.3} {:>9} construction failed: {e}",
+                    bverts.len(),
+                    arc,
+                    ls
+                ),
             }
         }
         println!();

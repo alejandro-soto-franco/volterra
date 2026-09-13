@@ -82,7 +82,10 @@ pub fn rms_3d(omega: &[[f64; 3]]) -> f64 {
     if omega.is_empty() {
         return 0.0;
     }
-    let acc: f64 = omega.iter().map(|w| w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sum();
+    let acc: f64 = omega
+        .iter()
+        .map(|w| w[0] * w[0] + w[1] * w[1] + w[2] * w[2])
+        .sum();
     (acc / omega.len() as f64).sqrt()
 }
 
@@ -138,7 +141,11 @@ pub fn direction_3d(omega: &[[f64; 3]], eps: Epsilon) -> Vec<[f64; 3]> {
                 // vorticity as a null.
                 let mut out = [0.0; 3];
                 for k in 0..3 {
-                    out[k] = if w[k].is_infinite() { w[k].signum() } else { 0.0 };
+                    out[k] = if w[k].is_infinite() {
+                        w[k].signum()
+                    } else {
+                        0.0
+                    };
                 }
                 return out;
             }
@@ -199,7 +206,10 @@ mod tests {
 
         let w3 = vec![[0.0; 3], [0.0, 0.0, 5.0]];
         let d3 = direction_3d(&w3, Epsilon::Absolute(0.1));
-        assert_eq!(d3[0], [0.0; 3], "an exact null must evaluate to the zero vector");
+        assert_eq!(
+            d3[0], [0.0; 3],
+            "an exact null must evaluate to the zero vector"
+        );
         for v in d3.iter().flatten() {
             assert!(v.is_finite());
         }
@@ -236,12 +246,23 @@ mod tests {
     fn a_vorticity_too_large_to_square_is_not_read_as_a_null() {
         let big = 1e200_f64;
         let d = direction_2d(&[big, -big], Epsilon::Absolute(1.0));
-        assert!((d[0] - 1.0).abs() < 1e-12, "a huge positive vorticity gave {}", d[0]);
-        assert!((d[1] + 1.0).abs() < 1e-12, "a huge negative vorticity gave {}", d[1]);
+        assert!(
+            (d[0] - 1.0).abs() < 1e-12,
+            "a huge positive vorticity gave {}",
+            d[0]
+        );
+        assert!(
+            (d[1] + 1.0).abs() < 1e-12,
+            "a huge negative vorticity gave {}",
+            d[1]
+        );
 
         let d3 = direction_3d(&[[big, 0.0, 0.0]], Epsilon::Absolute(1.0));
         let m = (d3[0][0] * d3[0][0] + d3[0][1] * d3[0][1] + d3[0][2] * d3[0][2]).sqrt();
-        assert!((m - 1.0).abs() < 1e-12, "a huge vector vorticity gave magnitude {m}");
+        assert!(
+            (m - 1.0).abs() < 1e-12,
+            "a huge vector vorticity gave magnitude {m}"
+        );
     }
 
     /// The square-root form has a continuous second derivative across a null and
@@ -313,7 +334,10 @@ mod tests {
 
         let w3 = vec![[1.0, -2.0, 0.5], [0.0; 3], [-3.0, 0.25, 4.0]];
         let a3 = direction_3d(&w3, Epsilon::Relative(1e-3));
-        let s3: Vec<[f64; 3]> = w3.iter().map(|w| [w[0] * 1e6, w[1] * 1e6, w[2] * 1e6]).collect();
+        let s3: Vec<[f64; 3]> = w3
+            .iter()
+            .map(|w| [w[0] * 1e6, w[1] * 1e6, w[2] * 1e6])
+            .collect();
         let b3 = direction_3d(&s3, Epsilon::Relative(1e-3));
         for i in 0..w3.len() {
             for k in 0..3 {
@@ -323,7 +347,10 @@ mod tests {
                 );
             }
         }
-        assert!(rms_3d(&w3) > 0.0, "rms_3d must see a scale in a nonzero field");
+        assert!(
+            rms_3d(&w3) > 0.0,
+            "rms_3d must see a scale in a nonzero field"
+        );
     }
 
     /// The magnitude doubles as the null mask, which is what saves a separate
@@ -334,7 +361,11 @@ mod tests {
         let omega = vec![0.0, e * 0.01, e * 10.0, -e * 10.0];
         let d = direction_2d(&omega, Epsilon::Absolute(e));
         let marked = nulls_2d(&d, 0.1);
-        assert_eq!(marked, vec![0, 1], "only the two points near the null should be marked");
+        assert_eq!(
+            marked,
+            vec![0, 1],
+            "only the two points near the null should be marked"
+        );
 
         let d3 = direction_3d(&[[0.0; 3], [0.0, 0.0, e * 10.0]], Epsilon::Absolute(e));
         assert_eq!(nulls_3d(&d3, 0.1), vec![0]);

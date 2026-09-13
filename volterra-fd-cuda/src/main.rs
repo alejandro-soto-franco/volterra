@@ -15,7 +15,7 @@
 //! cargo oxide build --arch sm_120a && ./target/release/volterra-fd-cuda validate
 //! ```
 
-use rand::{rngs::StdRng, RngExt, SeedableRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use volterra_fd::boundary;
 use volterra_fd::ops;
@@ -53,7 +53,11 @@ fn compare(a: &[f64], b: &[f64]) -> Gap {
         let m = x.abs().max(y.abs()).max(1.0);
         ulps = ulps.max(d / (m * f64::EPSILON));
     }
-    Gap { abs, ulps, differing }
+    Gap {
+        abs,
+        ulps,
+        differing,
+    }
 }
 
 /// As [`compare`], but each element's difference is measured against a scale
@@ -80,7 +84,11 @@ fn compare_scaled(a: &[f64], b: &[f64], scale: &[f64]) -> Gap {
         let m = s.abs().max(1.0);
         ulps = ulps.max(d / (m * f64::EPSILON));
     }
-    Gap { abs, ulps, differing }
+    Gap {
+        abs,
+        ulps,
+        differing,
+    }
 }
 
 /// `tol_ulps` is how many units in the last place the kernel may differ by.
@@ -267,7 +275,12 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         s_scratch.clear();
         let g = compare(&h_cpu, &h_gpu);
-        all_ok &= report("h_s_from_q with the bulk term off, against laplacian_vector", &g, n * 2, 0.0);
+        all_ok &= report(
+            "h_s_from_q with the bulk term off, against laplacian_vector",
+            &g,
+            n * 2,
+            0.0,
+        );
     }
 
     // A smooth Q, which is what a run carries. The random field used above is
@@ -313,13 +326,26 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut h_cpu = vec![0.0; n * 2];
         let mut s_cpu = vec![0.0; n * 2];
         volterra_fd::nematic::h_s_from_q(
-            &velocity, &smooth, &mut h_cpu, &mut s_cpu,
-            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+            &velocity,
+            &smooth,
+            &mut h_cpu,
+            &mut s_cpu,
+            params.a_landau,
+            params.c_landau,
+            params.k_elastic,
+            params.lambda,
+            &bnd,
         );
         let (h_gpu, _) = dev.h_s_from_q(
-            &velocity, &smooth, &d_bnd,
-            params.a_landau, params.c_landau, params.k_elastic, params.lambda,
-            &vec![0.0; n * 2], &vec![0.0; n * 2],
+            &velocity,
+            &smooth,
+            &d_bnd,
+            params.a_landau,
+            params.c_landau,
+            params.k_elastic,
+            params.lambda,
+            &vec![0.0; n * 2],
+            &vec![0.0; n * 2],
         )?;
         let g = compare(&h_cpu, &h_gpu);
         all_ok &= report("h_s_from_q: H on a smooth Q", &g, n * 2, 4.0);
@@ -330,13 +356,26 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut h_cpu = vec![0.0; n * 2];
         let mut s_cpu = vec![0.0; n * 2];
         volterra_fd::nematic::h_s_from_q(
-            &velocity, &smooth, &mut h_cpu, &mut s_cpu,
-            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+            &velocity,
+            &smooth,
+            &mut h_cpu,
+            &mut s_cpu,
+            params.a_landau,
+            params.c_landau,
+            params.k_elastic,
+            params.lambda,
+            &bnd,
         );
         let (h_gpu, s_gpu) = dev.h_s_from_q(
-            &velocity, &smooth, &d_bnd,
-            params.a_landau, params.c_landau, params.k_elastic, params.lambda,
-            &vec![0.0; n * 2], &vec![0.0; n * 2],
+            &velocity,
+            &smooth,
+            &d_bnd,
+            params.a_landau,
+            params.c_landau,
+            params.k_elastic,
+            params.lambda,
+            &vec![0.0; n * 2],
+            &vec![0.0; n * 2],
         )?;
         all_ok &= report("h_s_from_q: S", &compare(&s_cpu, &s_gpu), n * 2, 4.0);
         let _ = h_gpu;
@@ -344,16 +383,32 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut pi_s_cpu = vec![0.0; n * 2];
         let mut pi_a_cpu = vec![0.0; n];
         volterra_fd::nematic::calculate_pi(
-            &mut pi_s_cpu, &mut pi_a_cpu, &h_cpu, &smooth,
-            params.lambda, params.zeta, params.k_elastic,
+            &mut pi_s_cpu,
+            &mut pi_a_cpu,
+            &h_cpu,
+            &smooth,
+            params.lambda,
+            params.zeta,
+            params.k_elastic,
             // The GPU kernel adds the Ericksen stress and 2 Tr[QH] Q, so the CPU
             // reference it is measured against takes the Full model too.
-            volterra_fd::StressModel::Full, &bnd,
+            volterra_fd::StressModel::Full,
+            &bnd,
         );
         let (pi_s_gpu, pi_a_gpu) = dev.calculate_pi(
-            &h_cpu, &smooth, &d_bnd, params.lambda, params.zeta, params.k_elastic,
+            &h_cpu,
+            &smooth,
+            &d_bnd,
+            params.lambda,
+            params.zeta,
+            params.k_elastic,
         )?;
-        all_ok &= report("calculate_pi: Pi_S", &compare(&pi_s_cpu, &pi_s_gpu), n * 2, 4.0);
+        all_ok &= report(
+            "calculate_pi: Pi_S",
+            &compare(&pi_s_cpu, &pi_s_gpu),
+            n * 2,
+            4.0,
+        );
         // Pi_A cancels by construction, so it is measured against the size of
         // the two products it differences.
         let scale: Vec<f64> = (0..n)
@@ -376,17 +431,30 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut h = vec![0.0; n * 2];
         let mut s = vec![0.0; n * 2];
         volterra_fd::nematic::h_s_from_q(
-            &velocity, &smooth, &mut h, &mut s,
-            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+            &velocity,
+            &smooth,
+            &mut h,
+            &mut s,
+            params.a_landau,
+            params.c_landau,
+            params.k_elastic,
+            params.lambda,
+            &bnd,
         );
         let mut pi_s = vec![0.0; n * 2];
         let mut pi_a = vec![0.0; n];
         volterra_fd::nematic::calculate_pi(
-            &mut pi_s, &mut pi_a, &h, &smooth,
-            params.lambda, params.zeta, params.k_elastic,
+            &mut pi_s,
+            &mut pi_a,
+            &h,
+            &smooth,
+            params.lambda,
+            params.zeta,
+            params.k_elastic,
             // The GPU kernel adds the Ericksen stress and 2 Tr[QH] Q, so the CPU
             // reference it is measured against takes the Full model too.
-            volterra_fd::StressModel::Full, &bnd,
+            volterra_fd::StressModel::Full,
+            &bnd,
         );
 
         {
@@ -455,13 +523,25 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
             let mut h = vec![0.0; n * 2];
             let mut s = vec![0.0; n * 2];
             volterra_fd::nematic::h_s_from_q(
-                &velocity, &smooth, &mut h, &mut s,
-                params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+                &velocity,
+                &smooth,
+                &mut h,
+                &mut s,
+                params.a_landau,
+                params.c_landau,
+                params.k_elastic,
+                params.lambda,
+                &bnd,
             );
             let h_seed = h.clone();
             let mut cpu = h.clone();
             volterra_fd::bc::apply_h_boundary_conditions(
-                &mut cpu, params.gamma, &smooth, &velocity, &s, &bnd,
+                &mut cpu,
+                params.gamma,
+                &smooth,
+                &velocity,
+                &s,
+                &bnd,
             );
             let gpu = dev.apply_h_bc(&smooth, &velocity, &s, &d_full, params.gamma, &h_seed)?;
             all_ok &= report("apply_h_bc", &compare(&cpu, &gpu), n * 2, 4.0);
@@ -469,11 +549,17 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
             let mut pi_s = vec![0.0; n * 2];
             let mut pi_a = vec![0.0; n];
             volterra_fd::nematic::calculate_pi(
-                &mut pi_s, &mut pi_a, &h, &smooth,
-                params.lambda, params.zeta, params.k_elastic,
+                &mut pi_s,
+                &mut pi_a,
+                &h,
+                &smooth,
+                params.lambda,
+                params.zeta,
+                params.k_elastic,
                 // The GPU kernel adds the Ericksen stress and 2 Tr[QH] Q, so the CPU
                 // reference it is measured against takes the Full model too.
-                volterra_fd::StressModel::Full, &bnd,
+                volterra_fd::StressModel::Full,
+                &bnd,
             );
             let p_aux = random_scalar(n, &mut rng);
             let p_seed = random_scalar(n, &mut rng);
@@ -518,8 +604,15 @@ fn phase_validate() -> Result<(), Box<dyn std::error::Error>> {
         let mut h = vec![0.0; n * 2];
         let mut s = vec![0.0; n * 2];
         volterra_fd::nematic::h_s_from_q(
-            &smooth_u, &smooth, &mut h, &mut s,
-            params.a_landau, params.c_landau, params.k_elastic, params.lambda, &bnd,
+            &smooth_u,
+            &smooth,
+            &mut h,
+            &mut s,
+            params.a_landau,
+            params.c_landau,
+            params.k_elastic,
+            params.lambda,
+            &bnd,
         );
         let mut cpu = vec![0.0; n * 2];
         volterra_fd::step::get_q_update(&mut cpu, &smooth, &h, &s, &smooth_u, params.gamma, &bnd);
@@ -582,9 +675,7 @@ fn phase_step(steps: usize) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let (q, u, p) = gpu.download(dev.stream())?;
-    println!(
-        "sweep counts differed on {sweeps_differ} of {steps} steps"
-    );
+    println!("sweep counts differed on {sweeps_differ} of {steps} steps");
     // A whole field is compared against its own largest value, not element by
     // element: an element near zero carries no information about whether two
     // trajectories have parted, and the fields here span many orders.
@@ -620,7 +711,14 @@ fn phase_step(steps: usize) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// The golden run's initial condition, matching `fd`'s `random_theta_ic`.
-fn random_theta_ic(q: &mut [f64], s0: f64, lx: usize, ly: usize, inside: &[bool], rng: &mut StdRng) {
+fn random_theta_ic(
+    q: &mut [f64],
+    s0: f64,
+    lx: usize,
+    ly: usize,
+    inside: &[bool],
+    rng: &mut StdRng,
+) {
     use std::f64::consts::PI;
     for x in 0..lx {
         for y in 0..ly {
@@ -745,8 +843,8 @@ fn phase_batch(runs: usize, steps: usize) -> Result<(), Box<dyn std::error::Erro
     let mut params = Vec::with_capacity(runs);
     for r in 0..runs {
         let charge = charges[r % charges.len()];
-        let cpu_params = volterra_fd::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50)
-            .with_net_charge(charge);
+        let cpu_params =
+            volterra_fd::Params::new(LX, 3.99, 0.975, 1.0, 1e-4, 50).with_net_charge(charge);
         let mut sp = StepParams::from_cpu(&cpu_params);
         sp.fixed_sweeps = Some(1);
         let mut init = volterra_fd::step::State::new(LX, LX);
@@ -782,9 +880,7 @@ fn phase_batch(runs: usize, steps: usize) -> Result<(), Box<dyn std::error::Erro
     let wall = t0.elapsed().as_secs_f64();
 
     let run_steps = (runs * steps) as f64;
-    println!(
-        "{runs} runs x {steps} steps at {LX}x{LX}"
-    );
+    println!("{runs} runs x {steps} steps at {LX}x{LX}");
     println!(
         "  GPU, one stream each   {wall:.3} s, {:.1} us per run-step, {:.0} run-step/s",
         wall / run_steps * 1e6,
@@ -856,15 +952,16 @@ fn phase_golden(
     let mut st = DeviceState::zeroed(&stream, LX, LX)?;
     st.upload_from(&stream, &init.q, &init.u, &init.p)?;
 
-    println!("golden trajectory on the device: {steps} steps, q={charge}, saving every {save_every}");
+    println!(
+        "golden trajectory on the device: {steps} steps, q={charge}, saving every {save_every}"
+    );
     let t0 = std::time::Instant::now();
     let mut saved = 0usize;
     for step in 0..=steps {
         if step % save_every == 0 {
             let (q, _, _) = st.download(&stream)?;
-            let mut f = std::io::BufWriter::new(std::fs::File::create(format!(
-                "{dir}/Q_{step:08}.txt"
-            ))?);
+            let mut f =
+                std::io::BufWriter::new(std::fs::File::create(format!("{dir}/Q_{step:08}.txt"))?);
             for c in 0..LX * LX {
                 writeln!(f, "{:.17e} {:.17e}", q[c * 2], q[c * 2 + 1])?;
             }
@@ -902,7 +999,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let steps = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(750_000);
             let every = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(750);
             let charge: f64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1.5);
-            let out = args.get(5).cloned().unwrap_or_else(|| "/tmp/fd-gpu-golden".into());
+            let out = args
+                .get(5)
+                .cloned()
+                .unwrap_or_else(|| "/tmp/fd-gpu-golden".into());
             phase_golden(steps, every, charge, &out)?;
         }
         "validate" => phase_validate()?,

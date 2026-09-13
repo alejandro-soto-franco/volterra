@@ -30,11 +30,11 @@ use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
 use nalgebra::DVector;
 use volterra_core::ActiveNematicParams;
+use volterra_dec::QField;
 use volterra_dec::boundary_conditions::apply_strong_anchoring;
 use volterra_dec::epitrochoid::epitrochoid_mesh;
-use volterra_dec::stokes::SurfaceStokes;
-use volterra_dec::QField;
 use volterra_dec::run_wet_active_nematic_dec_confined;
+use volterra_dec::stokes::SurfaceStokes;
 
 /// Boundary speed must be below this fraction of the interior peak speed
 /// for the no-slip condition to be considered satisfied.
@@ -57,7 +57,10 @@ fn dec_nephroid_confined_wet_smoke() {
     let n_tri = confined.mesh.n_simplices();
     let n_interior = nv - n_boundary;
 
-    assert!(n_interior > 0, "nephroid mesh should have interior vertices (got 0)");
+    assert!(
+        n_interior > 0,
+        "nephroid mesh should have interior vertices (got 0)"
+    );
     assert!(n_tri > 0, "nephroid mesh should have triangles (got 0)");
 
     println!(
@@ -106,8 +109,9 @@ fn dec_nephroid_confined_wet_smoke() {
 
     // ── 3c. Single-step diagnostics (isolate NaN source) ─────────────────────
     {
-        let stokes_check = SurfaceStokes::new_confined(&ops, &confined.mesh, &confined.boundary_vertices)
-            .expect("Confined Stokes should construct on nephroid mesh");
+        let stokes_check =
+            SurfaceStokes::new_confined(&ops, &confined.mesh, &confined.boundary_vertices)
+                .expect("Confined Stokes should construct on nephroid mesh");
         let vel_check = stokes_check.solve(&q0, &params, &ops, &confined.mesh);
         let max_v: f64 = (0..nv).map(|i| vel_check.speed(i)).fold(0.0_f64, f64::max);
         let nan_v = (0..nv).any(|i| !vel_check.speed(i).is_finite());
@@ -157,7 +161,11 @@ fn dec_nephroid_confined_wet_smoke() {
             q_fin.q2[i]
         );
     }
-    assert_eq!(stats.len(), 2, "expected 2 snapshots (step 0 and step {n_steps})");
+    assert_eq!(
+        stats.len(),
+        2,
+        "expected 2 snapshots (step 0 and step {n_steps})"
+    );
     println!("[Q check] mean_s={mean_s:.4e} — finite, no NaN");
 
     // ── 6. NO-SLIP CHECK ──────────────────────────────────────────────────────

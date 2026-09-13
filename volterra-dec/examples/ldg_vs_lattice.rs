@@ -19,7 +19,10 @@ use volterra_dec::confined_ldg::LdgProblem;
 use volterra_dec::nematic_params::NematicParams;
 
 fn env_f64(k: &str, d: f64) -> f64 {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+    std::env::var(k)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(d)
 }
 
 fn env_list(k: &str, d: &str) -> Vec<f64> {
@@ -43,10 +46,16 @@ fn main() {
     // edge, so inside a core of width ncl on elements of size h that needs
     // h <~ ncl / 2; above it the winding sum stops telescoping and a core goes
     // missing, which shows up as a fractional total charge.
-    let seeds: Vec<u64> = env_list("LDG_SEEDS", "0,1,2").iter().map(|&v| v as u64).collect();
+    let seeds: Vec<u64> = env_list("LDG_SEEDS", "0,1,2")
+        .iter()
+        .map(|&v| v as u64)
+        .collect();
     let h_bulk = env_f64("LDG_H", 1.0);
     let ncl = env_f64("LDG_NCL", 2.0);
-    assert!(h_bulk <= ncl / 2.0 + 1e-12, "LDG_H {h_bulk} too coarse for LDG_NCL {ncl}");
+    assert!(
+        h_bulk <= ncl / 2.0 + 1e-12,
+        "LDG_H {h_bulk} too coarse for LDG_NCL {ncl}"
+    );
     let ds = env_list("LDG_DS", "0.5,0.7,0.9,0.95,0.99");
     let qs = env_list("LDG_QS", "1,2");
     let shapes: Vec<String> = std::env::var("LDG_SHAPES")
@@ -56,8 +65,17 @@ fn main() {
         .collect();
     println!(
         "{:<11} {:>5} {:>4} {:>7} {:>6} {:>8} {:>8} {:>7} {:>7} {:>8} {:>9}",
-        "shape", "d", "q", "verts", "seed", "steps", "residual", "(+1/2)",
-        "(-1/2)", "charge", "S median"
+        "shape",
+        "d",
+        "q",
+        "verts",
+        "seed",
+        "steps",
+        "residual",
+        "(+1/2)",
+        "(-1/2)",
+        "charge",
+        "S median"
     );
     println!("{}", "-".repeat(96));
 

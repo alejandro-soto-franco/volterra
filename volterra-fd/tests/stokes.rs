@@ -17,12 +17,11 @@
 //!    decreases from iteration 5 to iteration 20 (loose sanity check).
 
 use volterra_fd::{
+    Boundary,
     ops::div_vector,
     stokes::{
-        calculate_pressure_terms, get_u_update, relax_pressure_inner_loop,
-        u_update_p_pi_terms,
+        calculate_pressure_terms, get_u_update, relax_pressure_inner_loop, u_update_p_pi_terms,
     },
-    Boundary,
 };
 
 const LX: usize = 24;
@@ -70,8 +69,8 @@ fn rect_interior_boundary() -> Boundary {
 
 /// Load a flat text file (one value per line) into a Vec<f64>.
 fn load_txt(path: &str) -> Vec<f64> {
-    let content = std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let content =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
     content
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -105,13 +104,13 @@ fn l2(a: &[f64]) -> f64 {
 fn pressure_rhs_vs_python() {
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let u_flat    = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
+    let u_flat = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
     let pi_s_flat = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
-    let rhs_ref   = load_txt(&format!("{ref_dir}/p_rhs_ref.txt"));
+    let rhs_ref = load_txt(&format!("{ref_dir}/p_rhs_ref.txt"));
 
-    assert_eq!(u_flat.len(),    N2, "u length");
+    assert_eq!(u_flat.len(), N2, "u length");
     assert_eq!(pi_s_flat.len(), N2, "Pi_S length");
-    assert_eq!(rhs_ref.len(),   N,  "p_rhs_ref length");
+    assert_eq!(rhs_ref.len(), N, "p_rhs_ref length");
 
     let bounds = rect_interior_boundary();
 
@@ -140,13 +139,13 @@ fn pressure_rhs_vs_python() {
 fn pressure_relaxation_vs_python() {
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let u_flat      = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
-    let pi_s_flat   = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
+    let u_flat = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
+    let pi_s_flat = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
     let p_after_ref = load_txt(&format!("{ref_dir}/p_after_N_ref.txt"));
 
-    assert_eq!(u_flat.len(),      N2, "u length");
-    assert_eq!(pi_s_flat.len(),   N2, "Pi_S length");
-    assert_eq!(p_after_ref.len(), N,  "p_after_N_ref length");
+    assert_eq!(u_flat.len(), N2, "u length");
+    assert_eq!(pi_s_flat.len(), N2, "Pi_S length");
+    assert_eq!(p_after_ref.len(), N, "p_after_N_ref length");
 
     let bounds = rect_interior_boundary();
 
@@ -184,17 +183,17 @@ fn pressure_relaxation_vs_python() {
 fn get_u_update_vs_python() {
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let u_flat      = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
-    let pi_s_flat   = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
-    let pi_a_flat   = load_txt(&format!("{ref_dir}/stokes_Pi_A_input.txt"));
+    let u_flat = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
+    let pi_s_flat = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
+    let pi_a_flat = load_txt(&format!("{ref_dir}/stokes_Pi_A_input.txt"));
     let p_after_ref = load_txt(&format!("{ref_dir}/p_after_N_ref.txt"));
-    let dudt_ref    = load_txt(&format!("{ref_dir}/dudt_ref.txt"));
+    let dudt_ref = load_txt(&format!("{ref_dir}/dudt_ref.txt"));
 
-    assert_eq!(u_flat.len(),      N2, "u length");
-    assert_eq!(pi_s_flat.len(),   N2, "Pi_S length");
-    assert_eq!(pi_a_flat.len(),   N,  "Pi_A length");
-    assert_eq!(p_after_ref.len(), N,  "p_after_N length");
-    assert_eq!(dudt_ref.len(),    N2, "dudt_ref length");
+    assert_eq!(u_flat.len(), N2, "u length");
+    assert_eq!(pi_s_flat.len(), N2, "Pi_S length");
+    assert_eq!(pi_a_flat.len(), N, "Pi_A length");
+    assert_eq!(p_after_ref.len(), N, "p_after_N length");
+    assert_eq!(dudt_ref.len(), N2, "dudt_ref length");
 
     let bounds = rect_interior_boundary();
 
@@ -229,10 +228,10 @@ fn u_update_p_pi_terms_vs_python() {
     // by building the expected dudt contribution directly.
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let _u_flat   = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
+    let _u_flat = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
     let pi_s_flat = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
     let pi_a_flat = load_txt(&format!("{ref_dir}/stokes_Pi_A_input.txt"));
-    let p_ref     = load_txt(&format!("{ref_dir}/p_after_N_ref.txt"));
+    let p_ref = load_txt(&format!("{ref_dir}/p_after_N_ref.txt"));
 
     let bounds = rect_interior_boundary();
 
@@ -260,7 +259,7 @@ fn u_update_p_pi_terms_vs_python() {
 fn pressure_residual_decreases() {
     let ref_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/ref");
 
-    let u_flat    = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
+    let u_flat = load_txt(&format!("{ref_dir}/stokes_u_input.txt"));
     let pi_s_flat = load_txt(&format!("{ref_dir}/stokes_Pi_S_input.txt"));
 
     let bounds = rect_interior_boundary();

@@ -199,12 +199,12 @@ impl PyPlaneCurve {
             let u = period * i as f64 / samples as f64;
             let out = f.call1((u,))?;
             let (x, y): (f64, f64) = out.extract().map_err(|_| {
-                PyValueError::new_err(format!(
-                    "f({u}) must return two floats (x, y)"
-                ))
+                PyValueError::new_err(format!("f({u}) must return two floats (x, y)"))
             })?;
             if !x.is_finite() || !y.is_finite() {
-                return Err(PyValueError::new_err(format!("f({u}) returned a non-finite point")));
+                return Err(PyValueError::new_err(format!(
+                    "f({u}) returned a non-finite point"
+                )));
             }
             pts.push([x, y]);
         }
@@ -347,7 +347,12 @@ impl PyConfinedMesh {
     /// Indices of the vertices on the wall, in order along it.
     #[getter]
     fn boundary_vertices<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<i64>> {
-        let v: Vec<i64> = self.inner.boundary_vertices.iter().map(|&i| i as i64).collect();
+        let v: Vec<i64> = self
+            .inner
+            .boundary_vertices
+            .iter()
+            .map(|&i| i as i64)
+            .collect();
         Array1::from(v).into_pyarray(py)
     }
 
@@ -501,11 +506,7 @@ impl PyConfinedMesh {
     /// The unit vector `m` of `anchoring_q`, which is the wall tangent at
     /// `q_anchor = 1`.
     #[pyo3(signature = (q_anchor = 1.0))]
-    fn anchoring_director<'py>(
-        &self,
-        py: Python<'py>,
-        q_anchor: f64,
-    ) -> Bound<'py, PyArray2<f64>> {
+    fn anchoring_director<'py>(&self, py: Python<'py>, q_anchor: f64) -> Bound<'py, PyArray2<f64>> {
         let n = self.inner.boundary_normals.len();
         let mut out = Array2::<f64>::zeros((n, 2));
         for i in 0..n {

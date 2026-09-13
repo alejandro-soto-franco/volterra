@@ -16,7 +16,11 @@ use std::fs;
 use std::io::Write as IoWrite;
 use std::path::Path;
 
-use crate::{boundary::Boundary, error::{FdError, FdResult}, step::State};
+use crate::{
+    boundary::Boundary,
+    error::{FdError, FdResult},
+    step::State,
+};
 
 // ---------------------------------------------------------------------------
 // Low-level text writers
@@ -98,12 +102,20 @@ pub fn write_state_frame(
     let u_path = run_dir.join("u").join(format!("u_{sn}.txt"));
     let p_path = run_dir.join("p").join(format!("p_{sn}.txt"));
 
-    write_2col_txt(&q_path, &state.q, n)
-        .map_err(|source| FdError::Io { path: q_path.clone(), source })?;
-    write_2col_txt(&u_path, &state.u, n)
-        .map_err(|source| FdError::Io { path: u_path.clone(), source })?;
-    write_1col_gauge_fixed(&p_path, &state.p, &boundary.inside, n)
-        .map_err(|source| FdError::Io { path: p_path.clone(), source })?;
+    write_2col_txt(&q_path, &state.q, n).map_err(|source| FdError::Io {
+        path: q_path.clone(),
+        source,
+    })?;
+    write_2col_txt(&u_path, &state.u, n).map_err(|source| FdError::Io {
+        path: u_path.clone(),
+        source,
+    })?;
+    write_1col_gauge_fixed(&p_path, &state.p, &boundary.inside, n).map_err(|source| {
+        FdError::Io {
+            path: p_path.clone(),
+            source,
+        }
+    })?;
 
     Ok(())
 }

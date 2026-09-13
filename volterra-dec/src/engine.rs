@@ -12,13 +12,13 @@
 //! All parameters are dimensionless (Pe, Er, La, Lc). The timestep is
 //! auto-computed from the diffusive CFL bound.
 
-use cartan_core::Manifold;
-use cartan_dec::{Mesh, Operators};
-use volterra_core::NematicParams;
+use crate::QField;
 use crate::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use crate::semi_lagrangian::SemiLagrangian;
 use crate::stokes::VelocityField;
-use crate::QField;
+use cartan_core::Manifold;
+use cartan_dec::{Mesh, Operators};
+use volterra_core::NematicParams;
 
 /// Per-snapshot statistics from the nematic engine.
 #[derive(Debug, Clone)]
@@ -78,9 +78,11 @@ impl NematicEngine {
 
         // Hodge stars for the connection Laplacian.
         let star0: Vec<f64> = (0..ops.hodge.star0().len())
-            .map(|i| ops.hodge.star0()[i]).collect();
+            .map(|i| ops.hodge.star0()[i])
+            .collect();
         let star1: Vec<f64> = (0..ops.hodge.star1().len())
-            .map(|i| ops.hodge.star1()[i]).collect();
+            .map(|i| ops.hodge.star1()[i])
+            .collect();
 
         // Connection Laplacian.
         let conn_lap = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
@@ -91,15 +93,17 @@ impl NematicEngine {
         // Auto-compute timestep from mean edge length.
         let ne = mesh.n_boundaries();
         let mean_edge_len = if ne > 0 {
-            let total: f64 = (0..ne).map(|e| {
-                let [v0, v1] = mesh.boundaries[e];
-                let d = [
-                    coords[v1][0] - coords[v0][0],
-                    coords[v1][1] - coords[v0][1],
-                    coords[v1][2] - coords[v0][2],
-                ];
-                (d[0]*d[0] + d[1]*d[1] + d[2]*d[2]).sqrt()
-            }).sum();
+            let total: f64 = (0..ne)
+                .map(|e| {
+                    let [v0, v1] = mesh.boundaries[e];
+                    let d = [
+                        coords[v1][0] - coords[v0][0],
+                        coords[v1][1] - coords[v0][1],
+                        coords[v1][2] - coords[v0][2],
+                    ];
+                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                })
+                .sum();
             total / ne as f64
         } else {
             0.01
@@ -120,16 +124,24 @@ impl NematicEngine {
     }
 
     /// The auto-computed timestep.
-    pub fn dt(&self) -> f64 { self.dt }
+    pub fn dt(&self) -> f64 {
+        self.dt
+    }
 
     /// Override the timestep (use with caution).
-    pub fn set_dt(&mut self, dt: f64) { self.dt = dt; }
+    pub fn set_dt(&mut self, dt: f64) {
+        self.dt = dt;
+    }
 
     /// Number of vertices in the mesh.
-    pub fn n_vertices(&self) -> usize { self.n_vertices }
+    pub fn n_vertices(&self) -> usize {
+        self.n_vertices
+    }
 
     /// The dimensionless parameters.
-    pub fn params(&self) -> &NematicParams { &self.params }
+    pub fn params(&self) -> &NematicParams {
+        &self.params
+    }
 
     /// Advance the nematic field by one timestep using operator splitting.
     ///
@@ -154,9 +166,9 @@ impl NematicEngine {
         // So we need: -a_eff = La and 4*c = Lc, i.e., c = Lc/4.
         let h = molecular_field_conn(
             &q_adv,
-            1.0,                    // K_frank = 1 (nondimensionalised elastic)
-            -self.params.la,        // a_eff = -La
-            self.params.lc / 4.0,   // c_landau = Lc/4 (complex rep factor correction)
+            1.0,                  // K_frank = 1 (nondimensionalised elastic)
+            -self.params.la,      // a_eff = -La
+            self.params.lc / 4.0, // c_landau = Lc/4 (complex rep factor correction)
             &self.conn_lap,
         );
 
@@ -190,7 +202,9 @@ impl NematicEngine {
 
             let fn_vec = cross3(e01, e02);
             let area2 = norm3(fn_vec);
-            if area2 < 1e-30 { continue; }
+            if area2 < 1e-30 {
+                continue;
+            }
             let fn_hat = scale3(fn_vec, 1.0 / area2);
             let inv_2a = 1.0 / area2;
 
@@ -198,14 +212,20 @@ impl NematicEngine {
             let rot_e20 = cross3(fn_hat, e20);
             let rot_e01 = cross3(fn_hat, e01);
 
-            let gq1 = scale3(add3(add3(
-                scale3(rot_e12, q.q1[i0]),
-                scale3(rot_e20, q.q1[i1])),
-                scale3(rot_e01, q.q1[i2])), inv_2a);
-            let gq2 = scale3(add3(add3(
-                scale3(rot_e12, q.q2[i0]),
-                scale3(rot_e20, q.q2[i1])),
-                scale3(rot_e01, q.q2[i2])), inv_2a);
+            let gq1 = scale3(
+                add3(
+                    add3(scale3(rot_e12, q.q1[i0]), scale3(rot_e20, q.q1[i1])),
+                    scale3(rot_e01, q.q1[i2]),
+                ),
+                inv_2a,
+            );
+            let gq2 = scale3(
+                add3(
+                    add3(scale3(rot_e12, q.q2[i0]), scale3(rot_e20, q.q2[i1])),
+                    scale3(rot_e01, q.q2[i2]),
+                ),
+                inv_2a,
+            );
 
             let fx = -pe * (gq1[0] + gq2[1]);
             let fy = -pe * (gq2[0] - gq1[1]);
@@ -250,7 +270,9 @@ impl NematicEngine {
 
             let fn_vec = cross3(e01, e02);
             let area2 = norm3(fn_vec);
-            if area2 < 1e-30 { continue; }
+            if area2 < 1e-30 {
+                continue;
+            }
             let fn_hat = scale3(fn_vec, 1.0 / area2);
             let inv_2a = 1.0 / area2;
 
@@ -260,14 +282,20 @@ impl NematicEngine {
             let rot_e20 = cross3(fn_hat, e20);
             let rot_e01 = cross3(fn_hat, e01);
 
-            let gq1 = scale3(add3(add3(
-                scale3(rot_e12, q.q1[i0]),
-                scale3(rot_e20, q.q1[i1])),
-                scale3(rot_e01, q.q1[i2])), inv_2a);
-            let gq2 = scale3(add3(add3(
-                scale3(rot_e12, q.q2[i0]),
-                scale3(rot_e20, q.q2[i1])),
-                scale3(rot_e01, q.q2[i2])), inv_2a);
+            let gq1 = scale3(
+                add3(
+                    add3(scale3(rot_e12, q.q1[i0]), scale3(rot_e20, q.q1[i1])),
+                    scale3(rot_e01, q.q1[i2]),
+                ),
+                inv_2a,
+            );
+            let gq2 = scale3(
+                add3(
+                    add3(scale3(rot_e12, q.q2[i0]), scale3(rot_e20, q.q2[i1])),
+                    scale3(rot_e01, q.q2[i2]),
+                ),
+                inv_2a,
+            );
 
             // Active force (tangent to surface).
             let fx = -pe / er * (gq1[0] + gq2[1]);
@@ -275,9 +303,11 @@ impl NematicEngine {
             let fz = 0.0;
 
             // Project force onto tangent plane and distribute to vertices.
-            let f_tang = [fx - fn_hat[0] * (fx * fn_hat[0] + fy * fn_hat[1]),
-                          fy - fn_hat[1] * (fx * fn_hat[0] + fy * fn_hat[1]),
-                          fz - fn_hat[2] * (fx * fn_hat[0] + fy * fn_hat[1])];
+            let f_tang = [
+                fx - fn_hat[0] * (fx * fn_hat[0] + fy * fn_hat[1]),
+                fy - fn_hat[1] * (fx * fn_hat[0] + fy * fn_hat[1]),
+                fz - fn_hat[2] * (fx * fn_hat[0] + fy * fn_hat[1]),
+            ];
 
             for &vi in &[i0, i1, i2] {
                 vel[vi] = add3(vel[vi], scale3(f_tang, 1.0 / 3.0));
@@ -290,7 +320,10 @@ impl NematicEngine {
             *v = scale3(*v, 1.0 / valence);
         }
 
-        VelocityField { v: vel, n_vertices: nv }
+        VelocityField {
+            v: vel,
+            n_vertices: nv,
+        }
     }
 
     /// Run the engine for n_steps, calling the callback at each snapshot.
@@ -308,9 +341,13 @@ impl NematicEngine {
                 } else {
                     VelocityField::zeros(self.n_vertices)
                 };
-                let v_rms = (vel.v.iter()
-                    .map(|[x, y, z]| x*x + y*y + z*z)
-                    .sum::<f64>() / self.n_vertices as f64).sqrt();
+                let v_rms = (vel
+                    .v
+                    .iter()
+                    .map(|[x, y, z]| x * x + y * y + z * z)
+                    .sum::<f64>()
+                    / self.n_vertices as f64)
+                    .sqrt();
                 let stats = EngineStats {
                     time: step as f64 * self.dt,
                     mean_s: q.mean_order_param(),
@@ -326,11 +363,25 @@ impl NematicEngine {
     }
 }
 
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]-b[0], a[1]-b[1], a[2]-b[2]] }
-fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]+b[0], a[1]+b[1], a[2]+b[2]] }
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0]*s, a[1]*s, a[2]*s] }
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
-fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
+fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn norm3(a: [f64; 3]) -> f64 {
+    dot3(a, a).sqrt()
+}
 fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }

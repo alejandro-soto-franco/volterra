@@ -15,15 +15,15 @@
 //! The per-step physics lives in [`crate::sim_impls::dec::DecDry`]; this module
 //! is the thin wrapper driving it through `volterra_core::sim::SimulationRunner`.
 
+use crate::QField;
+use crate::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
+use crate::mesh_gen::icosphere;
 use cartan_core::Manifold;
 use cartan_dec::Operators;
 use cartan_manifolds::sphere::Sphere;
+use volterra_core::ActiveNematicParams;
 use volterra_core::sim::stats::StepStats;
 use volterra_core::sim::{Observer, RunConfig, SimulationRunner};
-use volterra_core::ActiveNematicParams;
-use crate::connection_laplacian::{molecular_field_conn, ConnectionLaplacian};
-use crate::mesh_gen::icosphere;
-use crate::QField;
 
 use crate::sim_impls::dec::DecDry;
 
@@ -137,8 +137,12 @@ pub fn run_dry_active_nematic_dec_smoke(refinement: usize, steps: usize) -> Vec<
     let manifold = Sphere::<3>;
     let ops = Operators::from_mesh_generic(&mesh, &manifold)
         .expect("Operators::from_mesh_generic failed on icosphere");
-    let star0: Vec<f64> = (0..ops.hodge.star0().len()).map(|i| ops.hodge.star0()[i]).collect();
-    let star1: Vec<f64> = (0..ops.hodge.star1().len()).map(|i| ops.hodge.star1()[i]).collect();
+    let star0: Vec<f64> = (0..ops.hodge.star0().len())
+        .map(|i| ops.hodge.star0()[i])
+        .collect();
+    let star1: Vec<f64> = (0..ops.hodge.star1().len())
+        .map(|i| ops.hodge.star1()[i])
+        .collect();
     let cl = ConnectionLaplacian::new(&mesh, &coords, &star0, &star1);
 
     let mut params = ActiveNematicParams::default_test();

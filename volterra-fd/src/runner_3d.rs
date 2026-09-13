@@ -146,7 +146,10 @@ pub fn run_dry_active_nematic_3d(
     let mut q = q_init.clone();
     let mut stats: Vec<SnapStats3D> = Vec::new();
 
-    let mut physics = Cartesian3DDry { params: p.clone(), step_idx: 0 };
+    let mut physics = Cartesian3DDry {
+        params: p.clone(),
+        step_idx: 0,
+    };
 
     for step in 0..n_steps {
         // Advance physics (fused Euler step + Langevin noise).
@@ -156,7 +159,6 @@ pub fn run_dry_active_nematic_3d(
 
         // Snapshot trigger: when (step+1) % snap_every == 0.
         if snap_every > 0 && (step + 1) % snap_every == 0 {
-
             let t_snap = (step + 1) as f64 * p.dt;
 
             let (lines, threshold) = if track_defects {
@@ -179,7 +181,10 @@ pub fn run_dry_active_nematic_3d(
             let npy_path = out_dir.join(format!("q_{step:06}.npy"));
             let flat: Vec<f64> = q.q.iter().flat_map(|arr| arr.iter().copied()).collect();
             if let Err(e) = write_npy(&npy_path, &flat, p.nx, p.ny, p.nz, 5) {
-                eprintln!("[runner_3d] warn: failed to write {}: {e}", npy_path.display());
+                eprintln!(
+                    "[runner_3d] warn: failed to write {}: {e}",
+                    npy_path.display()
+                );
             }
         }
     }
@@ -223,7 +228,10 @@ pub fn run_wet_active_nematic_3d(
         vel: VelocityField3D::zeros(q_init.nx, q_init.ny, q_init.nz, q_init.dx),
     };
     let mut stats: Vec<SnapStats3D> = Vec::new();
-    let mut physics = Cartesian3DWet { params: p.clone(), step_idx: 0 };
+    let mut physics = Cartesian3DWet {
+        params: p.clone(),
+        step_idx: 0,
+    };
 
     for step in 0..n_steps {
         physics.step(&mut st, 0.0);
@@ -243,14 +251,34 @@ pub fn run_wet_active_nematic_3d(
             } else {
                 (Vec::new(), 0.0)
             };
-            stats.push(compute_snap_stats(&st.q, &lines, threshold, t_snap, Some(&st.vel)));
+            stats.push(compute_snap_stats(
+                &st.q,
+                &lines,
+                threshold,
+                t_snap,
+                Some(&st.vel),
+            ));
 
             let flat: Vec<f64> = st.q.q.iter().flat_map(|a| a.iter().copied()).collect();
-            if let Err(e) = write_npy(&out_dir.join(format!("q_{step:06}.npy")), &flat, p.nx, p.ny, p.nz, 5) {
+            if let Err(e) = write_npy(
+                &out_dir.join(format!("q_{step:06}.npy")),
+                &flat,
+                p.nx,
+                p.ny,
+                p.nz,
+                5,
+            ) {
                 eprintln!("[runner_3d] warn: failed to write the Q snapshot: {e}");
             }
             let flow: Vec<f64> = st.vel.u.iter().flat_map(|a| a.iter().copied()).collect();
-            if let Err(e) = write_npy(&out_dir.join(format!("u_{step:06}.npy")), &flow, p.nx, p.ny, p.nz, 3) {
+            if let Err(e) = write_npy(
+                &out_dir.join(format!("u_{step:06}.npy")),
+                &flow,
+                p.nx,
+                p.ny,
+                p.nz,
+                3,
+            ) {
                 eprintln!("[runner_3d] warn: failed to write the velocity snapshot: {e}");
             }
         }
@@ -295,9 +323,9 @@ pub fn run_bech_3d(
     track_defects: bool,
 ) -> (QField3D, ScalarField3D, Vec<BechStats3D>) {
     use crate::sim_impls::cartesian3d::{BechState3D, Cartesian3DBech};
+    use volterra_core::VelocityField3D;
     use volterra_core::sim::PhysicsStep;
     use volterra_core::sim::snapshot::write_npy;
-    use volterra_core::VelocityField3D;
 
     let mut st = BechState3D {
         q: q_init.clone(),
@@ -306,7 +334,10 @@ pub fn run_bech_3d(
     };
     let mut stats: Vec<BechStats3D> = Vec::new();
 
-    let mut physics = Cartesian3DBech { params: p.clone(), step_idx: 0 };
+    let mut physics = Cartesian3DBech {
+        params: p.clone(),
+        step_idx: 0,
+    };
 
     for step in 0..n_steps {
         // Advance physics: Stokes + Euler BE + noise + CH-ETD.
@@ -315,7 +346,6 @@ pub fn run_bech_3d(
 
         // Snapshot trigger.
         if snap_every > 0 && (step + 1) % snap_every == 0 {
-
             let t_snap = (step + 1) as f64 * p.dt;
 
             let (lines, threshold) = if track_defects {
@@ -339,20 +369,34 @@ pub fn run_bech_3d(
             let q_path = out_dir.join(format!("q_{step:06}.npy"));
             let flat_q: Vec<f64> = st.q.q.iter().flat_map(|arr| arr.iter().copied()).collect();
             if let Err(e) = write_npy(&q_path, &flat_q, p.nx, p.ny, p.nz, 5) {
-                eprintln!("[runner_3d] warn: failed to write {}: {e}", q_path.display());
+                eprintln!(
+                    "[runner_3d] warn: failed to write {}: {e}",
+                    q_path.display()
+                );
             }
 
             // Write phi snapshot as (nx,ny,nz,1).
             let phi_path = out_dir.join(format!("phi_{step:06}.npy"));
             if let Err(e) = write_npy(&phi_path, &st.phi.phi, p.nx, p.ny, p.nz, 1) {
-                eprintln!("[runner_3d] warn: failed to write {}: {e}", phi_path.display());
+                eprintln!(
+                    "[runner_3d] warn: failed to write {}: {e}",
+                    phi_path.display()
+                );
             }
 
             // Write velocity snapshot as (nx,ny,nz,3).
             let vel_path = out_dir.join(format!("vel_{step:06}.npy"));
-            let flat_vel: Vec<f64> = st.vel.u.iter().flat_map(|arr| arr.iter().copied()).collect();
+            let flat_vel: Vec<f64> = st
+                .vel
+                .u
+                .iter()
+                .flat_map(|arr| arr.iter().copied())
+                .collect();
             if let Err(e) = write_npy(&vel_path, &flat_vel, p.nx, p.ny, p.nz, 3) {
-                eprintln!("[runner_3d] warn: failed to write {}: {e}", vel_path.display());
+                eprintln!(
+                    "[runner_3d] warn: failed to write {}: {e}",
+                    vel_path.display()
+                );
             }
         }
     }
@@ -506,7 +550,11 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let (q_f, phi_f, stats) = run_bech_3d(&q_init, &phi_init, &p, 5, 5, &tmp, false);
         assert_eq!(q_f.len(), q_init.len());
-        assert!((phi_f.mean() - 0.3).abs() < 0.01, "mass roughly conserved, got mean={}", phi_f.mean());
+        assert!(
+            (phi_f.mean() - 0.3).abs() < 0.01,
+            "mass roughly conserved, got mean={}",
+            phi_f.mean()
+        );
         assert_eq!(stats.len(), 1);
     }
 }

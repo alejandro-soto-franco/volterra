@@ -12,14 +12,16 @@ use cartan_dec::Operators;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::Screening;
 use volterra_dec::epitrochoid::disk_mesh;
-use volterra_dec::stokes::{extract_coords, SurfaceStokes};
+use volterra_dec::stokes::{SurfaceStokes, extract_coords};
 
 fn bessel_i0(x: f64) -> f64 {
     let ax = x.abs();
     if ax < 3.75 {
         let t = (x / 3.75) * (x / 3.75);
-        1.0 + t * (3.5156229
-            + t * (3.0899424 + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
+        1.0 + t
+            * (3.5156229
+                + t * (3.0899424
+                    + t * (1.2067492 + t * (0.2659732 + t * (0.0360768 + t * 0.0045813)))))
     } else {
         let t = 3.75 / ax;
         (ax.exp() / ax.sqrt())
@@ -61,7 +63,10 @@ fn psi_clamped(r: f64, rad: f64, k: f64, s: f64) -> f64 {
 fn main() {
     let rad = 1.0_f64;
     let s_src = -4.0_f64;
-    println!("{:>6} {:>7} {:>8} {:>8} {:>12} {:>10}", "k", "n_bdy", "h", "verts", "rel L2", "ratio");
+    println!(
+        "{:>6} {:>7} {:>8} {:>8} {:>12} {:>10}",
+        "k", "n_bdy", "h", "verts", "rel L2", "ratio"
+    );
 
     for &k in &[1.0_f64, 2.0, 4.0] {
         let mut prev = f64::NAN;
@@ -72,7 +77,10 @@ fn main() {
             let ops = Operators::from_mesh(&mesh, &Euclidean::<2>);
             let nv = mesh.n_vertices();
             let solver = SurfaceStokes::new_confined_clamped_screened(
-                &ops, &mesh, &bverts, Screening::Length(1.0 / k),
+                &ops,
+                &mesh,
+                &bverts,
+                Screening::Length(1.0 / k),
             )
             .unwrap();
             let source = nalgebra::DVector::from_element(nv, s_src);

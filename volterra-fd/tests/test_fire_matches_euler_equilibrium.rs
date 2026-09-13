@@ -19,9 +19,7 @@
 
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
-use volterra_fd::{
-    beris_edwards_rhs_3d_par_dry, euler_step_par, fire_minimize_3d_par, FireParams,
-};
+use volterra_fd::{FireParams, beris_edwards_rhs_3d_par_dry, euler_step_par, fire_minimize_3d_par};
 
 fn uniform_z_director(s: f64) -> [f64; 5] {
     [-s / 3.0, 0.0, 0.0, -s / 3.0, 0.0]

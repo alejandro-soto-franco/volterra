@@ -5,12 +5,7 @@
 //! remains finite after several steps.
 
 use volterra_core::sim::PhysicsStep;
-use volterra_fd::{
-    nephroid_boundary,
-    sim_step::FdStep,
-    step::State,
-    Params,
-};
+use volterra_fd::{Params, nephroid_boundary, sim_step::FdStep, step::State};
 
 fn make_params(lx: usize) -> Params {
     Params::new(lx, 1.0, 9.0, 0.7, 1e-4, 20)
@@ -31,7 +26,7 @@ fn fd_step_advances_and_reports_finite_stats() {
         for y in 0..ly {
             let idx = x * ly + y;
             if boundary.inside[idx] {
-                state.q[idx * 2]     =  amplitude;
+                state.q[idx * 2] = amplitude;
                 state.q[idx * 2 + 1] = -amplitude * 0.5;
             }
         }
@@ -57,7 +52,8 @@ fn fd_step_advances_and_reports_finite_stats() {
         // Any reported order_param must be finite.
         assert!(
             stats.order_param.is_none_or(f64::is_finite),
-            "step {step_idx}: order_param is not finite: {:?}", stats.order_param
+            "step {step_idx}: order_param is not finite: {:?}",
+            stats.order_param
         );
 
         // All Q, u, p fields must remain finite.

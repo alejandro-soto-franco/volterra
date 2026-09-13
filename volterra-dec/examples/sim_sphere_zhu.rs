@@ -19,12 +19,12 @@ use std::time::Instant;
 
 use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
+use volterra_dec::DecDomain;
+use volterra_dec::QField;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::snapshot::{write_snapshot, write_velocity_snapshot};
 use volterra_dec::stokes::{SurfaceStokes, advect_q_covariant};
-use volterra_dec::QField;
-use volterra_dec::DecDomain;
 
 /// Map Zhu's nondimensional Pe to volterra's dimensional parameters.
 ///
@@ -145,7 +145,10 @@ fn main() {
     let mesh = icosphere(refinement);
     let nv = mesh.n_vertices();
     let nf = mesh.n_simplices();
-    println!("  vertices: {nv}, faces: {nf}, chi: {}", mesh.euler_characteristic());
+    println!(
+        "  vertices: {nv}, faces: {nf}, chi: {}",
+        mesh.euler_characteristic()
+    );
 
     println!("Assembling DEC operators...");
     let domain = DecDomain::new(mesh, Sphere::<3>).expect("DecDomain assembly failed");
@@ -157,21 +160,33 @@ fn main() {
             .collect::<Vec<_>>(),
         "triangles": domain.mesh.simplices,
     });
-    std::fs::write(out.join("mesh.json"), serde_json::to_string(&mesh_json).unwrap())
-        .expect("failed to write mesh.json");
+    std::fs::write(
+        out.join("mesh.json"),
+        serde_json::to_string(&mesh_json).unwrap(),
+    )
+    .expect("failed to write mesh.json");
 
-    let stokes_coords: Vec<[f64; 3]> = domain.mesh.vertices.iter()
-        .map(|v| [v[0], v[1], v[2]]).collect();
+    let stokes_coords: Vec<[f64; 3]> = domain
+        .mesh
+        .vertices
+        .iter()
+        .map(|v| [v[0], v[1], v[2]])
+        .collect();
 
     let conn_lap = ConnectionLaplacian::new(
-        &domain.mesh, &stokes_coords,
-        &(0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect::<Vec<_>>(),
-        &(0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect::<Vec<_>>(),
+        &domain.mesh,
+        &stokes_coords,
+        &(0..domain.ops.hodge.star0().len())
+            .map(|i| domain.ops.hodge.star0()[i])
+            .collect::<Vec<_>>(),
+        &(0..domain.ops.hodge.star1().len())
+            .map(|i| domain.ops.hodge.star1()[i])
+            .collect::<Vec<_>>(),
     );
 
     println!("Factorising Stokes solver...");
-    let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh)
-        .expect("Stokes solver factorisation failed");
+    let stokes =
+        SurfaceStokes::new(&domain.ops, &domain.mesh).expect("Stokes solver factorisation failed");
 
     let edge_phases = conn_lap.edge_phases();
 
@@ -215,8 +230,14 @@ fn main() {
             let s = q.mean_order_param();
             let t_sim = step as f64 * dt;
             let elapsed = t0.elapsed().as_secs_f64();
-            let rate = if elapsed > 0.0 { step as f64 / elapsed } else { 0.0 };
-            println!("  t={t_sim:6.2}/{t_final}  step {step:>7}/{n_steps}  <S>={s:.4}  wall={elapsed:.1}s  ({rate:.0} steps/s)");
+            let rate = if elapsed > 0.0 {
+                step as f64 / elapsed
+            } else {
+                0.0
+            };
+            println!(
+                "  t={t_sim:6.2}/{t_final}  step {step:>7}/{n_steps}  <S>={s:.4}  wall={elapsed:.1}s  ({rate:.0} steps/s)"
+            );
         }
 
         if step < n_steps {
@@ -233,12 +254,17 @@ fn main() {
             let coords = &stokes_coords;
             let rhs = |qq: &QField| -> QField {
                 let h = molecular_field_conn(
-                    qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap,
+                    qq,
+                    params.k_r,
+                    params.a_eff(),
+                    params.c_landau,
+                    &conn_lap,
                 );
                 let mut dq = h.scale(params.gamma_r);
 
                 let adv = advect_q_covariant(
-                    qq, &vel,
+                    qq,
+                    &vel,
                     &domain.mesh.boundaries,
                     &domain.mesh.vertex_boundaries,
                     coords,
@@ -271,5 +297,8 @@ fn main() {
     println!("Output: {out_dir}");
     println!();
     println!("Render with:");
-    println!("  python tools/viz/render_surface_pv.py {out_dir} --video {out_dir}/pe{}.mp4 --orbit", pe as u64);
+    println!(
+        "  python tools/viz/render_surface_pv.py {out_dir} --video {out_dir}/pe{}.mp4 --orbit",
+        pe as u64
+    );
 }

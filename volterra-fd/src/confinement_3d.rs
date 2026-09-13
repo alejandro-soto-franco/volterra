@@ -127,7 +127,13 @@ impl PhaseField3D {
                 }
             }
         }
-        Self { phi, nx, ny, nz, dx }
+        Self {
+            phi,
+            nx,
+            ny,
+            nz,
+            dx,
+        }
     }
 
     /// Central-difference gradient at every vertex, periodic in each direction.
@@ -278,8 +284,7 @@ pub fn molecular_field_confined_3d(
     out.q.par_iter_mut().enumerate().for_each(|(k, out_k)| {
         let [q11, q12, q13, q22, q23] = q.q[k];
         let q33 = -(q11 + q22);
-        let tr_q2 =
-            q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+        let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
 
         let chi = LdgFromChi::chi(p.chi_0, p.chi_s, phase.phi[k]);
         let ldg = LdgFromChi::new(p.a0, chi);
@@ -309,12 +314,7 @@ pub fn molecular_field_confined_3d(
 /// `Q <- Q + dt Gamma H`. The reference relaxes `Q` this way to its free-energy
 /// minimum on a frozen `phi` before any activity is switched on, which is the
 /// stage this reproduces.
-pub fn relax_step_confined_3d(
-    q: &mut QField3D,
-    phase: &PhaseField3D,
-    p: &ConfinedLdg,
-    dt: f64,
-) {
+pub fn relax_step_confined_3d(q: &mut QField3D, phase: &PhaseField3D, p: &ConfinedLdg, dt: f64) {
     let h = molecular_field_confined_3d(q, phase, p);
     let step = dt * p.gamma;
     q.q.par_iter_mut().zip(h.q.par_iter()).for_each(|(qk, hk)| {
@@ -527,9 +527,7 @@ mod confinement_tests {
         let order = |k: usize| {
             let [q11, q12, q13, q22, q23] = q.q[k];
             let q33 = -(q11 + q22);
-            (q11 * q11 + q22 * q22 + q33 * q33
-                + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23))
-                .sqrt()
+            (q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23)).sqrt()
         };
         let inside = order(phase.idx(16, 16, 16));
         let outside = order(phase.idx(1, 1, 1));
@@ -556,14 +554,10 @@ mod confinement_tests {
             for k in 0..q.q.len() {
                 let [q11, q12, q13, q22, q23] = q.q[k];
                 let q33 = -(q11 + q22);
-                let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33
-                    + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+                let tr_q2 =
+                    q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
                 let tr_q3 = {
-                    let m = [
-                        [q11, q12, q13],
-                        [q12, q22, q23],
-                        [q13, q23, q33],
-                    ];
+                    let m = [[q11, q12, q13], [q12, q22, q23], [q13, q23, q33]];
                     let mut t = 0.0;
                     for i in 0..3 {
                         for j in 0..3 {

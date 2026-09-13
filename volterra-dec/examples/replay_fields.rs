@@ -32,11 +32,17 @@ use volterra_dec::qfield::QField;
 use volterra_dec::stokes::{SurfaceStokes, pressure_rhs_from_force, vorticity_from_psi};
 
 fn env_f64(k: &str, d: f64) -> f64 {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+    std::env::var(k)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(d)
 }
 
 fn env_usize(k: &str, d: usize) -> usize {
-    std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d)
+    std::env::var(k)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(d)
 }
 
 fn frame_index(path: &Path) -> Option<usize> {
@@ -62,10 +68,14 @@ fn write_f32(path: &Path, vals: &[f64]) {
 
 fn main() {
     let run = PathBuf::from(std::env::var("REPLAY_RUN").expect("set REPLAY_RUN to the run dir"));
-    let c: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(run.join("consts.json")).expect("consts.json"))
-            .expect("consts.json parse");
-    let g = |k: &str| c[k].as_f64().unwrap_or_else(|| panic!("consts.json has no {k}"));
+    let c: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(run.join("consts.json")).expect("consts.json"),
+    )
+    .expect("consts.json parse");
+    let g = |k: &str| {
+        c[k].as_f64()
+            .unwrap_or_else(|| panic!("consts.json has no {k}"))
+    };
 
     let shape = c["shape"].as_str().expect("shape").to_string();
     let qc = match shape.as_str() {
@@ -86,7 +96,13 @@ fn main() {
     // drifted would put the fields on a different mesh from the defects.
     let cusp_edge = env_f64("ACT_CUSPEDGE", if d >= 1.0 { h_bulk } else { 0.0 });
     let curve = Epitrochoid { q: qc, d, r };
-    let mesh_opts = MeshOpts { h_bulk, h_min, cusp_edge, seed, ..Default::default() };
+    let mesh_opts = MeshOpts {
+        h_bulk,
+        h_min,
+        cusp_edge,
+        seed,
+        ..Default::default()
+    };
     let mesh = confined_mesh(curve, mesh_opts);
     let nv = mesh.mesh.n_vertices();
     let boundary: Vec<usize> = mesh.boundary_vertices.clone();
@@ -96,17 +112,26 @@ fn main() {
         let text = std::fs::read_to_string(run.join("vertices.tsv")).expect("vertices.tsv");
         let mut worst = 0.0_f64;
         let mut n = 0usize;
-        for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        for line in text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
             let mut it = line.split('\t');
             let x: f64 = it.next().unwrap().parse().unwrap();
             let y: f64 = it.next().unwrap().parse().unwrap();
-            assert!(n < nv, "vertices.tsv has more rows than the rebuilt mesh has vertices");
+            assert!(
+                n < nv,
+                "vertices.tsv has more rows than the rebuilt mesh has vertices"
+            );
             let v = mesh.mesh.vertices[n];
             worst = worst.max(((v.x - x).powi(2) + (v.y - y).powi(2)).sqrt());
             n += 1;
         }
         assert_eq!(n, nv, "rebuilt mesh has {nv} vertices, the run wrote {n}");
-        assert!(worst < 1e-5, "rebuilt mesh moved by {worst:.3e}, it is not the run's mesh");
+        assert!(
+            worst < 1e-5,
+            "rebuilt mesh moved by {worst:.3e}, it is not the run's mesh"
+        );
         println!("  mesh reproduced: {nv} vertices, worst vertex offset {worst:.2e}");
     }
 
@@ -142,7 +167,9 @@ fn main() {
         Vec::new()
     };
 
-    let slip_wall = std::env::var("ACT_WALL").map(|v| v == "slip").unwrap_or(false);
+    let slip_wall = std::env::var("ACT_WALL")
+        .map(|v| v == "slip")
+        .unwrap_or(false);
     let stokes = if slip_wall {
         SurfaceStokes::new_confined(&p.ops, &p.mesh.mesh, &noslip)
     } else {
@@ -176,7 +203,12 @@ fn main() {
                 ]
             })
             .collect();
-        let rhs = pressure_rhs_from_force(&f, &p.mesh.mesh, &volterra_dec::stokes::extract_coords(&p.mesh.mesh), &area);
+        let rhs = pressure_rhs_from_force(
+            &f,
+            &p.mesh.mesh,
+            &volterra_dec::stokes::extract_coords(&p.mesh.mesh),
+            &area,
+        );
         let sol = poisson.solve(&rhs);
         let mean_p: f64 = (0..nv).map(|i| area[i] * sol[i]).sum::<f64>() / area_total;
         let mean_e: f64 = (0..nv).map(|i| area[i] * phi[i]).sum::<f64>() / area_total;
@@ -221,17 +253,23 @@ fn main() {
         std::fs::write(run.join("triangles.tsv"), t).expect("triangles.tsv");
     }
 
-    let mut series = std::io::BufWriter::new(
-        std::fs::File::create(run.join("fields.tsv")).expect("fields.tsv"),
-    );
+    let mut series =
+        std::io::BufWriter::new(std::fs::File::create(run.join("fields.tsv")).expect("fields.tsv"));
     // Appended, never inserted: the panel scripts read these by column index.
-    writeln!(series, "# frame t u_rms u_max p_rms p_min p_max psi_max w_absmax").unwrap();
+    writeln!(
+        series,
+        "# frame t u_rms u_max p_rms p_min p_max psi_max w_absmax"
+    )
+    .unwrap();
 
     // The run's own `speed_max`, so the replay can be checked against the solver
     // that produced the frames rather than trusted.
     let mut recorded: std::collections::HashMap<usize, f64> = std::collections::HashMap::new();
     if let Ok(text) = std::fs::read_to_string(run.join("series.tsv")) {
-        for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        for line in text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
             let f: Vec<&str> = line.split('\t').collect();
             if f.len() >= 8 {
                 if let (Ok(fr), Ok(v)) = (f[0].parse::<usize>(), f[7].parse::<f64>()) {
@@ -249,7 +287,11 @@ fn main() {
     let t0 = std::time::Instant::now();
     for (n, &fid) in frames.iter().enumerate() {
         let bytes = std::fs::read(qdir.join(format!("q_{fid:05}.f32"))).expect("q frame");
-        assert_eq!(bytes.len(), nv * 8, "q frame {fid} is not {nv} vertex pairs");
+        assert_eq!(
+            bytes.len(),
+            nv * 8,
+            "q frame {fid} is not {nv} vertex pairs"
+        );
         let mut q = QField::zeros(nv);
         for i in 0..nv {
             let a = f32::from_le_bytes(bytes[8 * i..8 * i + 4].try_into().unwrap());
@@ -263,7 +305,13 @@ fn main() {
 
         let (s1, s2, sa) = p.beris_edwards_stress_masked(&q, &elastic_mask);
         let (vel, psi, _its) = stokes.solve_stress_warm(
-            &s1, &s2, &sa, p.params.eta, &p.mesh.mesh, psi_warm.as_deref(), tol,
+            &s1,
+            &s2,
+            &sa,
+            p.params.eta,
+            &p.mesh.mesh,
+            psi_warm.as_deref(),
+            tol,
         );
         let pres = stokes.pressure_from_stress(&s1, &s2, &sa, &p.mesh.mesh, &poisson);
         let vort = vorticity_from_psi(&psi, &p.ops);
@@ -273,7 +321,10 @@ fn main() {
             &run.join("ufields").join(format!("u_{fid:05}.f32")),
             (0..nv).map(|i| (vel.v[i][0], vel.v[i][1])),
         );
-        write_f32(&run.join("psifields").join(format!("psi_{fid:05}.f32")), &psi);
+        write_f32(
+            &run.join("psifields").join(format!("psi_{fid:05}.f32")),
+            &psi,
+        );
         write_f32(&run.join("pfields").join(format!("p_{fid:05}.f32")), &pres);
         write_f32(&run.join("wfields").join(format!("w_{fid:05}.f32")), &vort);
 

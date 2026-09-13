@@ -101,8 +101,8 @@ pub fn helfrich_forces<M: Manifold<Point = SVector<f64, 3>, Tangent = SVector<f6
             let h0_v = params.h0[v];
             let dh = h[v] - h0_v;
             // Shape equation: f_n = -kb * A_v * (lap_H + 2 * (H - H0) * (H^2 - K))
-            let f_scalar = -params.kb * domain.dual_areas[v]
-                * (lap_h[v] + 2.0 * dh * (h[v] * h[v] - k[v]));
+            let f_scalar =
+                -params.kb * domain.dual_areas[v] * (lap_h[v] + 2.0 * dh * (h[v] * h[v] - k[v]));
             let n = normals[v];
             SVector::<f64, 3>::new(f_scalar * n[0], f_scalar * n[1], f_scalar * n[2])
         })

@@ -15,14 +15,14 @@
 //! DEC runners have **no Langevin noise**: the only numerics are the RK4 of the
 //! respective RHS.
 
+use crate::stokes::{SurfaceStokes, advect_q};
+use crate::{QField, molecular_field_dec};
 use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
+use volterra_core::ActiveNematicParams;
+use volterra_core::sim::PhysicsStep;
 use volterra_core::sim::integrate::rk4;
 use volterra_core::sim::stats::StepStats;
-use volterra_core::sim::PhysicsStep;
-use volterra_core::ActiveNematicParams;
-use crate::stokes::{advect_q, SurfaceStokes};
-use crate::{molecular_field_dec, QField};
 
 /// Dry active nematic on a 2D DEC mesh: RK4 of `dQ/dt = gamma_r * H` (no flow).
 ///
@@ -101,13 +101,7 @@ impl<M: Manifold> PhysicsStep for DecWet<'_, M> {
         *q = rk4(q, params.dt, |qq| {
             let h = molecular_field_dec(qq, params, ops, cc);
             let mut dq = h.scale(params.gamma_r);
-            let adv = advect_q(
-                qq,
-                &vel,
-                &mesh.boundaries,
-                &mesh.vertex_boundaries,
-                coords,
-            );
+            let adv = advect_q(qq, &vel, &mesh.boundaries, &mesh.vertex_boundaries, coords);
             for i in 0..qq.n_vertices {
                 dq.q1[i] -= adv.q1[i];
                 dq.q2[i] -= adv.q2[i];

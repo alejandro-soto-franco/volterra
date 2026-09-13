@@ -27,7 +27,7 @@
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
 use volterra_fd::{
-    beris_edwards_rhs_3d_par_dry, euler_step_fused_par, fire_minimize_3d_par, FireParams,
+    FireParams, beris_edwards_rhs_3d_par_dry, euler_step_fused_par, fire_minimize_3d_par,
 };
 
 fn uniform_z_director(s: f64) -> [f64; 5] {
@@ -80,7 +80,8 @@ fn fire_and_long_euler_agree_on_the_cubic_analytic_equilibrium() {
 
     // Confirm this is a stable minimum (F''(S0) > 0), not the unstable
     // branch or the S=0 saddle: F''(S) = 2a_eff/3 + 4b/3 S + 8c/3 S^2.
-    let f_pp = 2.0 * a_eff / 3.0 + 4.0 * p.b_landau / 3.0 * s0_analytic
+    let f_pp = 2.0 * a_eff / 3.0
+        + 4.0 * p.b_landau / 3.0 * s0_analytic
         + 8.0 * p.c_landau / 3.0 * s0_analytic * s0_analytic;
     assert!(
         f_pp > 0.0,
@@ -135,10 +136,13 @@ fn fire_and_long_euler_agree_on_the_cubic_analytic_equilibrium() {
 
     // The molecular field at the converged state must be (numerically) zero.
     let h = beris_edwards_rhs_3d_par_dry(&fire_result.q, &p, 0.0);
-    let max_h = h
-        .q
-        .iter()
-        .flat_map(|c| c.iter())
-        .fold(0.0_f64, |m, &v| m.max(v.abs()));
-    assert!(max_h < 1e-6, "molecular field not zero at equilibrium: {}", max_h);
+    let max_h =
+        h.q.iter()
+            .flat_map(|c| c.iter())
+            .fold(0.0_f64, |m, &v| m.max(v.abs()));
+    assert!(
+        max_h < 1e-6,
+        "molecular field not zero at equilibrium: {}",
+        max_h
+    );
 }

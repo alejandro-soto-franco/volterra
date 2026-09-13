@@ -39,10 +39,10 @@
 //! A negative `max_p_iters` means **uncapped** (loop until convergence only).
 
 use crate::{
+    Boundary, Params,
     index::{si, vi},
     ops::{div_vector, laplacian_vector, upwind_advective_term},
     par_gate::{rows_per_chunk, use_parallel},
-    Boundary, Params,
 };
 use rayon::prelude::*;
 
@@ -81,12 +81,16 @@ pub fn calculate_pressure_terms(
                 let x_start = chunk_idx * rpc;
                 for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
                     let x = x_start + row_offset;
-                    if x >= lx { break; }
+                    if x >= lx {
+                        break;
+                    }
                     let xup = (x + 1) % lx;
                     let xdn = (x + lx - 1) % lx;
                     for y in 0..ly {
                         let idx = si(x, y, ly);
-                        if !bounds.inside[idx] { continue; }
+                        if !bounds.inside[idx] {
+                            continue;
+                        }
                         let yup = (y + 1) % ly;
                         let ydn = (y + ly - 1) % ly;
 
@@ -95,12 +99,12 @@ pub fn calculate_pressure_terms(
                         let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
                         let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
 
-                        let div_f = (pi_s[vi(xup, y, ly, 0)]
-                            + pi_s[vi(xdn, y, ly, 0)]
+                        let div_f = (pi_s[vi(xup, y, ly, 0)] + pi_s[vi(xdn, y, ly, 0)]
                             - pi_s[vi(x, yup, ly, 0)]
                             - pi_s[vi(x, ydn, ly, 0)])
                             + 0.5
-                                * (pi_s[vi(xup, yup, ly, 1)] - pi_s[vi(xup, ydn, ly, 1)]
+                                * (pi_s[vi(xup, yup, ly, 1)]
+                                    - pi_s[vi(xup, ydn, ly, 1)]
                                     - pi_s[vi(xdn, yup, ly, 1)]
                                     + pi_s[vi(xdn, ydn, ly, 1)]);
 
@@ -115,7 +119,9 @@ pub fn calculate_pressure_terms(
             let xdn = (x + lx - 1) % lx;
             for y in 0..ly {
                 let idx = si(x, y, ly);
-                if !bounds.inside[idx] { continue; }
+                if !bounds.inside[idx] {
+                    continue;
+                }
                 let yup = (y + 1) % ly;
                 let ydn = (y + ly - 1) % ly;
 
@@ -124,12 +130,12 @@ pub fn calculate_pressure_terms(
                 let dyux = 0.5 * (u[vi(x, yup, ly, 0)] - u[vi(x, ydn, ly, 0)]);
                 let dxuy = 0.5 * (u[vi(xup, y, ly, 1)] - u[vi(xdn, y, ly, 1)]);
 
-                let div_f = (pi_s[vi(xup, y, ly, 0)]
-                    + pi_s[vi(xdn, y, ly, 0)]
+                let div_f = (pi_s[vi(xup, y, ly, 0)] + pi_s[vi(xdn, y, ly, 0)]
                     - pi_s[vi(x, yup, ly, 0)]
                     - pi_s[vi(x, ydn, ly, 0)])
                     + 0.5
-                        * (pi_s[vi(xup, yup, ly, 1)] - pi_s[vi(xup, ydn, ly, 1)]
+                        * (pi_s[vi(xup, yup, ly, 1)]
+                            - pi_s[vi(xup, ydn, ly, 1)]
                             - pi_s[vi(xdn, yup, ly, 1)]
                             + pi_s[vi(xdn, ydn, ly, 1)]);
 
@@ -155,12 +161,7 @@ pub fn calculate_pressure_terms(
 ///     + p_aux[x+1,y+1] + p_aux[x+1,y-1] + p_aux[x-1,y+1] + p_aux[x-1,y-1]
 /// )
 /// ```
-pub fn relax_pressure_inner_loop(
-    p: &mut [f64],
-    p_aux: &[f64],
-    rhs: &[f64],
-    bounds: &Boundary,
-) {
+pub fn relax_pressure_inner_loop(p: &mut [f64], p_aux: &[f64], rhs: &[f64], bounds: &Boundary) {
     let lx = bounds.lx;
     let ly = bounds.ly;
 
@@ -174,12 +175,16 @@ pub fn relax_pressure_inner_loop(
                 let x_start = chunk_idx * rpc;
                 for (row_offset, row) in chunk.chunks_mut(ly).enumerate() {
                     let x = x_start + row_offset;
-                    if x >= lx { break; }
+                    if x >= lx {
+                        break;
+                    }
                     let xup = (x + 1) % lx;
                     let xdn = (x + lx - 1) % lx;
                     for y in 0..ly {
                         let idx = si(x, y, ly);
-                        if !bounds.inside[idx] { continue; }
+                        if !bounds.inside[idx] {
+                            continue;
+                        }
                         let yup = (y + 1) % ly;
                         let ydn = (y + ly - 1) % ly;
                         row[y] = 0.05
@@ -202,7 +207,9 @@ pub fn relax_pressure_inner_loop(
             let xdn = (x + lx - 1) % lx;
             for y in 0..ly {
                 let idx = si(x, y, ly);
-                if !bounds.inside[idx] { continue; }
+                if !bounds.inside[idx] {
+                    continue;
+                }
                 let yup = (y + 1) % ly;
                 let ydn = (y + ly - 1) % ly;
                 p[idx] = 0.05
@@ -306,7 +313,11 @@ pub fn relax_pressure(
 
         // Convergence test: rel_change = Σ|p_aux−p| / |1e-7 + Σp_aux|
         let (sum_diff, sum_old) = if use_parallel(lx, ly) {
-            let sd: f64 = p_aux.par_iter().zip(p.par_iter()).map(|(a, b)| (a - b).abs()).sum();
+            let sd: f64 = p_aux
+                .par_iter()
+                .zip(p.par_iter())
+                .map(|(a, b)| (a - b).abs())
+                .sum();
             let so: f64 = p_aux.par_iter().sum();
             (sd, so)
         } else {
@@ -390,12 +401,16 @@ pub fn u_update_p_pi_terms(
                 let x_start = chunk_idx * rpc;
                 for (row_offset, row) in chunk.chunks_mut(ly * 2).enumerate() {
                     let x = x_start + row_offset;
-                    if x >= lx { break; }
+                    if x >= lx {
+                        break;
+                    }
                     let xup = (x + 1) % lx;
                     let xdn = (x + lx - 1) % lx;
                     for y in 0..ly {
                         let idx = si(x, y, ly);
-                        if !bounds.inside[idx] { continue; }
+                        if !bounds.inside[idx] {
+                            continue;
+                        }
                         let yup = (y + 1) % ly;
                         let ydn = (y + ly - 1) % ly;
 
@@ -419,7 +434,9 @@ pub fn u_update_p_pi_terms(
             let xdn = (x + lx - 1) % lx;
             for y in 0..ly {
                 let idx = si(x, y, ly);
-                if !bounds.inside[idx] { continue; }
+                if !bounds.inside[idx] {
+                    continue;
+                }
                 let yup = (y + 1) % ly;
                 let ydn = (y + ly - 1) % ly;
 

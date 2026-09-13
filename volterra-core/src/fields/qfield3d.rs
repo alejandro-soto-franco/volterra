@@ -11,9 +11,9 @@
 //!         [q13, q23, -(q11+q22)]]
 
 use nalgebra::SMatrix;
+use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 /// 3D Q-tensor field.
@@ -30,12 +30,24 @@ pub struct QField3D {
 impl QField3D {
     /// Create a zero Q-tensor field.
     pub fn zeros(nx: usize, ny: usize, nz: usize, dx: f64) -> Self {
-        Self { q: vec![[0.0; 5]; nx * ny * nz], nx, ny, nz, dx }
+        Self {
+            q: vec![[0.0; 5]; nx * ny * nz],
+            nx,
+            ny,
+            nz,
+            dx,
+        }
     }
 
     /// Create a uniform Q-tensor field with every vertex set to `q`.
     pub fn uniform(nx: usize, ny: usize, nz: usize, dx: f64, q: [f64; 5]) -> Self {
-        Self { q: vec![q; nx * ny * nz], nx, ny, nz, dx }
+        Self {
+            q: vec![q; nx * ny * nz],
+            nx,
+            ny,
+            nz,
+            dx,
+        }
     }
 
     /// Create a small-amplitude random perturbation.
@@ -213,21 +225,23 @@ impl QField3D {
     /// Director field: eigenvector of the largest eigenvalue at each vertex.
     /// Returns a Vec of unit 3-vectors, one per vertex.
     pub fn director(&self) -> Vec<[f64; 3]> {
-        (0..self.len()).map(|k| {
-            let m = self.embed_matrix3(k);
-            let eig = m.symmetric_eigen();
-            // Find index of largest eigenvalue
-            let mut max_idx = 0;
-            let mut max_val = f64::NEG_INFINITY;
-            for i in 0..3 {
-                if eig.eigenvalues[i] > max_val {
-                    max_val = eig.eigenvalues[i];
-                    max_idx = i;
+        (0..self.len())
+            .map(|k| {
+                let m = self.embed_matrix3(k);
+                let eig = m.symmetric_eigen();
+                // Find index of largest eigenvalue
+                let mut max_idx = 0;
+                let mut max_val = f64::NEG_INFINITY;
+                for i in 0..3 {
+                    if eig.eigenvalues[i] > max_val {
+                        max_val = eig.eigenvalues[i];
+                        max_idx = i;
+                    }
                 }
-            }
-            let col = eig.eigenvectors.column(max_idx);
-            [col[0], col[1], col[2]]
-        }).collect()
+                let col = eig.eigenvectors.column(max_idx);
+                [col[0], col[1], col[2]]
+            })
+            .collect()
     }
 
     /// Mean scalar order parameter over the whole field.
@@ -242,13 +256,7 @@ impl QField3D {
             .iter()
             .map(|&[q11, q12, q13, q22, q23]| {
                 let q33 = -(q11 + q22);
-                (q11 * q11
-                    + q12 * q12
-                    + q13 * q13
-                    + q22 * q22
-                    + q23 * q23
-                    + q33 * q33)
-                    .sqrt()
+                (q11 * q11 + q12 * q12 + q13 * q13 + q22 * q22 + q23 * q23 + q33 * q33).sqrt()
             })
             .fold(0.0_f64, f64::max)
     }
@@ -300,10 +308,18 @@ impl QField3D {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl cartan_geo::QTensorField3D for QField3D {
-    fn nx(&self) -> usize { self.nx }
-    fn ny(&self) -> usize { self.ny }
-    fn nz(&self) -> usize { self.nz }
-    fn dx(&self) -> f64 { self.dx }
+    fn nx(&self) -> usize {
+        self.nx
+    }
+    fn ny(&self) -> usize {
+        self.ny
+    }
+    fn nz(&self) -> usize {
+        self.nz
+    }
+    fn dx(&self) -> f64 {
+        self.dx
+    }
     fn idx(&self, i: usize, j: usize, l: usize) -> usize {
         ((i % self.nx) * self.ny + (j % self.ny)) * self.nz + (l % self.nz)
     }

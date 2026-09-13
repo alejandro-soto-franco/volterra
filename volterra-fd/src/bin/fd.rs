@@ -36,15 +36,15 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use serde_json::json;
 
+use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
 use volterra_fd::{
-    boundary::{circular_boundary, epitrochoid_boundary, Epitrochoid, EPITROCHOID_D},
+    FdError, FdResult, Params,
+    boundary::{EPITROCHOID_D, Epitrochoid, circular_boundary, epitrochoid_boundary},
     index::{si, vi},
     output::write_state_frame,
     sim_step::FdStep,
     step::State,
-    FdError, FdResult, Params,
 };
-use volterra_core::sim::{Observer, RunConfig, SimulationRunner, stats::StepStats};
 
 // ---------------------------------------------------------------------------
 // env helpers
@@ -184,7 +184,11 @@ impl<'a> Observer<State> for FdObserver<'a> {
 
         // Progress report every 10 seconds or at the final step.
         let elapsed = self.t_start.elapsed().as_secs_f64();
-        let sps = if elapsed > 0.0 { step as f64 / elapsed } else { 0.0 };
+        let sps = if elapsed > 0.0 {
+            step as f64 / elapsed
+        } else {
+            0.0
+        };
         let since_last = self.last_report.elapsed().as_secs_f64();
         if since_last >= 10.0 || step == self.max_steps {
             println!(

@@ -6,8 +6,8 @@
 //! 3. `upwind_sign`: exact match vs Python/Numba ground-truth on 5×5 grid.
 
 use volterra_fd::{
-    ops::{div_vector, laplacian, upwind_advective_term},
     Boundary,
+    ops::{div_vector, laplacian, upwind_advective_term},
 };
 
 use std::f64::consts::PI;
@@ -191,20 +191,24 @@ fn upwind_sign_convention() {
     let tol = 1e-12;
     assert!(
         (out_pos[vi(2, 2, ly, 0)] - (-1.0)).abs() < tol,
-        "upwind pos_u (2,2) c=0: got {}", out_pos[vi(2, 2, ly, 0)]
+        "upwind pos_u (2,2) c=0: got {}",
+        out_pos[vi(2, 2, ly, 0)]
     );
     assert!(
         (out_pos[vi(2, 2, ly, 1)] - (-0.5)).abs() < tol,
-        "upwind pos_u (2,2) c=1: got {}", out_pos[vi(2, 2, ly, 1)]
+        "upwind pos_u (2,2) c=1: got {}",
+        out_pos[vi(2, 2, ly, 1)]
     );
     // (3,2): expect (-1.0, -0.5)
     assert!(
         (out_pos[vi(3, 2, ly, 0)] - (-1.0)).abs() < tol,
-        "upwind pos_u (3,2) c=0: got {}", out_pos[vi(3, 2, ly, 0)]
+        "upwind pos_u (3,2) c=0: got {}",
+        out_pos[vi(3, 2, ly, 0)]
     );
     assert!(
         (out_pos[vi(3, 2, ly, 1)] - (-0.5)).abs() < tol,
-        "upwind pos_u (3,2) c=1: got {}", out_pos[vi(3, 2, ly, 1)]
+        "upwind pos_u (3,2) c=1: got {}",
+        out_pos[vi(3, 2, ly, 1)]
     );
 
     // Case 2: u = (-1, 0)
@@ -221,21 +225,27 @@ fn upwind_sign_convention() {
     // (2,2): expect (1.0, 0.5)
     assert!(
         (out_neg[vi(2, 2, ly, 0)] - 1.0).abs() < tol,
-        "upwind neg_u (2,2) c=0: got {}", out_neg[vi(2, 2, ly, 0)]
+        "upwind neg_u (2,2) c=0: got {}",
+        out_neg[vi(2, 2, ly, 0)]
     );
     assert!(
         (out_neg[vi(2, 2, ly, 1)] - 0.5).abs() < tol,
-        "upwind neg_u (2,2) c=1: got {}", out_neg[vi(2, 2, ly, 1)]
+        "upwind neg_u (2,2) c=1: got {}",
+        out_neg[vi(2, 2, ly, 1)]
     );
     // (3,2): expect (3.5, 1.75)
     assert!(
         (out_neg[vi(3, 2, ly, 0)] - 3.5).abs() < tol,
-        "upwind neg_u (3,2) c=0: got {}", out_neg[vi(3, 2, ly, 0)]
+        "upwind neg_u (3,2) c=0: got {}",
+        out_neg[vi(3, 2, ly, 0)]
     );
     assert!(
         (out_neg[vi(3, 2, ly, 1)] - 1.75).abs() < tol,
-        "upwind neg_u (3,2) c=1: got {}", out_neg[vi(3, 2, ly, 1)]
+        "upwind neg_u (3,2) c=1: got {}",
+        out_neg[vi(3, 2, ly, 1)]
     );
 
-    eprintln!("upwind_sign_convention: all 8 cell/component values match Python/Numba ground truth");
+    eprintln!(
+        "upwind_sign_convention: all 8 cell/component values match Python/Numba ground truth"
+    );
 }

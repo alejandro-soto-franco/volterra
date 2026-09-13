@@ -6,20 +6,19 @@
 //! 3. DIFFUSION: z_new = implicit_euler(z_adv, (1/Pe) * Delta_L, dt)
 //! 4. NORMALISE: z_new = z_new / |z_new|
 
-use num_complex::Complex;
 use nalgebra::SVector;
+use num_complex::Complex;
 use sprs::{CsMat, TriMat};
 
 use cartan_core::Manifold;
-use cartan_dec::line_bundle::{ConnectionAngles, BochnerLaplacian};
-use cartan_dec::mesh::Mesh;
 use cartan_dec::hodge::HodgeStar;
+use cartan_dec::line_bundle::{BochnerLaplacian, ConnectionAngles};
+use cartan_dec::mesh::Mesh;
 
 use crate::nematic_field_2d::NematicField2D;
-use crate::stokes_trait::StokesSolver;
 use crate::semi_lagrangian::SemiLagrangian;
 use crate::stokes::VelocityField;
-
+use crate::stokes_trait::StokesSolver;
 
 /// Nondimensionalised parameters for the active nematic engine.
 #[derive(Debug, Clone)]
@@ -112,9 +111,7 @@ impl ActiveNematicEngine {
 
         let dual_areas: Vec<f64> = (0..nv).map(|i| hodge.star0()[i]).collect();
 
-        let coords: Vec<[f64; 3]> = mesh.vertices.iter()
-            .map(|v| [v[0], v[1], v[2]])
-            .collect();
+        let coords: Vec<[f64; 3]> = mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
 
         let simplices: Vec<[usize; 3]> = mesh.simplices.clone();
 
@@ -277,7 +274,9 @@ impl ActiveNematicEngine {
             n_vertices: self.n_vertices,
         };
 
-        let q_adv = self.semi_lag.advect_with_params(&qfield, &vel, dt, self.params.lambda);
+        let q_adv = self
+            .semi_lag
+            .advect_with_params(&qfield, &vel, dt, self.params.lambda);
         (q_adv.q1, q_adv.q2)
     }
 

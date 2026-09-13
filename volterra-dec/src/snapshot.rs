@@ -91,8 +91,7 @@ pub fn write_velocity_snapshot(vel: &[[f64; 3]], path: &Path) -> std::io::Result
 
 /// Write simulation metadata as a JSON file.
 pub fn write_meta(path: &Path, meta: &serde_json::Value) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(meta)
-        .map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(meta).map_err(std::io::Error::other)?;
     std::fs::write(path, json)
 }
 

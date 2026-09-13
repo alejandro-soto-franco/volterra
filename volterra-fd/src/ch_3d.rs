@@ -107,10 +107,7 @@ pub fn ch_step_etd_3d(
         let phi_v = phi.phi[k];
         let [q11, q12, q13, q22, q23] = q_lip.q[k];
         let q33 = -(q11 + q22);
-        let tr_q2 = q11 * q11
-            + q22 * q22
-            + q33 * q33
-            + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
+        let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
 
         g[k] = p.m_l * (p.a_ch * phi_v + p.b_ch * phi_v * phi_v * phi_v - p.chi_ms * tr_q2);
     }
@@ -130,8 +127,7 @@ pub fn ch_step_etd_3d(
         // Along z (innermost/contiguous axis)
         for i in 0..nx {
             for j in 0..ny {
-                let mut row: Vec<Complex<f64>> =
-                    (0..nz).map(|l| data[phi.idx(i, j, l)]).collect();
+                let mut row: Vec<Complex<f64>> = (0..nz).map(|l| data[phi.idx(i, j, l)]).collect();
                 fft_z.process(&mut row);
                 for l in 0..nz {
                     data[phi.idx(i, j, l)] = row[l];
@@ -141,8 +137,7 @@ pub fn ch_step_etd_3d(
         // Along y
         for i in 0..nx {
             for l in 0..nz {
-                let mut row: Vec<Complex<f64>> =
-                    (0..ny).map(|j| data[phi.idx(i, j, l)]).collect();
+                let mut row: Vec<Complex<f64>> = (0..ny).map(|j| data[phi.idx(i, j, l)]).collect();
                 fft_y.process(&mut row);
                 for j in 0..ny {
                     data[phi.idx(i, j, l)] = row[j];
@@ -152,8 +147,7 @@ pub fn ch_step_etd_3d(
         // Along x (outermost)
         for j in 0..ny {
             for l in 0..nz {
-                let mut row: Vec<Complex<f64>> =
-                    (0..nx).map(|i| data[phi.idx(i, j, l)]).collect();
+                let mut row: Vec<Complex<f64>> = (0..nx).map(|i| data[phi.idx(i, j, l)]).collect();
                 fft_x.process(&mut row);
                 for i in 0..nx {
                     data[phi.idx(i, j, l)] = row[i];
@@ -295,7 +289,7 @@ pub fn ch_step_etd_enriched_3d(
     let nx = phi.nx;
     let ny = phi.ny;
     let nz = phi.nz;
-    let n  = nx * ny * nz;
+    let n = nx * ny * nz;
     let dx = phi.dx;
     let eps = p.epsilon_ch;
 
@@ -312,7 +306,7 @@ pub fn ch_step_etd_enriched_3d(
         let phi_v = phi.phi[idx];
         let [q11, q12, q13, q22, q23] = q_lip.q[idx];
         let q33 = -(q11 + q22);
-        let tr_q2 = q11*q11 + q22*q22 + q33*q33 + 2.0*(q12*q12 + q13*q13 + q23*q23);
+        let tr_q2 = q11 * q11 + q22 * q22 + q33 * q33 + 2.0 * (q12 * q12 + q13 * q13 + q23 * q23);
 
         let g_ch = p.m_l * (p.a_ch * phi_v + p.b_ch * phi_v.powi(3) - p.chi_ms * tr_q2);
         let g_kg = if p.kappa_bar_g != 0.0 && eps > 0.0 {
@@ -327,70 +321,101 @@ pub fn ch_step_etd_enriched_3d(
     let mut planner = FftPlanner::<f64>::new();
 
     let mut phi_hat: Vec<Complex<f64>> = phi.phi.iter().map(|&v| Complex::new(v, 0.0)).collect();
-    let mut g_hat:   Vec<Complex<f64>> = g.iter().map(|&v| Complex::new(v, 0.0)).collect();
+    let mut g_hat: Vec<Complex<f64>> = g.iter().map(|&v| Complex::new(v, 0.0)).collect();
 
     let fft_x = planner.plan_fft_forward(nx);
     let fft_y = planner.plan_fft_forward(ny);
     let fft_z = planner.plan_fft_forward(nz);
 
     for data in [&mut phi_hat, &mut g_hat] {
-        for i in 0..nx { for j in 0..ny {
-            let mut row: Vec<Complex<f64>> = (0..nz).map(|l| data[phi.idx(i,j,l)]).collect();
-            fft_z.process(&mut row);
-            for l in 0..nz { data[phi.idx(i,j,l)] = row[l]; }
-        }}
-        for i in 0..nx { for l in 0..nz {
-            let mut row: Vec<Complex<f64>> = (0..ny).map(|j| data[phi.idx(i,j,l)]).collect();
-            fft_y.process(&mut row);
-            for j in 0..ny { data[phi.idx(i,j,l)] = row[j]; }
-        }}
-        for j in 0..ny { for l in 0..nz {
-            let mut row: Vec<Complex<f64>> = (0..nx).map(|i| data[phi.idx(i,j,l)]).collect();
-            fft_x.process(&mut row);
-            for i in 0..nx { data[phi.idx(i,j,l)] = row[i]; }
-        }}
+        for i in 0..nx {
+            for j in 0..ny {
+                let mut row: Vec<Complex<f64>> = (0..nz).map(|l| data[phi.idx(i, j, l)]).collect();
+                fft_z.process(&mut row);
+                for l in 0..nz {
+                    data[phi.idx(i, j, l)] = row[l];
+                }
+            }
+        }
+        for i in 0..nx {
+            for l in 0..nz {
+                let mut row: Vec<Complex<f64>> = (0..ny).map(|j| data[phi.idx(i, j, l)]).collect();
+                fft_y.process(&mut row);
+                for j in 0..ny {
+                    data[phi.idx(i, j, l)] = row[j];
+                }
+            }
+        }
+        for j in 0..ny {
+            for l in 0..nz {
+                let mut row: Vec<Complex<f64>> = (0..nx).map(|i| data[phi.idx(i, j, l)]).collect();
+                fft_x.process(&mut row);
+                for i in 0..nx {
+                    data[phi.idx(i, j, l)] = row[i];
+                }
+            }
+        }
     }
 
     let mut phi_hat_new: Vec<Complex<f64>> = vec![Complex::new(0.0, 0.0); n];
-    for i in 0..nx { for j in 0..ny { for l in 0..nz {
-        let idx = phi.idx(i, j, l);
-        let kx = wavenumber(i, nx, dx);
-        let ky = wavenumber(j, ny, dx);
-        let kz = wavenumber(l, nz, dx);
-        let k2 = kx*kx + ky*ky + kz*kz;
-        let k4 = k2*k2;
+    for i in 0..nx {
+        for j in 0..ny {
+            for l in 0..nz {
+                let idx = phi.idx(i, j, l);
+                let kx = wavenumber(i, nx, dx);
+                let ky = wavenumber(j, ny, dx);
+                let kz = wavenumber(l, nz, dx);
+                let k2 = kx * kx + ky * ky + kz * kz;
+                let k4 = k2 * k2;
 
-        let big_l = -p.m_l * kappa_eff * k4;
-        let n_hat  = g_hat[idx] * Complex::new(-k2, 0.0);
+                let big_l = -p.m_l * kappa_eff * k4;
+                let n_hat = g_hat[idx] * Complex::new(-k2, 0.0);
 
-        if k4 < 1e-14 {
-            phi_hat_new[idx] = phi_hat[idx] + n_hat * Complex::new(dt, 0.0);
-        } else {
-            let e_l = (big_l * dt).exp();
-            phi_hat_new[idx] = phi_hat[idx] * Complex::new(e_l, 0.0)
-                + n_hat * Complex::new((e_l - 1.0) / big_l, 0.0);
+                if k4 < 1e-14 {
+                    phi_hat_new[idx] = phi_hat[idx] + n_hat * Complex::new(dt, 0.0);
+                } else {
+                    let e_l = (big_l * dt).exp();
+                    phi_hat_new[idx] = phi_hat[idx] * Complex::new(e_l, 0.0)
+                        + n_hat * Complex::new((e_l - 1.0) / big_l, 0.0);
+                }
+            }
         }
-    }}}
+    }
 
     let ifft_x = planner.plan_fft_inverse(nx);
     let ifft_y = planner.plan_fft_inverse(ny);
     let ifft_z = planner.plan_fft_inverse(nz);
 
-    for i in 0..nx { for j in 0..ny {
-        let mut row: Vec<Complex<f64>> = (0..nz).map(|l| phi_hat_new[phi.idx(i,j,l)]).collect();
-        ifft_z.process(&mut row);
-        for l in 0..nz { phi_hat_new[phi.idx(i,j,l)] = row[l]; }
-    }}
-    for i in 0..nx { for l in 0..nz {
-        let mut row: Vec<Complex<f64>> = (0..ny).map(|j| phi_hat_new[phi.idx(i,j,l)]).collect();
-        ifft_y.process(&mut row);
-        for j in 0..ny { phi_hat_new[phi.idx(i,j,l)] = row[j]; }
-    }}
-    for j in 0..ny { for l in 0..nz {
-        let mut row: Vec<Complex<f64>> = (0..nx).map(|i| phi_hat_new[phi.idx(i,j,l)]).collect();
-        ifft_x.process(&mut row);
-        for i in 0..nx { phi_hat_new[phi.idx(i,j,l)] = row[i]; }
-    }}
+    for i in 0..nx {
+        for j in 0..ny {
+            let mut row: Vec<Complex<f64>> =
+                (0..nz).map(|l| phi_hat_new[phi.idx(i, j, l)]).collect();
+            ifft_z.process(&mut row);
+            for l in 0..nz {
+                phi_hat_new[phi.idx(i, j, l)] = row[l];
+            }
+        }
+    }
+    for i in 0..nx {
+        for l in 0..nz {
+            let mut row: Vec<Complex<f64>> =
+                (0..ny).map(|j| phi_hat_new[phi.idx(i, j, l)]).collect();
+            ifft_y.process(&mut row);
+            for j in 0..ny {
+                phi_hat_new[phi.idx(i, j, l)] = row[j];
+            }
+        }
+    }
+    for j in 0..ny {
+        for l in 0..nz {
+            let mut row: Vec<Complex<f64>> =
+                (0..nx).map(|i| phi_hat_new[phi.idx(i, j, l)]).collect();
+            ifft_x.process(&mut row);
+            for i in 0..nx {
+                phi_hat_new[phi.idx(i, j, l)] = row[i];
+            }
+        }
+    }
 
     let norm = 1.0 / (n as f64);
     let mut phi_new = ScalarField3D::zeros(nx, ny, nz, dx);
@@ -434,9 +459,12 @@ mod tests {
         p.epsilon_ch = 1.0;
         let phi = ScalarField3D::uniform(8, 8, 8, 1.0, 0.3);
         let q_lip = QField3D::zeros(8, 8, 8, 1.0);
-        let phi_plain    = ch_step_etd_3d(&phi, &q_lip, &p, p.dt);
+        let phi_plain = ch_step_etd_3d(&phi, &q_lip, &p, p.dt);
         let phi_enriched = ch_step_etd_enriched_3d(&phi, &q_lip, &p, p.dt);
-        let max_diff: f64 = phi_plain.phi.iter().zip(phi_enriched.phi.iter())
+        let max_diff: f64 = phi_plain
+            .phi
+            .iter()
+            .zip(phi_enriched.phi.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f64, f64::max);
         assert!(
@@ -459,16 +487,26 @@ mod tests {
         let n = 8usize;
         let cx = n as f64 / 2.0;
         let mut phi = ScalarField3D::zeros(n, n, n, 1.0);
-        for i in 0..n { for j in 0..n { for k in 0..n {
-            let r = ((i as f64 - cx).powi(2) + (j as f64 - cx).powi(2)
-                   + (k as f64 - cx).powi(2)).sqrt();
-            let vi = phi.idx(i,j,k);
-            phi.phi[vi] = 0.5*(1.0 + ((r - 3.0)/1.5).tanh());
-        }}}
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    let r = ((i as f64 - cx).powi(2)
+                        + (j as f64 - cx).powi(2)
+                        + (k as f64 - cx).powi(2))
+                    .sqrt();
+                    let vi = phi.idx(i, j, k);
+                    phi.phi[vi] = 0.5 * (1.0 + ((r - 3.0) / 1.5).tanh());
+                }
+            }
+        }
         let q_lip = QField3D::zeros(n, n, n, 1.0);
         let phi_new = ch_step_etd_enriched_3d(&phi, &q_lip, &p, p.dt);
         let delta = (phi_new.mean() - phi.mean()).abs();
-        assert!(delta < 1e-10, "enriched CH must conserve mass, delta={}", delta);
+        assert!(
+            delta < 1e-10,
+            "enriched CH must conserve mass, delta={}",
+            delta
+        );
     }
 
     /// Enriched stepper with nonzero kappa_bar_g and an interface must differ
@@ -487,16 +525,25 @@ mod tests {
         let n = 8usize;
         let cx = n as f64 / 2.0;
         let mut phi = ScalarField3D::zeros(n, n, n, 1.0);
-        for i in 0..n { for j in 0..n { for k in 0..n {
-            let r = ((i as f64 - cx).powi(2) + (j as f64 - cx).powi(2)
-                   + (k as f64 - cx).powi(2)).sqrt();
-            let vi = phi.idx(i,j,k);
-            phi.phi[vi] = 0.5*(1.0 + ((r - 3.0)/1.5).tanh());
-        }}}
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    let r = ((i as f64 - cx).powi(2)
+                        + (j as f64 - cx).powi(2)
+                        + (k as f64 - cx).powi(2))
+                    .sqrt();
+                    let vi = phi.idx(i, j, k);
+                    phi.phi[vi] = 0.5 * (1.0 + ((r - 3.0) / 1.5).tanh());
+                }
+            }
+        }
         let q_lip = QField3D::zeros(n, n, n, 1.0);
-        let phi_plain    = ch_step_etd_3d(&phi, &q_lip, &p, p.dt);
+        let phi_plain = ch_step_etd_3d(&phi, &q_lip, &p, p.dt);
         let phi_enriched = ch_step_etd_enriched_3d(&phi, &q_lip, &p, p.dt);
-        let max_diff: f64 = phi_plain.phi.iter().zip(phi_enriched.phi.iter())
+        let max_diff: f64 = phi_plain
+            .phi
+            .iter()
+            .zip(phi_enriched.phi.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f64, f64::max);
         assert!(
@@ -518,14 +565,21 @@ mod tests {
         p.kappa_bar_g = 0.0;
         let n = 8usize;
         let mut phi = ScalarField3D::zeros(n, n, n, 1.0);
-        for i in 0..n { for j in 0..n { for k in 0..n {
-            let vi = phi.idx(i,j,k);
-            phi.phi[vi] = 0.5 + 0.1*(i as f64).sin();
-        }}}
+        for i in 0..n {
+            for j in 0..n {
+                for k in 0..n {
+                    let vi = phi.idx(i, j, k);
+                    phi.phi[vi] = 0.5 + 0.1 * (i as f64).sin();
+                }
+            }
+        }
         let q_lip = QField3D::zeros(n, n, n, 1.0);
-        let phi_plain    = ch_step_etd_3d(&phi, &q_lip, &p, p.dt);
+        let phi_plain = ch_step_etd_3d(&phi, &q_lip, &p, p.dt);
         let phi_enriched = ch_step_etd_enriched_3d(&phi, &q_lip, &p, p.dt);
-        let max_diff: f64 = phi_plain.phi.iter().zip(phi_enriched.phi.iter())
+        let max_diff: f64 = phi_plain
+            .phi
+            .iter()
+            .zip(phi_enriched.phi.iter())
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f64, f64::max);
         assert!(

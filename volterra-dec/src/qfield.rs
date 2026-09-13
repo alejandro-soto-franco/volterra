@@ -121,18 +121,8 @@ impl QField {
     pub fn add(&self, other: &Self) -> Self {
         assert_eq!(self.n_vertices, other.n_vertices);
         Self {
-            q1: self
-                .q1
-                .iter()
-                .zip(&other.q1)
-                .map(|(a, b)| a + b)
-                .collect(),
-            q2: self
-                .q2
-                .iter()
-                .zip(&other.q2)
-                .map(|(a, b)| a + b)
-                .collect(),
+            q1: self.q1.iter().zip(&other.q1).map(|(a, b)| a + b).collect(),
+            q2: self.q2.iter().zip(&other.q2).map(|(a, b)| a + b).collect(),
             n_vertices: self.n_vertices,
         }
     }
@@ -166,11 +156,7 @@ mod fieldvec_tests {
 
     /// The legacy hand-rolled DEC RK4 op tree (lifted verbatim from
     /// `volterra-solver/src/runner_dec.rs::rk4_step`), generic over the rhs.
-    fn legacy_rk4_step<R: Fn(&QField) -> QField>(
-        q: &QField,
-        dt: f64,
-        rhs: &R,
-    ) -> QField {
+    fn legacy_rk4_step<R: Fn(&QField) -> QField>(q: &QField, dt: f64, rhs: &R) -> QField {
         let k1 = rhs(q);
         let q2 = q.add(&k1.scale(0.5 * dt));
         let k2 = rhs(&q2);

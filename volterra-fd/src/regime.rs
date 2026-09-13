@@ -194,7 +194,11 @@ pub fn classify(epi: &Epitrochoid, ell_a: f64, ell_c: f64, c: &RegimeConstants) 
 
     Prediction {
         regime,
-        positive: if regime == Regime::Braiding { floor } else { positive },
+        positive: if regime == Regime::Braiding {
+            floor
+        } else {
+            positive
+        },
         melted_fraction: melted,
         motility,
         margin: to_melt.min(to_arrest).min(to_turbulent),
@@ -233,15 +237,24 @@ mod tests {
     fn topological_counts_match_the_paper() {
         assert_eq!(
             topological_defects(&epi(1.5)),
-            DefectPopulation { positive: 3, negative: 1 }
+            DefectPopulation {
+                positive: 3,
+                negative: 1
+            }
         );
         assert_eq!(
             topological_defects(&epi(2.0)),
-            DefectPopulation { positive: 4, negative: 2 }
+            DefectPopulation {
+                positive: 4,
+                negative: 2
+            }
         );
         assert_eq!(
             topological_defects(&epi(2.5)),
-            DefectPopulation { positive: 5, negative: 3 }
+            DefectPopulation {
+                positive: 5,
+                negative: 3
+            }
         );
     }
 
@@ -291,14 +304,23 @@ mod tests {
         let c = RegimeConstants::default();
         let hi = melted_fraction(&epi(2.0), 0.1178, 4, &c);
         let lo = melted_fraction(&epi(2.0), 0.0393, 4, &c);
-        assert!(lo < hi / 3.0, "expected a large fall, got {lo:.3} from {hi:.3}");
+        assert!(
+            lo < hi / 3.0,
+            "expected a large fall, got {lo:.3} from {hi:.3}"
+        );
     }
 
     /// Each geometry's braid follows from its cusp count alone.
     #[test]
     fn braid_follows_from_the_geometry() {
-        assert_eq!(braid_of(topological_defects(&epi(1.5)).positive).unwrap().0, "golden");
-        assert_eq!(braid_of(topological_defects(&epi(2.0)).positive).unwrap().0, "silver");
+        assert_eq!(
+            braid_of(topological_defects(&epi(1.5)).positive).unwrap().0,
+            "golden"
+        );
+        assert_eq!(
+            braid_of(topological_defects(&epi(2.0)).positive).unwrap().0,
+            "silver"
+        );
         assert!(braid_of(topological_defects(&epi(2.5)).positive).is_none());
     }
 

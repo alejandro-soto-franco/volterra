@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 /// Epitrochoid boundary construction (cardioid, nephroid, trefoiloid).
 ///
 /// Ports the `'epitrochoid'` branch of `set_boundary` from
@@ -8,7 +9,6 @@
 /// Index convention: flat index = x * ly + y  (row-major over (x,y)),
 /// matching Python's `obj[:,:,i].flatten()` with C-order (x is the outer axis).
 use std::f64::consts::PI;
-use rayon::prelude::*;
 
 /// Default cusp regularisation. arXiv:2503.10880 SI: "We use d = 0.99 to
 /// approximate the epicycloids near their sharp limit."
@@ -86,7 +86,10 @@ pub struct Epitrochoid {
 impl Epitrochoid {
     /// A boundary with the paper's regularisation.
     pub fn new(q: f64) -> Self {
-        Self { q, d: EPITROCHOID_D }
+        Self {
+            q,
+            d: EPITROCHOID_D,
+        }
     }
 
     /// The cardioid, `q = 3/2`, one cusp.
@@ -230,8 +233,8 @@ fn solve_u(theta: f64, epi: &Epitrochoid) -> f64 {
         if fu.abs() < TOL {
             break;
         }
-        let fp = (wrap(epi_angle(u + h, epi) - theta) - wrap(epi_angle(u - h, epi) - theta))
-            / (2.0 * h);
+        let fp =
+            (wrap(epi_angle(u + h, epi) - theta) - wrap(epi_angle(u - h, epi) - theta)) / (2.0 * h);
         if fp.abs() < 1e-15 {
             break;
         }
@@ -339,14 +342,11 @@ pub fn epitrochoid_boundary(lx: usize, ly: usize, epi: Epitrochoid) -> Boundary 
 
     // Pass 1: determine sim_points (inside)
     let mut inside = vec![false; n];
-    inside
-        .par_chunks_mut(ly)
-        .enumerate()
-        .for_each(|(x, row)| {
-            for (y, cell) in row.iter_mut().enumerate() {
-                *cell = is_inside(x, y, radius, &epi);
-            }
-        });
+    inside.par_chunks_mut(ly).enumerate().for_each(|(x, row)| {
+        for (y, cell) in row.iter_mut().enumerate() {
+            *cell = is_inside(x, y, radius, &epi);
+        }
+    });
 
     // Pass 2: outer boundary (inside cells with a non-inside 4-neighbour)
     let mut is_outer = vec![false; n];

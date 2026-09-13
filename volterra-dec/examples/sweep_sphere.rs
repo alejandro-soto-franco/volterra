@@ -7,11 +7,11 @@ use std::time::Instant;
 
 use cartan_manifolds::sphere::Sphere;
 use volterra_core::ActiveNematicParams;
+use volterra_dec::DecDomain;
+use volterra_dec::QField;
 use volterra_dec::connection_laplacian::{ConnectionLaplacian, molecular_field_conn};
 use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::stokes::{SurfaceStokes, advect_q};
-use volterra_dec::QField;
-use volterra_dec::DecDomain;
 
 fn main() {
     let refinement = 3; // 642 vertices (fast sweeps)
@@ -22,15 +22,26 @@ fn main() {
     let nv = mesh.n_vertices();
     let domain = DecDomain::new(mesh, Sphere::<3>).unwrap();
 
-    let coords: Vec<[f64; 3]> = domain.mesh.vertices.iter().map(|v| [v[0], v[1], v[2]]).collect();
-    let star0: Vec<f64> = (0..domain.ops.hodge.star0().len()).map(|i| domain.ops.hodge.star0()[i]).collect();
-    let star1: Vec<f64> = (0..domain.ops.hodge.star1().len()).map(|i| domain.ops.hodge.star1()[i]).collect();
+    let coords: Vec<[f64; 3]> = domain
+        .mesh
+        .vertices
+        .iter()
+        .map(|v| [v[0], v[1], v[2]])
+        .collect();
+    let star0: Vec<f64> = (0..domain.ops.hodge.star0().len())
+        .map(|i| domain.ops.hodge.star0()[i])
+        .collect();
+    let star1: Vec<f64> = (0..domain.ops.hodge.star1().len())
+        .map(|i| domain.ops.hodge.star1()[i])
+        .collect();
     let conn_lap = ConnectionLaplacian::new(&domain.mesh, &coords, &star0, &star1);
     let stokes = SurfaceStokes::new(&domain.ops, &domain.mesh).unwrap();
 
     println!("S^2 activity sweep (refinement={refinement}, {nv} vertices, {n_steps} steps)");
-    println!("{:<8} {:<8} {:<8} {:<10} {:<10} {:<10} {:<8} {:<8}",
-        "zeta", "eta", "K", "S_final", "S_min", "S_max", "fluct?", "time(s)");
+    println!(
+        "{:<8} {:<8} {:<8} {:<10} {:<10} {:<10} {:<8} {:<8}",
+        "zeta", "eta", "K", "S_final", "S_min", "S_max", "fluct?", "time(s)"
+    );
 
     // Sweep: vary zeta and eta together to explore the phase space.
     let configs: Vec<(f64, f64, f64)> = vec![
@@ -71,9 +82,21 @@ fn main() {
 
             // RK4 with connection Laplacian + advection.
             let rhs = |qq: &QField| -> QField {
-                let h = molecular_field_conn(qq, params.k_r, params.a_eff(), params.c_landau, &conn_lap);
+                let h = molecular_field_conn(
+                    qq,
+                    params.k_r,
+                    params.a_eff(),
+                    params.c_landau,
+                    &conn_lap,
+                );
                 let mut dq = h.scale(params.gamma_r);
-                let adv = advect_q(qq, &vel, &domain.mesh.boundaries, &domain.mesh.vertex_boundaries, &coords);
+                let adv = advect_q(
+                    qq,
+                    &vel,
+                    &domain.mesh.boundaries,
+                    &domain.mesh.vertex_boundaries,
+                    &coords,
+                );
                 for i in 0..qq.n_vertices {
                     dq.q1[i] -= adv.q1[i];
                     dq.q2[i] -= adv.q2[i];
@@ -105,8 +128,10 @@ fn main() {
         let elapsed = t0.elapsed().as_secs_f64();
 
         if blew_up {
-            println!("{:<8.3} {:<8.1} {:<8.3} {:<10} {:<10} {:<10} {:<8} {:<8.1}",
-                zeta, params.eta, params.k_r, "NaN", "-", "-", "BLOW", elapsed);
+            println!(
+                "{:<8.3} {:<8.1} {:<8.3} {:<10} {:<10} {:<10} {:<8} {:<8.1}",
+                zeta, params.eta, params.k_r, "NaN", "-", "-", "BLOW", elapsed
+            );
             continue;
         }
 
@@ -116,8 +141,16 @@ fn main() {
         let fluctuation = (s_max - s_min) / s_final.max(0.01);
         let is_active = fluctuation > 0.05; // >5% variation = active
 
-        println!("{:<8.3} {:<8.1} {:<8.3} {:<10.4} {:<10.4} {:<10.4} {:<8} {:<8.1}",
-            zeta, params.eta, params.k_r, s_final, s_min, s_max,
-            if is_active { "YES" } else { "no" }, elapsed);
+        println!(
+            "{:<8.3} {:<8.1} {:<8.3} {:<10.4} {:<10.4} {:<10.4} {:<8} {:<8.1}",
+            zeta,
+            params.eta,
+            params.k_r,
+            s_final,
+            s_min,
+            s_max,
+            if is_active { "YES" } else { "no" },
+            elapsed
+        );
     }
 }

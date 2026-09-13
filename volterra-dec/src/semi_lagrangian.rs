@@ -7,8 +7,8 @@
 //! 5. Pullback: Q_new = F^{-1} Q F^{-T}
 //! 6. Polar decomposition for tumbling (lambda < 1)
 
-use crate::stokes::VelocityField;
 use crate::QField;
+use crate::stokes::VelocityField;
 
 /// Semi-Lagrangian advection operator with BVH acceleration.
 pub struct SemiLagrangian {
@@ -35,24 +35,37 @@ impl SemiLagrangian {
     /// Build the advection operator from mesh geometry.
     pub fn new(coords: Vec<[f64; 3]>, triangles: Vec<[usize; 3]>) -> Self {
         let n_vertices = coords.len();
-        let tri_data: Vec<TriData> = triangles.iter().map(|&[i0, i1, i2]| {
-            let v0 = coords[i0];
-            let v1 = coords[i1];
-            let v2 = coords[i2];
-            let centroid = [
-                (v0[0] + v1[0] + v2[0]) / 3.0,
-                (v0[1] + v1[1] + v2[1]) / 3.0,
-                (v0[2] + v1[2] + v2[2]) / 3.0,
-            ];
-            let e01 = sub3(v1, v0);
-            let e02 = sub3(v2, v0);
-            let normal = cross3(e01, e02);
-            TriData { centroid, normal, v: [v0, v1, v2] }
-        }).collect();
+        let tri_data: Vec<TriData> = triangles
+            .iter()
+            .map(|&[i0, i1, i2]| {
+                let v0 = coords[i0];
+                let v1 = coords[i1];
+                let v2 = coords[i2];
+                let centroid = [
+                    (v0[0] + v1[0] + v2[0]) / 3.0,
+                    (v0[1] + v1[1] + v2[1]) / 3.0,
+                    (v0[2] + v1[2] + v2[2]) / 3.0,
+                ];
+                let e01 = sub3(v1, v0);
+                let e02 = sub3(v2, v0);
+                let normal = cross3(e01, e02);
+                TriData {
+                    centroid,
+                    normal,
+                    v: [v0, v1, v2],
+                }
+            })
+            .collect();
 
         let bvh = BvhNode::build(&tri_data);
 
-        Self { coords, triangles, tri_data, bvh, n_vertices }
+        Self {
+            coords,
+            triangles,
+            tri_data,
+            bvh,
+            n_vertices,
+        }
     }
 
     /// Advect the nematic field backward along the velocity for one timestep.
@@ -161,12 +174,7 @@ impl SemiLagrangian {
     ///
     /// Traces backward: dp/dt = -u(p), from t=0 to t=dt.
     /// At each substep, projects back to the mesh surface.
-    fn rk4_backtrack(
-        &self,
-        pos: [f64; 3],
-        velocities: &[[f64; 3]],
-        dt: f64,
-    ) -> [f64; 3] {
+    fn rk4_backtrack(&self, pos: [f64; 3], velocities: &[[f64; 3]], dt: f64) -> [f64; 3] {
         // k1 = -u(pos)
         let u1 = self.interpolate_velocity(pos, velocities);
         let k1 = [-u1[0], -u1[1], -u1[2]];
@@ -188,9 +196,9 @@ impl SemiLagrangian {
 
         // Departure = pos + (dt/6)(k1 + 2k2 + 2k3 + k4)
         let dep = [
-            pos[0] + dt / 6.0 * (k1[0] + 2.0*k2[0] + 2.0*k3[0] + k4[0]),
-            pos[1] + dt / 6.0 * (k1[1] + 2.0*k2[1] + 2.0*k3[1] + k4[1]),
-            pos[2] + dt / 6.0 * (k1[2] + 2.0*k2[2] + 2.0*k3[2] + k4[2]),
+            pos[0] + dt / 6.0 * (k1[0] + 2.0 * k2[0] + 2.0 * k3[0] + k4[0]),
+            pos[1] + dt / 6.0 * (k1[1] + 2.0 * k2[1] + 2.0 * k3[1] + k4[1]),
+            pos[2] + dt / 6.0 * (k1[2] + 2.0 * k2[2] + 2.0 * k3[2] + k4[2]),
         ];
 
         self.project_to_surface(dep)
@@ -246,7 +254,9 @@ impl SemiLagrangian {
         let dep_td = &self.tri_data[dep_tri];
 
         // Find a triangle containing the arrival vertex v.
-        let arr_tri = self.triangles.iter()
+        let arr_tri = self
+            .triangles
+            .iter()
             .position(|&[a, b, c]| a == v || b == v || c == v)
             .unwrap_or(dep_tri);
 
@@ -349,12 +359,7 @@ impl SemiLagrangian {
 /// lambda = 1: full pullback Q_new = F^{-1} Q F^{-T}
 /// lambda = 0: rotation-only pullback Q_new = R^{-1} Q R^{-T}
 /// 0 < lambda < 1: blend and renormalise.
-fn pullback_q(
-    q1: f64,
-    q2: f64,
-    f_packed: &[[f64; 4]; 1],
-    lambda: f64,
-) -> (f64, f64) {
+fn pullback_q(q1: f64, q2: f64, f_packed: &[[f64; 4]; 1], lambda: f64) -> (f64, f64) {
     let [f11, f12, f21, f22] = f_packed[0];
 
     // F^{-1} for 2x2.
@@ -450,18 +455,25 @@ impl Aabb {
     }
 
     fn contains(&self, p: [f64; 3]) -> bool {
-        p[0] >= self.min[0] && p[0] <= self.max[0]
-            && p[1] >= self.min[1] && p[1] <= self.max[1]
-            && p[2] >= self.min[2] && p[2] <= self.max[2]
+        p[0] >= self.min[0]
+            && p[0] <= self.max[0]
+            && p[1] >= self.min[1]
+            && p[1] <= self.max[1]
+            && p[2] >= self.min[2]
+            && p[2] <= self.max[2]
     }
 
     fn longest_axis(&self) -> usize {
         let dx = self.max[0] - self.min[0];
         let dy = self.max[1] - self.min[1];
         let dz = self.max[2] - self.min[2];
-        if dx >= dy && dx >= dz { 0 }
-        else if dy >= dz { 1 }
-        else { 2 }
+        if dx >= dy && dx >= dz {
+            0
+        } else if dy >= dz {
+            1
+        } else {
+            2
+        }
     }
 }
 
@@ -567,7 +579,9 @@ impl std::fmt::Debug for BvhNode {
 /// Compute barycentric coordinates of point p in triangle (v0, v1, v2).
 fn barycentric_3d(
     p: [f64; 3],
-    v0: [f64; 3], v1: [f64; 3], v2: [f64; 3],
+    v0: [f64; 3],
+    v1: [f64; 3],
+    v2: [f64; 3],
     face_normal: [f64; 3],
 ) -> (f64, f64, f64) {
     let area2 = dot3(face_normal, face_normal).sqrt();
@@ -586,14 +600,30 @@ fn barycentric_3d(
     (w0, w1, w2)
 }
 
-fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]-b[0], a[1]-b[1], a[2]-b[2]] }
-fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0]+b[0], a[1]+b[1], a[2]+b[2]] }
-fn scale3(a: [f64; 3], s: f64) -> [f64; 3] { [a[0]*s, a[1]*s, a[2]*s] }
-fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 { a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
-fn norm3(a: [f64; 3]) -> f64 { dot3(a, a).sqrt() }
-fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 { norm3(sub3(a, b)) }
+fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+fn add3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+fn scale3(a: [f64; 3], s: f64) -> [f64; 3] {
+    [a[0] * s, a[1] * s, a[2] * s]
+}
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn norm3(a: [f64; 3]) -> f64 {
+    dot3(a, a).sqrt()
+}
+fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    norm3(sub3(a, b))
+}
 fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 #[cfg(test)]
@@ -618,11 +648,11 @@ mod tests {
         let v1 = [1.0, 0.0, 0.0];
         let v2 = [0.0, 1.0, 0.0];
         let n = cross3(sub3(v1, v0), sub3(v2, v0));
-        let c = [1.0/3.0, 1.0/3.0, 0.0];
+        let c = [1.0 / 3.0, 1.0 / 3.0, 0.0];
         let (w0, w1, w2) = barycentric_3d(c, v0, v1, v2, n);
-        assert!((w0 - 1.0/3.0).abs() < 1e-10);
-        assert!((w1 - 1.0/3.0).abs() < 1e-10);
-        assert!((w2 - 1.0/3.0).abs() < 1e-10);
+        assert!((w0 - 1.0 / 3.0).abs() < 1e-10);
+        assert!((w1 - 1.0 / 3.0).abs() < 1e-10);
+        assert!((w2 - 1.0 / 3.0).abs() < 1e-10);
     }
 
     #[test]
@@ -643,7 +673,10 @@ mod tests {
 
         // Point inside first triangle.
         let results = bvh.query([0.1, 0.1, 0.0]);
-        assert!(results.contains(&0), "should find triangle 0, got {results:?}");
+        assert!(
+            results.contains(&0),
+            "should find triangle 0, got {results:?}"
+        );
     }
 
     #[test]
@@ -664,7 +697,7 @@ mod tests {
         let q2: f64 = 0.4;
         let norm_before = (q1 * q1 + q2 * q2).sqrt();
         let (r1, r2) = pullback_q(q1, q2, &f, 1.0);
-        let norm_after = (r1*r1 + r2*r2).sqrt();
+        let norm_after = (r1 * r1 + r2 * r2).sqrt();
         assert!(
             (norm_after - norm_before).abs() < 1e-10,
             "rotation should preserve |Q|: before={norm_before}, after={norm_after}"
@@ -685,10 +718,15 @@ mod tests {
 
         let q_adv = sl.advect(&q, &vel, 0.001);
 
-        let diff: f64 = q.q1.iter().zip(&q_adv.q1)
-            .chain(q.q2.iter().zip(&q_adv.q2))
-            .map(|(a, b)| (a - b).abs())
-            .sum();
-        assert!(diff < 1e-6, "zero velocity advection should be near-identity, diff = {diff}");
+        let diff: f64 =
+            q.q1.iter()
+                .zip(&q_adv.q1)
+                .chain(q.q2.iter().zip(&q_adv.q2))
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+        assert!(
+            diff < 1e-6,
+            "zero velocity advection should be near-identity, diff = {diff}"
+        );
     }
 }

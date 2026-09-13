@@ -12,18 +12,28 @@ fn run_fd_exits_zero_and_writes_frame_files() {
 
     let status = Command::new(env!("CARGO_BIN_EXE_volterra"))
         .args([
-            "run", "fd",
-            "--lx", "16",
-            "--als", "1.5",
-            "--ncl", "1",
-            "--steps", "2",
-            "--snap-every", "1",
-            "--out", tmp.to_str().unwrap(),
+            "run",
+            "fd",
+            "--lx",
+            "16",
+            "--als",
+            "1.5",
+            "--ncl",
+            "1",
+            "--steps",
+            "2",
+            "--snap-every",
+            "1",
+            "--out",
+            tmp.to_str().unwrap(),
         ])
         .status()
         .expect("spawn volterra");
 
-    assert!(status.success(), "volterra run fd exited non-zero: {status}");
+    assert!(
+        status.success(),
+        "volterra run fd exited non-zero: {status}"
+    );
 
     // The run dir is <out>/als_1.5_ncl_1/
     let run_dir = tmp.join("als_1.5_ncl_1");
@@ -72,25 +82,41 @@ fn run_fd_writes_final_frame_when_steps_not_multiple_of_snap_every() {
 
     let status = Command::new(env!("CARGO_BIN_EXE_volterra"))
         .args([
-            "run", "fd",
-            "--lx", "16",
-            "--als", "1.5",
-            "--ncl", "1",
-            "--steps", "5",
-            "--snap-every", "2",
-            "--out", tmp.to_str().unwrap(),
+            "run",
+            "fd",
+            "--lx",
+            "16",
+            "--als",
+            "1.5",
+            "--ncl",
+            "1",
+            "--steps",
+            "5",
+            "--snap-every",
+            "2",
+            "--out",
+            tmp.to_str().unwrap(),
         ])
         .status()
         .expect("spawn volterra");
 
-    assert!(status.success(), "volterra run fd exited non-zero: {status}");
+    assert!(
+        status.success(),
+        "volterra run fd exited non-zero: {status}"
+    );
 
     let run_dir = tmp.join("als_1.5_ncl_1");
     let q = run_dir.join("Q");
 
     // Cadence frames present.
-    assert!(q.join("Q_0000000000.txt").exists(), "Q frame at step 0 missing");
-    assert!(q.join("Q_0000000004.txt").exists(), "Q frame at step 4 missing");
+    assert!(
+        q.join("Q_0000000000.txt").exists(),
+        "Q frame at step 0 missing"
+    );
+    assert!(
+        q.join("Q_0000000004.txt").exists(),
+        "Q frame at step 4 missing"
+    );
     // The final off-cadence frame must be written (this is the bug fix).
     assert!(
         q.join("Q_0000000005.txt").exists(),

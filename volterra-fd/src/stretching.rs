@@ -131,9 +131,17 @@ impl MaterialLine {
         let lxn = self.lx as usize;
         for p in self.points.iter_mut() {
             let k1 = sample(u, *p, lxn, ly);
-            let p2 = wrap([p[0] + 0.5 * dt * k1[0], p[1] + 0.5 * dt * k1[1]], self.lx, self.ly);
+            let p2 = wrap(
+                [p[0] + 0.5 * dt * k1[0], p[1] + 0.5 * dt * k1[1]],
+                self.lx,
+                self.ly,
+            );
             let k2 = sample(u, p2, lxn, ly);
-            let p3 = wrap([p[0] + 0.5 * dt * k2[0], p[1] + 0.5 * dt * k2[1]], self.lx, self.ly);
+            let p3 = wrap(
+                [p[0] + 0.5 * dt * k2[0], p[1] + 0.5 * dt * k2[1]],
+                self.lx,
+                self.ly,
+            );
             let k3 = sample(u, p3, lxn, ly);
             let p4 = wrap([p[0] + dt * k3[0], p[1] + dt * k3[1]], self.lx, self.ly);
             let k4 = sample(u, p4, lxn, ly);
@@ -233,7 +241,13 @@ pub fn least_squares(pts: &[(f64, f64)]) -> Option<StretchFit> {
     } else {
         f64::NAN
     };
-    Some(StretchFit { h, stderr, intercept, r2, n })
+    Some(StretchFit {
+        h,
+        stderr,
+        intercept,
+        r2,
+        n,
+    })
 }
 
 /// Wrap a point into `[0, lx) x [0, ly)`.
@@ -312,7 +326,11 @@ mod tests {
         let l1 = line.length();
         assert!((l1 - l0).abs() < 1e-9, "{l0} -> {l1}");
         // Translated by exactly 1.0 in x.
-        assert!((line.points[0][0] - 5.0).abs() < 1e-9, "{:?}", line.points[0]);
+        assert!(
+            (line.points[0][0] - 5.0).abs() < 1e-9,
+            "{:?}",
+            line.points[0]
+        );
     }
 
     /// A pure shear stretches a transverse segment at a rate the fit must

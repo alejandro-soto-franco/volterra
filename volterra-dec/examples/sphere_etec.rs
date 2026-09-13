@@ -28,8 +28,14 @@ fn main() {
     let mut i = 0;
     while i < raw.len() {
         match raw[i].as_str() {
-            "--tracers" => { i += 1; n_tracers = raw[i].parse().unwrap(); }
-            "--from" => { i += 1; from = raw[i].parse().unwrap(); }
+            "--tracers" => {
+                i += 1;
+                n_tracers = raw[i].parse().unwrap();
+            }
+            "--from" => {
+                i += 1;
+                from = raw[i].parse().unwrap();
+            }
             other => run = other.to_string(),
         }
         i += 1;
@@ -44,13 +50,23 @@ fn main() {
         serde_json::from_str(&std::fs::read_to_string(run.join("meta.json")).unwrap()).unwrap();
     let mesh: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(run.join("mesh.json")).unwrap()).unwrap();
-    let verts: Vec<[f64; 3]> = mesh["vertices"].as_array().unwrap().iter()
+    let verts: Vec<[f64; 3]> = mesh["vertices"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|v| {
             let a = v.as_array().unwrap();
-            [a[0].as_f64().unwrap(), a[1].as_f64().unwrap(), a[2].as_f64().unwrap()]
+            [
+                a[0].as_f64().unwrap(),
+                a[1].as_f64().unwrap(),
+                a[2].as_f64().unwrap(),
+            ]
         })
         .collect();
-    let tris_mesh: Vec<[usize; 3]> = mesh["triangles"].as_array().unwrap().iter()
+    let tris_mesh: Vec<[usize; 3]> = mesh["triangles"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|v| {
             let a = v.as_array().unwrap();
             [
@@ -71,12 +87,21 @@ fn main() {
         }
     }
     let buckets = Buckets::new(&verts);
-    let mesh = MeshRef { verts: &verts, tris: &tris_mesh, vert_faces: &vert_faces, buckets: &buckets };
+    let mesh = MeshRef {
+        verts: &verts,
+        tris: &tris_mesh,
+        vert_faces: &vert_faces,
+        buckets: &buckets,
+    };
 
-    let mut steps: Vec<usize> = std::fs::read_dir(run).unwrap()
+    let mut steps: Vec<usize> = std::fs::read_dir(run)
+        .unwrap()
         .filter_map(|e| {
             let n = e.ok()?.file_name().to_string_lossy().to_string();
-            n.strip_prefix("vel_")?.strip_suffix(".npy")?.parse::<usize>().ok()
+            n.strip_prefix("vel_")?
+                .strip_suffix(".npy")?
+                .parse::<usize>()
+                .ok()
         })
         .collect();
     steps.sort_unstable();
@@ -162,14 +187,17 @@ fn main() {
     let n = curve.len();
     let q3: f64 = curve[n / 2..3 * n / 4].iter().map(|c| c.1).sum::<f64>()
         / (3 * n / 4 - n / 2).max(1) as f64;
-    let q4: f64 = curve[3 * n / 4..].iter().map(|c| c.1).sum::<f64>()
-        / (n - 3 * n / 4).max(1) as f64;
+    let q4: f64 =
+        curve[3 * n / 4..].iter().map(|c| c.1).sum::<f64>() / (n - 3 * n / 4).max(1) as f64;
     println!("  entropy rate {rate:.5e} per unit time over {elapsed:.0}");
     println!(
         "  third quarter {q3:.4e}, fourth {q4:.4e}, drift {:.1} per cent",
         100.0 * (q4 - q3).abs() / q4.abs().max(1e-300)
     );
-    println!("  {} flips, {} steps with a turned-over face", band.flips, tangled);
+    println!(
+        "  {} flips, {} steps with a turned-over face",
+        band.flips, tangled
+    );
 
     let out = serde_json::json!({
         "run": run.file_name().unwrap().to_string_lossy(),

@@ -63,14 +63,8 @@ fn u_bc_zeroes_boundary_velocity() {
     for (x, y) in &cells {
         let u0 = u[vi(*x, *y, ly, 0)];
         let u1 = u[vi(*x, *y, ly, 1)];
-        assert_eq!(
-            u0, 0.0,
-            "u[{x},{y},0] should be 0 (no-slip), got {u0}"
-        );
-        assert_eq!(
-            u1, 0.0,
-            "u[{x},{y},1] should be 0 (no-slip), got {u1}"
-        );
+        assert_eq!(u0, 0.0, "u[{x},{y},0] should be 0 (no-slip), got {u0}");
+        assert_eq!(u1, 0.0, "u[{x},{y},1] should be 0 (no-slip), got {u1}");
     }
 
     // Cells with no nonzero normal in either layer must be untouched.
@@ -327,7 +321,7 @@ fn h_bc_with_zero_velocity_equals_neg_gamma_s() {
 
     let q = vec![0.0_f64; n * 2]; // Q arbitrary; dQ terms will be 0-0=0
     let u = vec![0.0_f64; n * 2]; // zero velocity → advection terms vanish
-    let s = vec![s_val; n * 2];   // constant S
+    let s = vec![s_val; n * 2]; // constant S
 
     let mut h = vec![99.0_f64; n * 2];
 

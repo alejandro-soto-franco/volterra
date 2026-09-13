@@ -10,7 +10,7 @@
 
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
-use volterra_fd::{fire_minimize_3d_par, FireParams};
+use volterra_fd::{FireParams, fire_minimize_3d_par};
 
 const A_OQ: f64 = -0.172;
 const B_OQ: f64 = -2.12;
@@ -47,12 +47,18 @@ fn main() {
     println!("baseline (open-Qmin's own defaults): delta_t_inc=1.1 alpha_dec=0.9 n_min=4");
     let base = FireParams::open_qmin_defaults(p.dt, target, 20000);
     let r = fire_minimize_3d_par(&q0, &p, &base, 0.0);
-    println!("  steps={} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+    println!(
+        "  steps={} converged={} force_max={:.3e}",
+        r.iterations, r.converged, r.force_max
+    );
 
     println!("\nvolterra_tuned (delta_t_inc=1.6, alpha_dec=0.7, n_min=0) -- the OLD tuning:");
     let old_tuned = FireParams::volterra_tuned(p.dt, target, 20000);
     let r = fire_minimize_3d_par(&q0, &p, &old_tuned, 0.0);
-    println!("  steps={} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+    println!(
+        "  steps={} converged={} force_max={:.3e}",
+        r.iterations, r.converged, r.force_max
+    );
 
     let delta_t_incs = [1.05, 1.1, 1.15, 1.2, 1.3];
     let alpha_decs = [0.8, 0.9, 0.95, 0.99];
@@ -63,7 +69,10 @@ fn main() {
         let mut params = FireParams::open_qmin_defaults(p.dt, target, 20000);
         params.delta_t_inc = inc;
         let r = fire_minimize_3d_par(&q0, &p, &params, 0.0);
-        println!("  delta_t_inc={inc:<5} steps={:<5} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+        println!(
+            "  delta_t_inc={inc:<5} steps={:<5} converged={} force_max={:.3e}",
+            r.iterations, r.converged, r.force_max
+        );
     }
 
     println!("\nalpha_dec sweep (delta_t_inc=1.1, n_min=4):");
@@ -71,7 +80,10 @@ fn main() {
         let mut params = FireParams::open_qmin_defaults(p.dt, target, 20000);
         params.alpha_dec = dec;
         let r = fire_minimize_3d_par(&q0, &p, &params, 0.0);
-        println!("  alpha_dec={dec:<5} steps={:<5} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+        println!(
+            "  alpha_dec={dec:<5} steps={:<5} converged={} force_max={:.3e}",
+            r.iterations, r.converged, r.force_max
+        );
     }
 
     println!("\nn_min sweep (delta_t_inc=1.1, alpha_dec=0.9):");
@@ -79,7 +91,10 @@ fn main() {
         let mut params = FireParams::open_qmin_defaults(p.dt, target, 20000);
         params.n_min = nm;
         let r = fire_minimize_3d_par(&q0, &p, &params, 0.0);
-        println!("  n_min={nm:<5} steps={:<5} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+        println!(
+            "  n_min={nm:<5} steps={:<5} converged={} force_max={:.3e}",
+            r.iterations, r.converged, r.force_max
+        );
     }
 
     println!("\ncombined trials:");
@@ -99,20 +114,30 @@ fn main() {
         params.alpha_dec = dec;
         params.n_min = nm;
         let r = fire_minimize_3d_par(&q0, &p, &params, 0.0);
-        println!("  {label:<40} steps={:<5} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+        println!(
+            "  {label:<40} steps={:<5} converged={} force_max={:.3e}",
+            r.iterations, r.converged, r.force_max
+        );
     }
 
-    println!("\nalpha_dec=0.7 held fixed (volterra_tuned's own, proven stable at N=8 on the\ndevice), delta_t_inc pushed, n_min=0:");
+    println!(
+        "\nalpha_dec=0.7 held fixed (volterra_tuned's own, proven stable at N=8 on the\ndevice), delta_t_inc pushed, n_min=0:"
+    );
     for inc in [1.6, 1.8, 2.0, 2.2, 2.5, 3.0] {
         let mut params = FireParams::open_qmin_defaults(p.dt, target, 20000);
         params.delta_t_inc = inc;
         params.alpha_dec = 0.7;
         params.n_min = 0;
         let r = fire_minimize_3d_par(&q0, &p, &params, 0.0);
-        println!("  delta_t_inc={inc:<5} steps={:<5} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+        println!(
+            "  delta_t_inc={inc:<5} steps={:<5} converged={} force_max={:.3e}",
+            r.iterations, r.converged, r.force_max
+        );
     }
 
-    println!("\nmatched_tuned (delta_t_inc=2.5, alpha_dec=0.7, n_min=0) -- the value that passes\nthe N=8 GPU-vs-CPU tight-tolerance gate reproducibly (six repeated runs on the\ndevice, see FireParams::matched_tuned's doc comment), four seeds:");
+    println!(
+        "\nmatched_tuned (delta_t_inc=2.5, alpha_dec=0.7, n_min=0) -- the value that passes\nthe N=8 GPU-vs-CPU tight-tolerance gate reproducibly (six repeated runs on the\ndevice, see FireParams::matched_tuned's doc comment), four seeds:"
+    );
     for seed in [42u64, 7, 100, 999] {
         let q0_seed = QField3D::random_director_field(p.nx, p.ny, p.nz, p.dx, s0, seed);
         let mut tuned = FireParams::open_qmin_defaults(p.dt, target, 20000);
@@ -120,21 +145,32 @@ fn main() {
         tuned.alpha_dec = 0.7;
         tuned.n_min = 0;
         let r = fire_minimize_3d_par(&q0_seed, &p, &tuned, 0.0);
-        println!("  seed={seed:<5} steps={:<5} converged={} force_max={:.3e}", r.iterations, r.converged, r.force_max);
+        println!(
+            "  seed={seed:<5} steps={:<5} converged={} force_max={:.3e}",
+            r.iterations, r.converged, r.force_max
+        );
     }
 
     println!("\nCPU wall-clock, matched physics, N=100, three repeats each:");
     for (label, params_fn) in [
-        ("baseline", FireParams::open_qmin_defaults as fn(f64, f64, usize) -> FireParams),
-        ("matched_tuned", FireParams::matched_tuned as fn(f64, f64, usize) -> FireParams),
+        (
+            "baseline",
+            FireParams::open_qmin_defaults as fn(f64, f64, usize) -> FireParams,
+        ),
+        (
+            "matched_tuned",
+            FireParams::matched_tuned as fn(f64, f64, usize) -> FireParams,
+        ),
     ] {
         for rep in 0..3 {
             let params = params_fn(p.dt, target, 20000);
             let t0 = std::time::Instant::now();
             let r = fire_minimize_3d_par(&q0, &p, &params, 0.0);
             let elapsed = t0.elapsed().as_secs_f64();
-            println!("  {label:<15} rep={rep} steps={:<5} wall={elapsed:.4}s", r.iterations);
+            println!(
+                "  {label:<15} rep={rep} steps={:<5} wall={elapsed:.4}s",
+                r.iterations
+            );
         }
     }
 }
-

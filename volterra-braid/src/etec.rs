@@ -60,13 +60,7 @@ pub trait Domain {
 
     /// Positive when `d` lies inside the circumcircle of the positively
     /// oriented triangle `(a, b, c)`, so the pair should be flipped.
-    fn in_circle(
-        &self,
-        a: Self::Point,
-        b: Self::Point,
-        c: Self::Point,
-        d: Self::Point,
-    ) -> f64;
+    fn in_circle(&self, a: Self::Point, b: Self::Point, c: Self::Point, d: Self::Point) -> f64;
 }
 
 /// A bounded region of the plane.
@@ -113,8 +107,12 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
         a[0] * b[1] - a[1] * b[0],
     ]
 }
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 { a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] { [a[0] - b[0], a[1] - b[1], a[2] - b[2]] }
+fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
 
 impl Domain for Sphere {
     type Point = [f64; 3];
@@ -201,9 +199,13 @@ impl<D: Domain> Band<D> {
     }
 
     /// Number of edges, which stays fixed however far the band is stretched.
-    pub fn n_edges(&self) -> usize { self.edges.len() }
+    pub fn n_edges(&self) -> usize {
+        self.edges.len()
+    }
     /// Number of triangles.
-    pub fn n_tris(&self) -> usize { self.tris.len() }
+    pub fn n_tris(&self) -> usize {
+        self.tris.len()
+    }
 
     /// Wrap the band around `inside`, as the boundary of that set of vertices.
     ///
@@ -357,7 +359,8 @@ impl<D: Domain> Band<D> {
         self.tris
             .iter()
             .filter(|t| {
-                self.domain.orient(self.points[t[0]], self.points[t[1]], self.points[t[2]])
+                self.domain
+                    .orient(self.points[t[0]], self.points[t[1]], self.points[t[2]])
                     <= 0.0
             })
             .count()
@@ -481,8 +484,7 @@ pub fn delaunay_sphere(points: &[[f64; 3]]) -> Vec<[usize; 3]> {
     }
 
     let mut visible: Vec<bool> = Vec::new();
-    let mut directed: std::collections::HashSet<(usize, usize)> =
-        std::collections::HashSet::new();
+    let mut directed: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
     // `p` is a point index the body passes to `vol` and writes into a face,
     // and the body also writes `placed`, so neither an iterator over `placed`
     // nor a filter over it applies here.
@@ -494,11 +496,7 @@ pub fn delaunay_sphere(points: &[[f64; 3]]) -> Vec<[usize; 3]> {
         // The faces the new point lies outside of. On a convex hull this set
         // is connected, so scanning it whole needs no walk to reach it.
         visible.clear();
-        visible.extend(
-            faces
-                .iter()
-                .map(|f| vol(f[0], f[1], f[2], p) > 0.0),
-        );
+        visible.extend(faces.iter().map(|f| vol(f[0], f[1], f[2], p) > 0.0));
         if !visible.iter().any(|&v| v) {
             // Inside the hull already, which on a sphere means a repeated
             // point. It contributes no face.
@@ -715,7 +713,12 @@ mod tests {
         for n in [4usize, 12, 40, 120, 501] {
             let pts = fib_sphere(n);
             let tris = delaunay_sphere(&pts);
-            assert_eq!(tris.len(), 2 * n - 4, "{n} points gave {} faces", tris.len());
+            assert_eq!(
+                tris.len(),
+                2 * n - 4,
+                "{n} points gave {} faces",
+                tris.len()
+            );
             if let Some(why) = every_face_is_empty(&pts, &tris) {
                 panic!("{n} points: {why}");
             }
@@ -789,7 +792,12 @@ mod tests {
         for n in [12usize, 40, 120] {
             let pts = fib_sphere(n);
             let tris = delaunay_small(&Sphere, &pts);
-            assert_eq!(tris.len(), 2 * n - 4, "{n} points gave {} faces", tris.len());
+            assert_eq!(
+                tris.len(),
+                2 * n - 4,
+                "{n} points gave {} faces",
+                tris.len()
+            );
             let band = Band::new(Sphere, pts, tris);
             assert_eq!(band.n_edges(), 3 * n - 6, "edge count for {n} points");
             assert_eq!(band.inverted(), 0, "a face turned over at {n} points");
@@ -881,12 +889,14 @@ mod tests {
         let want = ((3.0 + 5.0_f64.sqrt()) / 2.0).ln();
         // The first words are transient while the band aligns with the
         // unstable foliation, so the rate is read from the later ones.
-        let tail: f64 = per_word[words / 2..].iter().sum::<f64>()
-            / (words - words / 2) as f64;
+        let tail: f64 = per_word[words / 2..].iter().sum::<f64>() / (words - words / 2) as f64;
         println!(
             "golden braid: {tail:.6} per word against {want:.6}, \
              per word {:?}",
-            per_word.iter().map(|v| (v * 1e3).round() / 1e3).collect::<Vec<_>>()
+            per_word
+                .iter()
+                .map(|v| (v * 1e3).round() / 1e3)
+                .collect::<Vec<_>>()
         );
         assert!(
             (tail - want).abs() < 0.02,

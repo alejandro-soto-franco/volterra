@@ -1,8 +1,8 @@
-use cartan_dec::mesh::FlatMesh;
 use cartan_dec::Operators;
+use cartan_dec::mesh::FlatMesh;
 use cartan_manifolds::euclidean::Euclidean;
 use volterra_core::ActiveNematicParams;
-use volterra_dec::{molecular_field_dec, QField};
+use volterra_dec::{QField, molecular_field_dec};
 
 #[test]
 fn zeros_has_zero_order() {
@@ -26,13 +26,12 @@ fn lichnerowicz_layout_roundtrip() {
     assert_eq!(v.len(), 60); // 3 * 20
     let q2 = QField::from_lichnerowicz_layout(&v);
 
-    let diff: f64 = q
-        .q1
-        .iter()
-        .zip(&q2.q1)
-        .chain(q.q2.iter().zip(&q2.q2))
-        .map(|(a, b)| (a - b).abs())
-        .sum();
+    let diff: f64 =
+        q.q1.iter()
+            .zip(&q2.q1)
+            .chain(q.q2.iter().zip(&q2.q2))
+            .map(|(a, b)| (a - b).abs())
+            .sum();
     assert!(diff < 1e-14, "roundtrip failed: diff = {diff}");
 }
 

@@ -53,9 +53,10 @@ fn subdivide_sphere(
     let mut midpoint_cache: HashMap<(usize, usize), usize> = HashMap::new();
     let mut new_faces: Vec<[usize; 3]> = Vec::with_capacity(faces.len() * 4);
 
-    let get_midpoint = |a: usize, b: usize,
-                            new_verts: &mut Vec<SVector<f64, 3>>,
-                            cache: &mut HashMap<(usize, usize), usize>|
+    let get_midpoint = |a: usize,
+                        b: usize,
+                        new_verts: &mut Vec<SVector<f64, 3>>,
+                        cache: &mut HashMap<(usize, usize), usize>|
      -> usize {
         let key = if a < b { (a, b) } else { (b, a) };
         if let Some(&idx) = cache.get(&key) {

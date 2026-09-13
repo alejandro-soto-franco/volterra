@@ -33,8 +33,9 @@ fn boundary_speed(u: &VelocityField3D) -> f64 {
 }
 
 fn interior_speed(u: &VelocityField3D) -> f64 {
-    u.u.iter()
-        .fold(0.0_f64, |a, v| a.max((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()))
+    u.u.iter().fold(0.0_f64, |a, v| {
+        a.max((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
+    })
 }
 
 fn main() {

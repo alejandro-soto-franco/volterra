@@ -117,7 +117,16 @@ impl EntropyScan {
         let median = sorted[sorted.len() / 2];
         let mixing = values.iter().filter(|v| **v > 1e-12).count() as f64 / n;
         let n_windows = values.len() / n_axes;
-        Self { values, mean, sd, median, mixing, n_axes, n_windows, window }
+        Self {
+            values,
+            mean,
+            sd,
+            median,
+            mixing,
+            n_axes,
+            n_windows,
+            window,
+        }
     }
 }
 
@@ -137,7 +146,11 @@ pub struct SpherePass {
 
 fn norm(v: [f64; 3]) -> [f64; 3] {
     let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if n <= 0.0 { [0.0, 0.0, 1.0] } else { [v[0] / n, v[1] / n, v[2] / n] }
+    if n <= 0.0 {
+        [0.0, 0.0, 1.0]
+    } else {
+        [v[0] / n, v[1] / n, v[2] / n]
+    }
 }
 
 fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
@@ -145,7 +158,11 @@ fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
 }
 
 fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 /// Geodesic distance between two unit vectors, in radians.
@@ -155,7 +172,9 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 /// pass is decided.
 pub fn geodesic(a: [f64; 3], b: [f64; 3]) -> f64 {
     let c = cross(a, b);
-    (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt().atan2(dot(a, b))
+    (c[0] * c[0] + c[1] * c[1] + c[2] * c[2])
+        .sqrt()
+        .atan2(dot(a, b))
 }
 
 /// Track defects across frames on the sphere.
@@ -167,10 +186,7 @@ pub fn geodesic(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// frame that leaves any strand unmatched does end it.
 ///
 /// `max_disp` is in radians, the furthest a defect may move between frames.
-pub fn track_on_sphere(
-    frames: &[SphereFrame],
-    max_disp: f64,
-) -> Option<SphereWorldlines> {
+pub fn track_on_sphere(frames: &[SphereFrame], max_disp: f64) -> Option<SphereWorldlines> {
     track_with(frames, max_disp, Separation::Geodesic)
 }
 
@@ -257,7 +273,9 @@ impl SphereWorldlines {
 
     /// Indices of the positive strands.
     pub fn positive(&self) -> Vec<usize> {
-        (0..self.n_strands()).filter(|&s| self.charge[s] > 0).collect()
+        (0..self.n_strands())
+            .filter(|&s| self.charge[s] > 0)
+            .collect()
     }
 
     /// The strands of whichever charge the surface is forced to carry.
@@ -268,13 +286,13 @@ impl SphereWorldlines {
     /// all on any surface of negative Euler characteristic. Ties fall to the
     /// positive strands, which keeps a sphere's answer exactly as it was.
     pub fn dominant(&self) -> Vec<usize> {
-        let pos: Vec<usize> = (0..self.n_strands()).filter(|&s| self.charge[s] > 0).collect();
-        let neg: Vec<usize> = (0..self.n_strands()).filter(|&s| self.charge[s] < 0).collect();
-        if neg.len() > pos.len() {
-            neg
-        } else {
-            pos
-        }
+        let pos: Vec<usize> = (0..self.n_strands())
+            .filter(|&s| self.charge[s] > 0)
+            .collect();
+        let neg: Vec<usize> = (0..self.n_strands())
+            .filter(|&s| self.charge[s] < 0)
+            .collect();
+        if neg.len() > pos.len() { neg } else { pos }
     }
 
     /// The direction furthest from every strand over the whole run.
@@ -318,8 +336,14 @@ impl SphereWorldlines {
         let mut step = 2.0 * (std::f64::consts::PI / m as f64).sqrt();
         for _ in 0..40 {
             let mut moved = false;
-            for d in [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0],
-                      [0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]] {
+            for d in [
+                [1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, -1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, -1.0],
+            ] {
                 let trial = norm([
                     cur[0] + step * d[0],
                     cur[1] + step * d[1],
@@ -351,7 +375,11 @@ impl SphereWorldlines {
     pub fn project(&self, pole: [f64; 3]) -> Vec<Worldline> {
         let p = norm(pole);
         // Any two unit vectors completing a right-handed frame with the pole.
-        let seed = if p[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+        let seed = if p[2].abs() < 0.9 {
+            [0.0, 0.0, 1.0]
+        } else {
+            [1.0, 0.0, 0.0]
+        };
         let e1 = norm(cross(seed, p));
         let e2 = cross(p, e1);
         (0..self.n_strands())
@@ -869,7 +897,10 @@ mod tests {
             (p_shape - period).abs() < 0.15 * period,
             "the shape period should be {period}, got {p_shape}"
         );
-        assert!(q_shape > 0.7, "a clean repeat should score high, got {q_shape}");
+        assert!(
+            q_shape > 0.7,
+            "a clean repeat should score high, got {q_shape}"
+        );
     }
 
     /// This is the case the old self-recurrence measure could not see. The
@@ -917,7 +948,10 @@ mod tests {
             (p_shape - period).abs() < 0.15 * period,
             "the shape period should be {period}, got {p_shape}"
         );
-        assert!(q_shape > 0.7, "a clean repeat should score high, got {q_shape}");
+        assert!(
+            q_shape > 0.7,
+            "a clean repeat should score high, got {q_shape}"
+        );
 
         // The control: no defect returns to its own position, which is why the
         // measure had to be built on the shape.
@@ -949,7 +983,10 @@ mod tests {
         let w = track_on_sphere(&frames, 0.6).expect("tracking");
         let (_, spread, positive) = w.entropy_rate(w.far_pole());
         assert!(spread.is_finite(), "the spread must be reportable");
-        assert!((0.0..=1.0).contains(&positive), "a fraction, got {positive}");
+        assert!(
+            (0.0..=1.0).contains(&positive),
+            "a fraction, got {positive}"
+        );
     }
     use super::*;
 

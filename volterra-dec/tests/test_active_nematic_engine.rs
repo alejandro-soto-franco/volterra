@@ -1,5 +1,5 @@
-use cartan_dec::mesh_gen::icosphere;
 use cartan_dec::hodge::HodgeStar;
+use cartan_dec::mesh_gen::icosphere;
 use cartan_manifolds::sphere::Sphere;
 
 use volterra_dec::nematic_field_2d::NematicField2D;
@@ -26,12 +26,15 @@ fn test_engine_runs_on_sphere() {
     let mut engine = ActiveNematicEngine::new(&mesh, &manifold, &hodge, params, stokes);
 
     // Start with a small random-ish perturbation.
-    let mut field = NematicField2D::from_section(
-        cartan_dec::line_bundle::Section::<2>::from_real_components(
-            &(0..nv).map(|i| 0.01 * (i as f64 * 0.7).sin()).collect::<Vec<_>>(),
-            &(0..nv).map(|i| 0.01 * (i as f64 * 1.3).cos()).collect::<Vec<_>>(),
-        ),
-    );
+    let mut field =
+        NematicField2D::from_section(cartan_dec::line_bundle::Section::<2>::from_real_components(
+            &(0..nv)
+                .map(|i| 0.01 * (i as f64 * 0.7).sin())
+                .collect::<Vec<_>>(),
+            &(0..nv)
+                .map(|i| 0.01 * (i as f64 * 1.3).cos())
+                .collect::<Vec<_>>(),
+        ));
 
     // Run a few steps.
     let mut last_diag = None;
@@ -64,11 +67,11 @@ fn test_engine_zero_activity_preserves_field() {
     let hodge = HodgeStar::from_mesh_circumcentric(&mesh, &manifold).unwrap();
 
     let params = EngineParams {
-        pe: 1e10,  // Very large Pe: almost no diffusion.
+        pe: 1e10, // Very large Pe: almost no diffusion.
         lambda: 1.0,
         epsilon: 0.01,
         dt: 0.001,
-        activity_sign: 0.0,  // No activity.
+        activity_sign: 0.0, // No activity.
     };
 
     let stokes = Box::new(KillingOperatorSolver::new(&mesh, 1e3, 1e-4));
@@ -120,17 +123,23 @@ fn test_engine_stream_function_backend() {
 
     let mut engine = ActiveNematicEngine::new(&mesh, &manifold, &hodge, params, stokes);
 
-    let mut field = NematicField2D::from_section(
-        cartan_dec::line_bundle::Section::<2>::from_real_components(
-            &(0..nv).map(|i| 0.01 * (i as f64 * 0.7).sin()).collect::<Vec<_>>(),
-            &(0..nv).map(|i| 0.01 * (i as f64 * 1.3).cos()).collect::<Vec<_>>(),
-        ),
-    );
+    let mut field =
+        NematicField2D::from_section(cartan_dec::line_bundle::Section::<2>::from_real_components(
+            &(0..nv)
+                .map(|i| 0.01 * (i as f64 * 0.7).sin())
+                .collect::<Vec<_>>(),
+            &(0..nv)
+                .map(|i| 0.01 * (i as f64 * 1.3).cos())
+                .collect::<Vec<_>>(),
+        ));
 
     // Run a few steps with stream function backend.
     for _ in 0..5 {
         let diag = engine.step(&mut field);
         assert!(diag.mean_order.is_finite(), "mean order should be finite");
-        assert_eq!(diag.stokes_residual, 0.0, "stream function is div-free by construction");
+        assert_eq!(
+            diag.stokes_residual, 0.0,
+            "stream function is div-free by construction"
+        );
     }
 }

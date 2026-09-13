@@ -100,7 +100,11 @@ pub trait PlaneCurve: Send + Sync {
         let eps = 1e-6 * self.period() / TAU;
         let p = self.d1(u + eps);
         let n = (p[0] * p[0] + p[1] * p[1]).sqrt();
-        if n > 1e-300 { [p[0] / n, p[1] / n] } else { [1.0, 0.0] }
+        if n > 1e-300 {
+            [p[0] / n, p[1] / n]
+        } else {
+            [1.0, 0.0]
+        }
     }
 
     /// Inward unit normal, oriented by testing a short step against
@@ -119,7 +123,11 @@ pub trait PlaneCurve: Send + Sync {
         let (p1, p2) = (self.d1(u), self.d2(u));
         let cross = (p1[0] * p2[1] - p1[1] * p2[0]).abs();
         let s = self.speed(u);
-        if cross <= 1e-300 { f64::INFINITY } else { s * s * s / cross }
+        if cross <= 1e-300 {
+            f64::INFINITY
+        } else {
+            s * s * s / cross
+        }
     }
 
     /// Parametric half-width at which the two branches leaving the first
@@ -152,7 +160,11 @@ pub trait PlaneCurve: Send + Sync {
         }
         for _ in 0..90 {
             let mid = 0.5 * (lo + hi);
-            if along(mid) < edge { lo = mid } else { hi = mid }
+            if along(mid) < edge {
+                lo = mid
+            } else {
+                hi = mid
+            }
         }
         0.5 * (lo + hi)
     }
@@ -163,18 +175,42 @@ pub trait PlaneCurve: Send + Sync {
 /// Every method is forwarded, the provided ones included, so an implementation
 /// that overrides a default keeps that override through the pointer.
 impl<T: PlaneCurve + ?Sized> PlaneCurve for Arc<T> {
-    fn point(&self, u: f64) -> [f64; 2] { (**self).point(u) }
-    fn d1(&self, u: f64) -> [f64; 2] { (**self).d1(u) }
-    fn d2(&self, u: f64) -> [f64; 2] { (**self).d2(u) }
-    fn period(&self) -> f64 { (**self).period() }
-    fn features(&self) -> Vec<f64> { (**self).features() }
-    fn feature_symmetric(&self) -> bool { (**self).feature_symmetric() }
-    fn interior(&self) -> [f64; 2] { (**self).interior() }
-    fn speed(&self, u: f64) -> f64 { (**self).speed(u) }
-    fn tangent(&self, u: f64) -> [f64; 2] { (**self).tangent(u) }
-    fn inward_normal(&self, u: f64) -> [f64; 2] { (**self).inward_normal(u) }
-    fn curvature_radius(&self, u: f64) -> f64 { (**self).curvature_radius(u) }
-    fn feature_edge_param(&self, edge: f64) -> f64 { (**self).feature_edge_param(edge) }
+    fn point(&self, u: f64) -> [f64; 2] {
+        (**self).point(u)
+    }
+    fn d1(&self, u: f64) -> [f64; 2] {
+        (**self).d1(u)
+    }
+    fn d2(&self, u: f64) -> [f64; 2] {
+        (**self).d2(u)
+    }
+    fn period(&self) -> f64 {
+        (**self).period()
+    }
+    fn features(&self) -> Vec<f64> {
+        (**self).features()
+    }
+    fn feature_symmetric(&self) -> bool {
+        (**self).feature_symmetric()
+    }
+    fn interior(&self) -> [f64; 2] {
+        (**self).interior()
+    }
+    fn speed(&self, u: f64) -> f64 {
+        (**self).speed(u)
+    }
+    fn tangent(&self, u: f64) -> [f64; 2] {
+        (**self).tangent(u)
+    }
+    fn inward_normal(&self, u: f64) -> [f64; 2] {
+        (**self).inward_normal(u)
+    }
+    fn curvature_radius(&self, u: f64) -> f64 {
+        (**self).curvature_radius(u)
+    }
+    fn feature_edge_param(&self, edge: f64) -> f64 {
+        (**self).feature_edge_param(edge)
+    }
 }
 
 /// A closed curve through sampled points, interpolated by a periodic cubic
@@ -401,7 +437,11 @@ impl PlaneCurve for PolyCurve {
     /// domain, where a step towards the centroid can pick the wrong side.
     fn inward_normal(&self, u: f64) -> [f64; 2] {
         let t = self.tangent(u);
-        if self.ccw { [-t[1], t[0]] } else { [t[1], -t[0]] }
+        if self.ccw {
+            [-t[1], t[0]]
+        } else {
+            [t[1], -t[0]]
+        }
     }
 }
 
@@ -534,7 +574,10 @@ mod tests {
             .iter()
             .map(|p| [1000.0 * p[0], 1000.0 * p[1]])
             .collect();
-        assert_eq!(small.features(), PolyCurve::new_auto(&big).unwrap().features());
+        assert_eq!(
+            small.features(),
+            PolyCurve::new_auto(&big).unwrap().features()
+        );
     }
 
     #[test]
@@ -697,10 +740,18 @@ mod tests {
     fn feature_edge_param_measures_arc() {
         let mut pts = Vec::new();
         let m = 20;
-        for i in 0..m { pts.push([i as f64 / m as f64, 0.0]); }
-        for i in 0..m { pts.push([1.0, i as f64 / m as f64]); }
-        for i in 0..m { pts.push([1.0 - i as f64 / m as f64, 1.0]); }
-        for i in 0..m { pts.push([0.0, 1.0 - i as f64 / m as f64]); }
+        for i in 0..m {
+            pts.push([i as f64 / m as f64, 0.0]);
+        }
+        for i in 0..m {
+            pts.push([1.0, i as f64 / m as f64]);
+        }
+        for i in 0..m {
+            pts.push([1.0 - i as f64 / m as f64, 1.0]);
+        }
+        for i in 0..m {
+            pts.push([0.0, 1.0 - i as f64 / m as f64]);
+        }
         let c = PolyCurve::new(&pts, &[0.0, 20.0, 40.0, 60.0]).unwrap();
         let e = c.feature_edge_param(0.1);
         let p = c.point(e);
@@ -814,9 +865,15 @@ mod tests {
     fn default_orientation_agrees_on_a_disc() {
         struct Circle;
         impl PlaneCurve for Circle {
-            fn point(&self, u: f64) -> [f64; 2] { [u.cos(), u.sin()] }
-            fn d1(&self, u: f64) -> [f64; 2] { [-u.sin(), u.cos()] }
-            fn d2(&self, u: f64) -> [f64; 2] { [-u.cos(), -u.sin()] }
+            fn point(&self, u: f64) -> [f64; 2] {
+                [u.cos(), u.sin()]
+            }
+            fn d1(&self, u: f64) -> [f64; 2] {
+                [-u.sin(), u.cos()]
+            }
+            fn d2(&self, u: f64) -> [f64; 2] {
+                [-u.cos(), -u.sin()]
+            }
         }
         for k in 0..16 {
             let u = PI * k as f64 / 8.0;

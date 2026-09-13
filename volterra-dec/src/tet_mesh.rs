@@ -325,7 +325,10 @@ impl std::fmt::Display for TetMeshError {
         match self {
             Self::RepeatedVertex(t) => write!(f, "tetrahedron {t:?} repeats a vertex"),
             Self::VertexOutOfRange { index, nv } => {
-                write!(f, "vertex index {index} is past the {nv} positions supplied")
+                write!(
+                    f,
+                    "vertex index {index} is past the {nv} positions supplied"
+                )
             }
             Self::DegenerateTet(t) => write!(f, "tetrahedron {t:?} is coplanar"),
             Self::NonManifoldFace(t) => write!(f, "face {t:?} belongs to three or more cells"),
@@ -514,7 +517,14 @@ pub struct StructuredBox {
 impl StructuredBox {
     /// The divisions and extents of a box.
     pub fn new(nx: usize, ny: usize, nz: usize, lx: f64, ly: f64, lz: f64) -> Self {
-        Self { nx, ny, nz, lx, ly, lz }
+        Self {
+            nx,
+            ny,
+            nz,
+            lx,
+            ly,
+            lz,
+        }
     }
 
     /// Build the complex this descriptor names.
@@ -616,7 +626,10 @@ pub fn annulus_triangulation(
 ) -> (Vec<[f64; 2]>, Vec<[usize; 3]>) {
     assert!(n_theta >= 3, "an annulus needs at least three sectors");
     assert!(n_r >= 1, "an annulus needs at least one radial band");
-    assert!(0.0 < r_inner && r_inner < r_outer, "radii must be ordered and positive");
+    assert!(
+        0.0 < r_inner && r_inner < r_outer,
+        "radii must be ordered and positive"
+    );
     let mut v = Vec::with_capacity(n_theta * (n_r + 1));
     for j in 0..=n_r {
         let r = r_inner + (r_outer - r_inner) * j as f64 / n_r as f64;
@@ -708,10 +721,11 @@ impl TetComplex {
     where
         F: Fn([f64; 3]) -> [f64; 3] + Copy,
     {
-        (0..self.n_faces()).map(|f| self.face_flux_of(f, field)).collect()
+        (0..self.n_faces())
+            .map(|f| self.face_flux_of(f, field))
+            .collect()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -740,15 +754,23 @@ mod tests {
     fn the_chain_composes_to_zero_on_a_box() {
         let m = box_mesh(3, 2, 2, 1.0, 0.7, 0.4).unwrap();
         let (d0, d1, d2) = (m.d0(), m.d1(), m.d2());
-        assert_eq!(max_abs(&spmul(&d1, &d0)), 0.0, "d1 d0 must vanish entry by entry");
-        assert_eq!(max_abs(&spmul(&d2, &d1)), 0.0, "d2 d1 must vanish entry by entry");
+        assert_eq!(
+            max_abs(&spmul(&d1, &d0)),
+            0.0,
+            "d1 d0 must vanish entry by entry"
+        );
+        assert_eq!(
+            max_abs(&spmul(&d2, &d1)),
+            0.0,
+            "d2 d1 must vanish entry by entry"
+        );
     }
 
     #[test]
     fn the_euler_characteristic_of_a_filled_box_is_one() {
         let m = box_mesh(3, 2, 2, 1.0, 1.0, 1.0).unwrap();
-        let chi = m.n_vertices() as i64 - m.n_edges() as i64 + m.n_faces() as i64
-            - m.n_tets() as i64;
+        let chi =
+            m.n_vertices() as i64 - m.n_edges() as i64 + m.n_faces() as i64 - m.n_tets() as i64;
         assert_eq!(chi, 1, "a ball has Euler characteristic one");
     }
 
@@ -796,7 +818,10 @@ mod tests {
         let div = matvec(&d2, &flux);
         let worst = div.iter().fold(0.0_f64, |acc, x| acc.max(x.abs()));
         let scale = flux.iter().fold(0.0_f64, |a, x| a.max(x.abs()));
-        assert!(worst < 1e-13 * scale, "worst cell divergence {worst} against flux scale {scale}");
+        assert!(
+            worst < 1e-13 * scale,
+            "worst cell divergence {worst} against flux scale {scale}"
+        );
     }
 
     /// The divergence theorem on every cell, for the linear field `v = x`.
@@ -824,7 +849,6 @@ mod tests {
             );
         }
     }
-
 
     #[test]
     fn a_coplanar_tetrahedron_is_rejected() {

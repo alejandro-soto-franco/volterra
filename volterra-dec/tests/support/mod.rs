@@ -13,8 +13,8 @@
 
 use cartan_manifolds::sphere::Sphere;
 use nalgebra::DVector;
-use volterra_dec::mesh_gen::icosphere;
 use volterra_dec::DecDomain;
+use volterra_dec::mesh_gen::icosphere;
 
 /// Build a unit-sphere `DecDomain` at the given icosphere refinement level.
 ///

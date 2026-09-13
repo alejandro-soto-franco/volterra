@@ -219,10 +219,22 @@ pub fn epitrochoid_mesh(q: f64, r: f64, n_boundary: usize, interior_spacing: f64
     let (boundary_pts, params) = sample_epitrochoid(q, r, n_boundary);
 
     // Bounding box of the epitrochoid for grid generation.
-    let x_min = boundary_pts.iter().map(|[x, _]| *x).fold(f64::INFINITY, f64::min);
-    let x_max = boundary_pts.iter().map(|[x, _]| *x).fold(f64::NEG_INFINITY, f64::max);
-    let y_min = boundary_pts.iter().map(|[_, y]| *y).fold(f64::INFINITY, f64::min);
-    let y_max = boundary_pts.iter().map(|[_, y]| *y).fold(f64::NEG_INFINITY, f64::max);
+    let x_min = boundary_pts
+        .iter()
+        .map(|[x, _]| *x)
+        .fold(f64::INFINITY, f64::min);
+    let x_max = boundary_pts
+        .iter()
+        .map(|[x, _]| *x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let y_min = boundary_pts
+        .iter()
+        .map(|[_, y]| *y)
+        .fold(f64::INFINITY, f64::min);
+    let y_max = boundary_pts
+        .iter()
+        .map(|[_, y]| *y)
+        .fold(f64::NEG_INFINITY, f64::max);
 
     // Start with boundary points; interior points appended after.
     let mut all_points: Vec<[f64; 2]> = boundary_pts.clone();
@@ -333,7 +345,10 @@ mod tests {
         let pts = sample_disk(5.0, 100);
         for [x, y] in &pts {
             let r = (x * x + y * y).sqrt();
-            assert!((r - 5.0).abs() < 1e-10, "boundary point at r = {r}, expected 5.0");
+            assert!(
+                (r - 5.0).abs() < 1e-10,
+                "boundary point at r = {r}, expected 5.0"
+            );
         }
     }
 
@@ -352,7 +367,10 @@ mod tests {
     #[test]
     fn disk_mesh_constructs() {
         let cm = disk_mesh(5.0, 1.5, 64, 0.5);
-        assert!(cm.mesh.n_vertices() > 64, "should have boundary + interior vertices");
+        assert!(
+            cm.mesh.n_vertices() > 64,
+            "should have boundary + interior vertices"
+        );
         assert!(cm.mesh.n_simplices() > 0, "should have triangles");
         assert_eq!(cm.boundary_vertices.len(), 64);
         assert_eq!(cm.anchoring_directions.len(), 64);
@@ -414,7 +432,7 @@ mod tests {
         let n_boundary = 60;
 
         let cm_coarse = epitrochoid_mesh(q, r, n_boundary, 0.6);
-        let cm_fine   = epitrochoid_mesh(q, r, n_boundary, 0.3);
+        let cm_fine = epitrochoid_mesh(q, r, n_boundary, 0.3);
 
         assert!(
             cm_fine.mesh.n_vertices() > cm_coarse.mesh.n_vertices(),

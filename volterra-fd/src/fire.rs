@@ -212,11 +212,7 @@ fn dot5(a: &[f64; 5], b: &[f64; 5]) -> f64 {
 /// identical stopping quantity described in `BENCHMARKS.md`.
 pub fn force_max_metric(f: &QField3D) -> f64 {
     let n = f.len();
-    let sum_sq: f64 = f
-        .q
-        .par_iter()
-        .map(|fk| dot5(fk, fk))
-        .sum();
+    let sum_sq: f64 = f.q.par_iter().map(|fk| dot5(fk, fk)).sum();
     sum_sq.sqrt() / (n as f64)
 }
 

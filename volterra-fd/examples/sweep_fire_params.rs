@@ -9,7 +9,7 @@
 
 use volterra_core::ActiveNematicParams3D;
 use volterra_core::QField3D;
-use volterra_fd::{fire_minimize_3d_par, FireParams};
+use volterra_fd::{FireParams, fire_minimize_3d_par};
 
 fn analytic_s0(p: &ActiveNematicParams3D) -> f64 {
     (-3.0 * p.a_eff() / (4.0 * p.c_landau)).sqrt()

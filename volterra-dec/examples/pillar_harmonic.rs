@@ -11,7 +11,7 @@
 use nalgebra::DMatrix;
 use volterra_dec::mimetic::assemble_star;
 use volterra_dec::stokes_3d::BoundedStokes3D;
-use volterra_dec::tet_mesh::{box_mesh, pillar_mesh, TetComplex};
+use volterra_dec::tet_mesh::{TetComplex, box_mesh, pillar_mesh};
 
 /// The dimension of `{u on interior faces : d2 u = 0, d1^T M2 u = 0}`, and the
 /// singular values around the cut.
@@ -56,7 +56,12 @@ fn harmonic_dimension(mesh: &TetComplex) -> (usize, usize, f64, f64) {
     let nullity = free.len() - rank;
     let smallest_kept = s.get(rank.saturating_sub(1)).cloned().unwrap_or(0.0);
     let largest_dropped = s.get(rank).cloned().unwrap_or(0.0);
-    (free.len(), nullity, smallest_kept / top, largest_dropped / top)
+    (
+        free.len(),
+        nullity,
+        smallest_kept / top,
+        largest_dropped / top,
+    )
 }
 
 fn report(name: &str, mesh: TetComplex) {
@@ -92,6 +97,12 @@ fn main() {
     report("box 3x3x2", box_mesh(3, 3, 2, 1.0, 1.0, 0.5).unwrap());
     report("box 4x4x3", box_mesh(4, 4, 3, 1.0, 1.0, 0.5).unwrap());
     report("pillar 8x2x1", pillar_mesh(8, 2, 1, 0.3, 1.0, 0.5).unwrap());
-    report("pillar 12x3x2", pillar_mesh(12, 3, 2, 0.3, 1.0, 0.5).unwrap());
-    report("pillar 16x4x2", pillar_mesh(16, 4, 2, 0.3, 1.0, 0.5).unwrap());
+    report(
+        "pillar 12x3x2",
+        pillar_mesh(12, 3, 2, 0.3, 1.0, 0.5).unwrap(),
+    );
+    report(
+        "pillar 16x4x2",
+        pillar_mesh(16, 4, 2, 0.3, 1.0, 0.5).unwrap(),
+    );
 }

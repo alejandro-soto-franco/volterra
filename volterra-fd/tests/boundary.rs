@@ -89,10 +89,7 @@ fn inner_cells_have_outer_neighbour() {
                     }
                     b.is_outer[nx as usize * b.ly + ny as usize]
                 });
-            assert!(
-                has_outer,
-                "inner cell ({x},{y}) has no outer 4-neighbour"
-            );
+            assert!(has_outer, "inner cell ({x},{y}) has no outer 4-neighbour");
         }
     }
 }
@@ -133,7 +130,7 @@ fn outer_cells_have_non_inside_neighbour() {
 // ---------------------------------------------------------------------------
 
 use std::f64::consts::PI;
-use volterra_fd::{cardioid_boundary, epitrochoid_boundary, trefoiloid_boundary, Epitrochoid};
+use volterra_fd::{Epitrochoid, cardioid_boundary, epitrochoid_boundary, trefoiloid_boundary};
 
 /// The regularised outward normal winds through exactly `2 pi`, at every `q`.
 ///
@@ -186,7 +183,11 @@ fn regularised_normal_winds_once() {
 /// some other curve, all of which move the area by tens of percent.
 #[test]
 fn interior_count_matches_closed_form_area() {
-    for (label, q, lx) in [("cardioid", 1.5_f64, 200_usize), ("nephroid", 2.0, 100), ("trefoiloid", 2.5, 200)] {
+    for (label, q, lx) in [
+        ("cardioid", 1.5_f64, 200_usize),
+        ("nephroid", 2.0, 100),
+        ("trefoiloid", 2.5, 200),
+    ] {
         let epi = Epitrochoid::new(q);
         let b = epitrochoid_boundary(lx, lx, epi);
         let counted = b.interior_count() as f64;
@@ -217,8 +218,15 @@ fn family_normals_are_unit() {
         ("trefoiloid", trefoiloid_boundary(100, 100)),
     ] {
         for idx in 0..b.lx * b.ly {
-            for (layer, n) in [("outer", b.outer_normals[idx]), ("inner", b.inner_normals[idx])] {
-                let on_layer = if layer == "outer" { b.is_outer[idx] } else { b.is_inner[idx] };
+            for (layer, n) in [
+                ("outer", b.outer_normals[idx]),
+                ("inner", b.inner_normals[idx]),
+            ] {
+                let on_layer = if layer == "outer" {
+                    b.is_outer[idx]
+                } else {
+                    b.is_inner[idx]
+                };
                 if !on_layer {
                     continue;
                 }
@@ -240,5 +248,9 @@ fn zero_regularisation_is_a_disk() {
     // The disk this reduces to has radius (2q-1) r / 2q = 3 * 49 / 4.
     let expected = PI * (3.0 * 49.0 / 4.0_f64).powi(2);
     let rel = (b.interior_count() as f64 - expected).abs() / expected;
-    assert!(rel < 0.01, "counted {}, expected ~{expected:.1}", b.interior_count());
+    assert!(
+        rel < 0.01,
+        "counted {}, expected ~{expected:.1}",
+        b.interior_count()
+    );
 }
