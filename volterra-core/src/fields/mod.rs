@@ -1,4 +1,3 @@
-
 //! # Field types
 //!
 //! Tensor field types for 2D and 3D active nematics on regular Cartesian grids.
@@ -41,7 +40,9 @@ pub mod qfield3d;
 pub use qfield3d::QField3D;
 
 pub mod fields3d;
-pub use fields3d::{VelocityField3D, ScalarField3D, ConcentrationField3D, PressureField3D};
+pub use fields3d::{
+    ConcentrationField3D, PressureField3D, ScalarField3D, SpeciesField3D, VelocityField3D,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QField2D
@@ -66,29 +67,35 @@ pub struct QField2D {
 impl QField2D {
     /// Create a zero Q-tensor field.
     pub fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
-        Self { q: vec![[0.0, 0.0]; nx * ny], nx, ny, dx }
+        Self {
+            q: vec![[0.0, 0.0]; nx * ny],
+            nx,
+            ny,
+            dx,
+        }
     }
 
     /// Create a uniform Q-tensor field with every vertex set to `q`.
     pub fn uniform(nx: usize, ny: usize, dx: f64, q: [f64; 2]) -> Self {
-        Self { q: vec![q; nx * ny], nx, ny, dx }
+        Self {
+            q: vec![q; nx * ny],
+            nx,
+            ny,
+            dx,
+        }
     }
 
     /// Create a small-amplitude random perturbation (good initial condition for
     /// active turbulence simulations).
     ///
     /// Each component is drawn uniformly from `[-amplitude, amplitude]`.
-    pub fn random_perturbation(
-        nx: usize,
-        ny: usize,
-        dx: f64,
-        amplitude: f64,
-        seed: u64,
-    ) -> Self {
+    pub fn random_perturbation(nx: usize, ny: usize, dx: f64, amplitude: f64, seed: u64) -> Self {
         // Linear congruential generator for reproducibility without pulling in rand.
         let mut state: u64 = seed.wrapping_add(1);
         let mut next = move || -> f64 {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let bits = (state >> 33) as u32;
             (bits as f64 / u32::MAX as f64) * 2.0 - 1.0
         };
@@ -140,11 +147,11 @@ impl QField2D {
                 let km = self.idx_i(i as i64 - 1, j as i64);
                 let kpj = self.idx_i(i as i64, j as i64 + 1);
                 let kmj = self.idx_i(i as i64, j as i64 - 1);
-                out.q[k][0] = (self.q[kp][0] + self.q[km][0] + self.q[kpj][0]
-                    + self.q[kmj][0] - 4.0 * self.q[k][0])
+                out.q[k][0] = (self.q[kp][0] + self.q[km][0] + self.q[kpj][0] + self.q[kmj][0]
+                    - 4.0 * self.q[k][0])
                     / dx2;
-                out.q[k][1] = (self.q[kp][1] + self.q[km][1] + self.q[kpj][1]
-                    + self.q[kmj][1] - 4.0 * self.q[k][1])
+                out.q[k][1] = (self.q[kp][1] + self.q[km][1] + self.q[kpj][1] + self.q[kmj][1]
+                    - 4.0 * self.q[k][1])
                     / dx2;
             }
         }
@@ -163,10 +170,7 @@ impl QField2D {
     /// The 2D director is n = (cos θ, sin θ) and Q = S/2 (n⊗n - I/2),
     /// so θ = atan2(q2, q1) / 2.
     pub fn director_angle(&self) -> Vec<f64> {
-        self.q
-            .iter()
-            .map(|&[q1, q2]| q2.atan2(q1) / 2.0)
-            .collect()
+        self.q.iter().map(|&[q1, q2]| q2.atan2(q1) / 2.0).collect()
     }
 
     /// Embed each 2D Q-tensor as a 3×3 sym-traceless matrix for holonomy computation.
@@ -180,9 +184,7 @@ impl QField2D {
         self.q
             .iter()
             .map(|&[q1, q2]| {
-                SMatrix::<f64, 3, 3>::from_row_slice(&[
-                    q1, q2, 0.0, q2, -q1, 0.0, 0.0, 0.0, 0.0,
-                ])
+                SMatrix::<f64, 3, 3>::from_row_slice(&[q1, q2, 0.0, q2, -q1, 0.0, 0.0, 0.0, 0.0])
             })
             .collect()
     }
@@ -200,13 +202,23 @@ impl QField2D {
             .zip(&other.q)
             .map(|(&[a0, a1], &[b0, b1])| [a0 + b0, a1 + b1])
             .collect();
-        Self { q, nx: self.nx, ny: self.ny, dx: self.dx }
+        Self {
+            q,
+            nx: self.nx,
+            ny: self.ny,
+            dx: self.dx,
+        }
     }
 
     /// Point-wise scalar multiply: return `s * self`.
     pub fn scale(&self, s: f64) -> Self {
         let q = self.q.iter().map(|&[a, b]| [s * a, s * b]).collect();
-        Self { q, nx: self.nx, ny: self.ny, dx: self.dx }
+        Self {
+            q,
+            nx: self.nx,
+            ny: self.ny,
+            dx: self.dx,
+        }
     }
 
     /// Max Frobenius norm over all vertices (useful for CFL monitoring).
@@ -251,7 +263,12 @@ pub struct VelocityField2D {
 impl VelocityField2D {
     /// Create a zero velocity field.
     pub fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
-        Self { v: vec![[0.0, 0.0]; nx * ny], nx, ny, dx }
+        Self {
+            v: vec![[0.0, 0.0]; nx * ny],
+            nx,
+            ny,
+            dx,
+        }
     }
 
     /// Linear index for vertex `(i, j)` with periodic wrapping.
@@ -347,12 +364,22 @@ pub struct ScalarField2D {
 impl ScalarField2D {
     /// Create a zero scalar field.
     pub fn zeros(nx: usize, ny: usize, dx: f64) -> Self {
-        Self { phi: vec![0.0; nx * ny], nx, ny, dx }
+        Self {
+            phi: vec![0.0; nx * ny],
+            nx,
+            ny,
+            dx,
+        }
     }
 
     /// Create a uniform scalar field with every vertex set to `val`.
     pub fn uniform(nx: usize, ny: usize, dx: f64, val: f64) -> Self {
-        Self { phi: vec![val; nx * ny], nx, ny, dx }
+        Self {
+            phi: vec![val; nx * ny],
+            nx,
+            ny,
+            dx,
+        }
     }
 
     /// Linear index for vertex `(i, j)` with periodic wrapping.
@@ -389,14 +416,14 @@ impl ScalarField2D {
         let mut out = Self::zeros(self.nx, self.ny, self.dx);
         for i in 0..self.nx {
             for j in 0..self.ny {
-                let k   = self.idx(i, j);
-                let kp  = self.idx_i(i as i64 + 1, j as i64);
-                let km  = self.idx_i(i as i64 - 1, j as i64);
+                let k = self.idx(i, j);
+                let kp = self.idx_i(i as i64 + 1, j as i64);
+                let km = self.idx_i(i as i64 - 1, j as i64);
                 let kpj = self.idx_i(i as i64, j as i64 + 1);
                 let kmj = self.idx_i(i as i64, j as i64 - 1);
-                out.phi[k] = (self.phi[kp] + self.phi[km]
-                    + self.phi[kpj] + self.phi[kmj]
-                    - 4.0 * self.phi[k]) / dx2;
+                out.phi[k] = (self.phi[kp] + self.phi[km] + self.phi[kpj] + self.phi[kmj]
+                    - 4.0 * self.phi[k])
+                    / dx2;
             }
         }
         out
@@ -409,14 +436,29 @@ impl ScalarField2D {
     pub fn add(&self, other: &Self) -> Self {
         assert_eq!(self.nx, other.nx);
         assert_eq!(self.ny, other.ny);
-        let phi = self.phi.iter().zip(&other.phi).map(|(&a, &b)| a + b).collect();
-        Self { phi, nx: self.nx, ny: self.ny, dx: self.dx }
+        let phi = self
+            .phi
+            .iter()
+            .zip(&other.phi)
+            .map(|(&a, &b)| a + b)
+            .collect();
+        Self {
+            phi,
+            nx: self.nx,
+            ny: self.ny,
+            dx: self.dx,
+        }
     }
 
     /// Point-wise scalar multiply: return `s * self`.
     pub fn scale(&self, s: f64) -> Self {
         let phi = self.phi.iter().map(|&a| s * a).collect();
-        Self { phi, nx: self.nx, ny: self.ny, dx: self.dx }
+        Self {
+            phi,
+            nx: self.nx,
+            ny: self.ny,
+            dx: self.dx,
+        }
     }
 
     /// Mean value ⟨φ⟩ over all vertices.

@@ -30,19 +30,19 @@ pub mod par_gate;
 
 pub mod regime;
 pub use regime::{Regime, RegimeConstants, classify, melted_fraction, topological_defects};
-pub mod ops;
-pub mod nematic;
-pub mod stokes;
 pub mod bc;
+pub mod nematic;
+pub mod ops;
 pub mod step;
+pub mod stokes;
 
 pub mod error;
 pub use error::{FdError, FdResult};
 
 pub mod guard;
 
-pub mod sim_step;
 pub mod output;
+pub mod sim_step;
 
 pub mod ic;
 pub use ic::{SeededDefect, mitchell_figure_2a, mitchell_four_defect, seeded_q};
@@ -255,8 +255,14 @@ impl Params {
     ///
     /// The domain is a torus, so [`Params::net_charge`] is never read and is set
     /// to zero.
-    pub fn from_dimensionless(lx: usize, ly: usize, d: Dimensionless, k_elastic: f64,
-                              dt: f64, max_p_iters: i64) -> Self {
+    pub fn from_dimensionless(
+        lx: usize,
+        ly: usize,
+        d: Dimensionless,
+        k_elastic: f64,
+        dt: f64,
+        max_p_iters: i64,
+    ) -> Self {
         let rho = 1.0_f64;
         // Re = K / (rho nu^2).
         let eta = (k_elastic / (rho * d.re)).sqrt();
@@ -362,7 +368,10 @@ impl Dimensionless {
     /// arXiv:2506.20996: the same groups, with `C = -2A` so `S_eq = 1`, which is
     /// the convention its switch width `sigma = 0.2` is quoted in.
     pub fn nematic_locking(ell_a: f64) -> Self {
-        Self { s_eq: 1.0, ..Self::mitchell(ell_a) }
+        Self {
+            s_eq: 1.0,
+            ..Self::mitchell(ell_a)
+        }
     }
 
     /// Nematic coherence length implied by `C_tilde`, in lattice units.
@@ -379,16 +388,21 @@ pub mod cartesian_2d;
 pub use cartesian_2d::*;
 
 pub mod mol_field_3d;
-pub use mol_field_3d::{molecular_field_3d, molecular_field_3d_par, molecular_field_3d_par_into,
-                       euler_step_fused_par, co_rotation_3d};
+pub use mol_field_3d::{
+    co_rotation_3d, euler_step_fused_par, molecular_field_3d, molecular_field_3d_par,
+    molecular_field_3d_par_into,
+};
 
 pub mod beris_3d;
-pub use beris_3d::{beris_edwards_rhs_3d, beris_edwards_rhs_3d_par_dry,
-                   beris_edwards_rhs_3d_par_dry_into, euler_step_par};
+pub use beris_3d::{
+    beris_edwards_rhs_3d, beris_edwards_rhs_3d_par_dry, beris_edwards_rhs_3d_par_dry_into,
+    euler_step_par,
+};
 
 pub mod fire;
-pub use fire::{fire_minimize_3d_par, fire_step_3d_par, force_max_metric, FireParams, FireState};
+pub use fire::{FireParams, FireState, fire_minimize_3d_par, fire_step_3d_par, force_max_metric};
 
+pub mod species_3d;
 pub mod stokes_3d;
 pub use stokes_3d::stokes_solve_3d;
 
@@ -408,6 +422,6 @@ pub mod gauss_bonnet_3d;
 pub use gauss_bonnet_3d::gauss_bonnet_chi;
 
 pub mod runner_3d;
-pub use runner_3d::{run_dry_active_nematic_3d, run_bech_3d, SnapStats3D, BechStats3D};
+pub use runner_3d::{BechStats3D, SnapStats3D, run_bech_3d, run_dry_active_nematic_3d};
 
 pub mod sim_impls;

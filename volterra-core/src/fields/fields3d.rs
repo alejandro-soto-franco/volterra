@@ -60,9 +60,9 @@ impl VelocityField3D {
                     let lp = self.idx(i, j, (l + 1) % nz);
                     let lm = self.idx(i, j, (l + nz - 1) % nz);
 
-                    out.phi[k] = (self.u[ip][0] - self.u[im][0]
-                        + self.u[jp][1] - self.u[jm][1]
-                        + self.u[lp][2] - self.u[lm][2])
+                    out.phi[k] = (self.u[ip][0] - self.u[im][0] + self.u[jp][1] - self.u[jm][1]
+                        + self.u[lp][2]
+                        - self.u[lm][2])
                         * inv_2dx;
                 }
             }
@@ -276,10 +276,7 @@ mod tests {
         let v = VelocityField3D::uniform(8, 8, 8, 1.0, [1.0, 0.5, 0.0]);
         let div = v.divergence();
         for d in &div.phi {
-            assert!(
-                d.abs() < 1e-10,
-                "divergence of uniform field must be zero"
-            );
+            assert!(d.abs() < 1e-10, "divergence of uniform field must be zero");
         }
     }
 
@@ -294,5 +291,73 @@ mod tests {
         let p = PressureField3D::zeros(4, 4, 4, 1.0);
         assert_eq!(p.phi().len(), 64);
         assert!(p.phi().iter().all(|&x| x == 0.0));
+    }
+}
+
+/// Concentrations of several species on the same grid.
+///
+/// Nucleation is driven by a local supersaturation, so a chemistry model needs a
+/// composition field transported by the same flow that moves the director. This
+/// carries one concentration per species and one diffusivity per species, since
+/// a solvent and a solute rarely share one.
+///
+/// Several species from the outset rather than one generalised later: lipid
+/// nanoparticle formation needs a lipid, a solvent and an aqueous phase at
+/// minimum, and retrofitting a second species into a single-scalar interface
+/// touches every caller.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeciesField3D {
+    /// One concentration array per species, each indexed `((i * ny) + j) * nz + l`.
+    pub c: Vec<Vec<f64>>,
+    /// Molecular diffusivity of each species, in the grid's own units.
+    ///
+    /// A liquid's Schmidt number is of order a thousand, so a physical value
+    /// puts the scalar's finest structure at the Batchelor scale, some thirty
+    /// times below the flow's. The value is taken as given here and whether the
+    /// mesh can support it is reported rather than enforced.
+    pub diffusivity: Vec<f64>,
+    pub nx: usize,
+    pub ny: usize,
+    pub nz: usize,
+    pub dx: f64,
+}
+
+impl SpeciesField3D {
+    /// An empty field of `species` concentrations.
+    pub fn zeros(species: usize, nx: usize, ny: usize, nz: usize, dx: f64) -> Self {
+        Self {
+            c: vec![vec![0.0; nx * ny * nz]; species],
+            diffusivity: vec![0.0; species],
+            nx,
+            ny,
+            nz,
+            dx,
+        }
+    }
+
+    /// Number of species.
+    pub fn species(&self) -> usize {
+        self.c.len()
+    }
+
+    /// Sites per species.
+    pub fn len(&self) -> usize {
+        self.nx * self.ny * self.nz
+    }
+
+    /// Whether the grid is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Flat index of a lattice position.
+    #[inline]
+    pub fn idx(&self, i: usize, j: usize, l: usize) -> usize {
+        ((i % self.nx) * self.ny + (j % self.ny)) * self.nz + (l % self.nz)
+    }
+
+    /// Total amount of each species, which advection and diffusion both conserve.
+    pub fn totals(&self) -> Vec<f64> {
+        self.c.iter().map(|c| c.iter().sum()).collect()
     }
 }
