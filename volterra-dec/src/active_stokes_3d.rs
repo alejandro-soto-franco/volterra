@@ -52,7 +52,7 @@ use crate::tet_mesh::StructuredBox;
 /// round the boundary.
 pub fn active_force_on_grid(q: &QField3D, zeta_eff: f64) -> Vec<[f64; 3]> {
     let (nx, ny, nz, dx) = (q.nx, q.ny, q.nz, q.dx);
-    let at = |i: usize, j: usize, k: usize| q.q[(k * ny + j) * nx + i];
+    let at = |i: usize, j: usize, k: usize| q.q[q.idx(i, j, k)];
     // Row `a` of Q, as a function of the five stored components.
     let row = |c: [f64; 5], a: usize| match a {
         0 => [c[0], c[1], c[2]],
@@ -87,7 +87,8 @@ pub fn active_force_on_grid(q: &QField3D, zeta_eff: f64) -> Vec<[f64; 3]> {
                         div[a] += (row(chi, a)[b] - row(clo, a)[b]) / h;
                     }
                 }
-                f[(k * ny + j) * nx + i] = [-zeta_eff * div[0], -zeta_eff * div[1], -zeta_eff * div[2]];
+                f[(k * ny + j) * nx + i] =
+                    [-zeta_eff * div[0], -zeta_eff * div[1], -zeta_eff * div[2]];
             }
         }
     }
@@ -114,7 +115,13 @@ impl GridField {
     /// Wrap a per-grid-point vector field.
     pub fn new(values: Vec<[f64; 3]>, nx: usize, ny: usize, nz: usize, dx: f64) -> Self {
         assert_eq!(values.len(), nx * ny * nz, "one vector per grid point");
-        Self { values, nx, ny, nz, dx }
+        Self {
+            values,
+            nx,
+            ny,
+            nz,
+            dx,
+        }
     }
 
     /// The field at a point, by trilinear interpolation.
@@ -176,7 +183,10 @@ impl ConfinedActiveStokes3D {
         cells: (usize, usize, usize),
     ) -> Result<Self, Stokes3DError> {
         let (gnx, gny, gnz) = grid;
-        assert!(gnx >= 2 && gny >= 2 && gnz >= 2, "a bounded chamber needs two layers per axis");
+        assert!(
+            gnx >= 2 && gny >= 2 && gnz >= 2,
+            "a bounded chamber needs two layers per axis"
+        );
         let boxed = StructuredBox::new(
             cells.0,
             cells.1,
@@ -215,9 +225,7 @@ impl ConfinedActiveStokes3D {
     /// integrated against the face normal, so a field constant on the grid
     /// reproduces its exact flux.
     pub fn project_to_faces(&self, field: &GridField) -> Vec<f64> {
-        self.solver
-            .mesh()
-            .flux_dofs(|x: [f64; 3]| field.sample(x))
+        self.solver.mesh().flux_dofs(|x: [f64; 3]| field.sample(x))
     }
 
     /// Solve for the velocity driven by an active Q-field, with no-slip walls.
@@ -235,13 +243,7 @@ impl ConfinedActiveStokes3D {
                 got: q.nx * q.ny * q.nz,
             });
         }
-        let force = GridField::new(
-            active_force_on_grid(q, p.zeta_eff),
-            q.nx,
-            q.ny,
-            q.nz,
-            q.dx,
-        );
+        let force = GridField::new(active_force_on_grid(q, p.zeta_eff), q.nx, q.ny, q.nz, q.dx);
         let f = self.project_to_faces(&force);
         let wall = vec![0.0; self.solver.mesh().n_faces()];
         self.solver.solve(&f, &wall, p.eta)
@@ -265,7 +267,8 @@ impl ConfinedActiveStokes3D {
                         Some(t) => flow.velocity_in_cell(mesh, t, x),
                         None => [0.0; 3],
                     };
-                    out.u[(k * gny + j) * gnx + i] = v;
+                    let n = out.idx(i, j, k);
+                    out.u[n] = v;
                 }
             }
         }

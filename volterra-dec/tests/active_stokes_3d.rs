@@ -2,7 +2,7 @@
 //! solver, and the two projections it needs.
 
 use volterra_core::{ActiveNematicParams3D, QField3D};
-use volterra_dec::active_stokes_3d::{active_force_on_grid, ConfinedActiveStokes3D, GridField};
+use volterra_dec::active_stokes_3d::{ConfinedActiveStokes3D, GridField, active_force_on_grid};
 use volterra_dec::stokes_3d::Flow3D;
 use volterra_dec::tet_mesh::StructuredBox;
 
@@ -26,7 +26,8 @@ fn the_active_force_is_exact_on_a_linear_q_field_including_the_wall() {
     for k in 0..nz {
         for j in 0..ny {
             for i in 0..nx {
-                q.q[(k * ny + j) * nx + i][0] = alpha * i as f64 * dx;
+                let n = q.idx(i, j, k);
+                q.q[n][0] = alpha * i as f64 * dx;
             }
         }
     }
@@ -125,7 +126,11 @@ fn a_uniform_q_field_drives_no_flow() {
     let u = solver.solve(&q, &p).unwrap();
     for (n, v) in u.u.iter().enumerate() {
         for a in 0..3 {
-            assert!(v[a].abs() < 1e-14, "grid point {n}, component {a}: {}", v[a]);
+            assert!(
+                v[a].abs() < 1e-14,
+                "grid point {n}, component {a}: {}",
+                v[a]
+            );
         }
     }
 }
@@ -177,13 +182,9 @@ fn the_wall_is_a_boundary_condition_rather_than_a_mask() {
             worst_normal = worst_normal.max((v[0] * n[0] + v[1] * n[1] + v[2] * n[2]).abs());
         }
 
-        let interior = solver
-            .sample_to_grid(&flow)
-            .u
-            .iter()
-            .fold(0.0_f64, |a, v| {
-                a.max((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
-            });
+        let interior = solver.sample_to_grid(&flow).u.iter().fold(0.0_f64, |a, v| {
+            a.max((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
+        });
         scale = scale.max(interior);
         assert!(
             worst_normal < 1e-12 * interior.max(1e-30),
@@ -191,7 +192,10 @@ fn the_wall_is_a_boundary_condition_rather_than_a_mask() {
         );
         slips.push(flow.wall_slip(mesh).rms);
     }
-    assert!(slips[1] < slips[0], "wall slip did not fall under refinement: {slips:?}");
+    assert!(
+        slips[1] < slips[0],
+        "wall slip did not fall under refinement: {slips:?}"
+    );
     assert!(
         slips[1] < 0.25 * scale,
         "wall slip {} against an interior scale of {scale}",
