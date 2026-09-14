@@ -4,7 +4,7 @@ All notable changes to volterra are documented here.
 
 ---
 
-## [Unreleased]
+## [0.8.0] - 2026-09-14
 
 ### Changed
 
