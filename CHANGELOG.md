@@ -4,6 +4,19 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Two-dimensional activity is signed. `ActiveNematicParams::validate`
+  accepts a negative `zeta_eff` and refuses only a non-finite one, and
+  `defect_length` uses its magnitude. The wet solver forces the flow with
+  `+zeta_eff div Q`, so a positive value drives a +1/2 disclination towards its
+  tail, the contractile sense, and a negative one towards its head, the
+  extensile sense; `tests/active_sign.rs` pins both. The three-dimensional
+  `stokes_3d` writes the active stress as `-zeta_eff Q`, the opposite
+  convention, which the field's documentation now states.
+
 ## [0.7.0] - 2026-09-13
 
 ### Changed

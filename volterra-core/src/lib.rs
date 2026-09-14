@@ -143,7 +143,16 @@ pub struct ActiveNematicParams {
     /// Rotor rotational viscosity Γ_r (collective relaxation rate = 1/Γ_r).
     pub gamma_r: f64,
     /// Effective activity ζ_eff = ζ₀ B₀² ω_B τ_r / (1 + (ω_B τ_r)²).
-    /// Controls defect density: ρ_d ~ ζ_eff / K_r.
+    /// Controls defect density: ρ_d ~ |ζ_eff| / K_r.
+    ///
+    /// Sign. The two-dimensional Stokes solve forces the flow with
+    /// `F = +ζ_eff ∇·Q`, an active stress `σ = +ζ_eff Q`, which drives a +1/2
+    /// disclination towards its tail when `ζ_eff > 0`: the contractile sense.
+    /// `ζ_eff < 0` is extensile and drives it towards its head. The rotor
+    /// model's own ζ_eff is non-negative; a negative value describes an
+    /// extensile material. The three-dimensional solver in `stokes_3d` writes
+    /// `σ = -ζ_eff Q`, the opposite convention, so a value carried from one to
+    /// the other changes sign.
     pub zeta_eff: f64,
     /// Fluid viscosity η.
     pub eta: f64,
@@ -236,11 +245,11 @@ impl ActiveNematicParams {
         }
     }
 
-    /// Defect length scale ℓ_d = sqrt(K_r / ζ_eff).
+    /// Defect length scale ℓ_d = sqrt(K_r / |ζ_eff|).
     ///
     /// This equals the mean rotor defect spacing.
     pub fn defect_length(&self) -> f64 {
-        (self.k_r / self.zeta_eff).sqrt()
+        (self.k_r / self.zeta_eff.abs()).sqrt()
     }
 
     /// Dimensionless existence condition Π = K_r / (Γ_l η K_l).
@@ -295,10 +304,8 @@ impl ActiveNematicParams {
         if self.gamma_r <= 0.0 {
             return Err(VError::InvalidParams("gamma_r must be positive".into()));
         }
-        if self.zeta_eff < 0.0 {
-            return Err(VError::InvalidParams(
-                "zeta_eff must be non-negative".into(),
-            ));
+        if !self.zeta_eff.is_finite() {
+            return Err(VError::InvalidParams("zeta_eff must be finite".into()));
         }
         if self.eta <= 0.0 {
             return Err(VError::InvalidParams("eta must be positive".into()));
