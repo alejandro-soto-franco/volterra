@@ -1131,7 +1131,6 @@ fn run_bech_3d_py(
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Register 3D binding classes and runner functions into the volterra Python module.
 // ─────────────────────────────────────────────────────────────────────────────
 // PyDisclinationCurve
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1235,6 +1234,7 @@ impl PyDisclinationCurve {
     }
 }
 
+/// Register 3D binding classes and runner functions into the volterra Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyActiveNematicParams3D>()?;
     m.add_class::<PyQField3D>()?;

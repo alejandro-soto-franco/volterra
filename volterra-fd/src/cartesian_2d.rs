@@ -171,6 +171,39 @@ pub fn corotation_strain(
     out
 }
 
+/// The flow-aligning source `λ S D` of the Beris-Edwards equation, `S = 2|q|`.
+///
+/// For an incompressible 2D flow `D = [[d_xx, d_xy], [d_xy, -d_xx]]`, so the
+/// source is `(λ S d_xx, λ S d_xy)` in the `(q1, q2)` components. Applied only
+/// when [`ActiveNematicParams::backflow`] is set.
+pub fn strain_alignment(
+    q: &QField2D,
+    v: &VelocityField2D,
+    params: &ActiveNematicParams,
+) -> QField2D {
+    let dx = q.dx;
+    let mut out = QField2D::zeros(q.nx, q.ny, q.dx);
+    for i in 0..q.nx {
+        for j in 0..q.ny {
+            let k = q.idx(i, j);
+            let ip = v.idx_i(i as i64 + 1, j as i64);
+            let im = v.idx_i(i as i64 - 1, j as i64);
+            let jp = v.idx_i(i as i64, j as i64 + 1);
+            let jm = v.idx_i(i as i64, j as i64 - 1);
+            let dvx_dx = (v.v[ip][0] - v.v[im][0]) / (2.0 * dx);
+            let dvy_dy = (v.v[jp][1] - v.v[jm][1]) / (2.0 * dx);
+            let dvx_dy = (v.v[jp][0] - v.v[jm][0]) / (2.0 * dx);
+            let dvy_dx = (v.v[ip][1] - v.v[im][1]) / (2.0 * dx);
+            let [q1, q2] = q.q[k];
+            let s = 2.0 * (q1 * q1 + q2 * q2).sqrt();
+            let lam_s = params.lambda * s;
+            out.q[k][0] = lam_s * 0.5 * (dvx_dx - dvy_dy);
+            out.q[k][1] = lam_s * 0.5 * (dvx_dy + dvy_dx);
+        }
+    }
+    out
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Beris-Edwards RHS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -205,6 +238,9 @@ pub fn beris_edwards_rhs(
         let corot = corotation_strain(q, vel, params);
         // dQ/dt = -u·∇Q + S(W,Q) + Γ_r H
         rhs = rhs.add(&corot).add(&advection.scale(-1.0));
+        if params.backflow {
+            rhs = rhs.add(&strain_alignment(q, vel, params));
+        }
     }
 
     rhs
@@ -489,6 +525,48 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
             .map(|(i, [_, q2])| params.zeta_at(i) * q2)
             .collect();
 
+    let mut s1_field = s1_field;
+    let mut s2_field = s2_field;
+    // Passive stresses, each conjugate to a flow term of the Q equation, so
+    // the energy the flow takes from Q equals the work its stress does.
+    let (a_hat, fx_hat, fy_hat) = if params.backflow {
+        let h = molecular_field(q, params);
+        let mut a_field = vec![0.0; n];
+        let mut fx_field = vec![0.0; n];
+        let mut fy_field = vec![0.0; n];
+        for i in 0..nx {
+            for j in 0..ny {
+                let k = i * ny + j;
+                let [q1, q2] = q.q[k];
+                let [h1, h2] = h.q[k];
+                let lam_s = params.lambda * 2.0 * (q1 * q1 + q2 * q2).sqrt();
+                // Symmetric part from the aligning source λ S D.
+                s1_field[k] -= 0.5 * lam_s * h1;
+                s2_field[k] -= 0.5 * lam_s * h2;
+                // Antisymmetric part from co-rotation, σ_xy = -σ_yx = A.
+                a_field[k] = q1 * h2 - q2 * h1;
+                // Ericksen body force from advection, -Σ_α h_α ∇q_α.
+                let ip = q.idx_i(i as i64 + 1, j as i64);
+                let im = q.idx_i(i as i64 - 1, j as i64);
+                let jp = q.idx_i(i as i64, j as i64 + 1);
+                let jm = q.idx_i(i as i64, j as i64 - 1);
+                for alpha in 0..2 {
+                    let dqdx = (q.q[ip][alpha] - q.q[im][alpha]) / (2.0 * dx);
+                    let dqdy = (q.q[jp][alpha] - q.q[jm][alpha]) / (2.0 * dx);
+                    fx_field[k] -= h.q[k][alpha] * dqdx;
+                    fy_field[k] -= h.q[k][alpha] * dqdy;
+                }
+            }
+        }
+        (
+            Some(fft2_real(&a_field)),
+            Some(fft2_real(&fx_field)),
+            Some(fft2_real(&fy_field)),
+        )
+    } else {
+        (None, None, None)
+    };
+
     let s1_hat = fft2_real(&s1_field);
     let s2_hat = fft2_real(&s2_field);
 
@@ -513,7 +591,12 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
             let k4 = k2 * k2;
             // ψ̂ = [(k_y² - k_x²) ŝ₂ + 2 k_x k_y ŝ₁] / (η k⁴), with the active
             // stress ŝ = (ζ Q)^ already carrying ζ (scalar or spatial).
-            let rhs = (ky * ky - kx * kx) * s2_hat[k] + 2.0 * kx * ky * s1_hat[k];
+            let mut rhs = (ky * ky - kx * kx) * s2_hat[k] + 2.0 * kx * ky * s1_hat[k];
+            // Curl of the passive forces: an antisymmetric stress A gives
+            // -∇²A, and a body force f gives ∂_x f_y - ∂_y f_x.
+            if let (Some(a_hat), Some(fx_hat), Some(fy_hat)) = (&a_hat, &fx_hat, &fy_hat) {
+                rhs += k2 * a_hat[k] + i_unit * kx * fy_hat[k] - i_unit * ky * fx_hat[k];
+            }
             let psi_hat = rhs / (eta * k4);
             // v̂_x = i k_y ψ̂, v̂_y = -i k_x ψ̂
             vx_hat[k] = i_unit * ky * psi_hat;

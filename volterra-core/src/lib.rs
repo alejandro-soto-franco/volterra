@@ -166,7 +166,23 @@ pub struct ActiveNematicParams {
     pub c_landau: f64,
     /// Flow alignment parameter λ (tumbling vs. flow-aligning nematics).
     /// λ = 1.0 for flow-aligning; |λ| < 1 for tumbling.
+    ///
+    /// Without [`backflow`](Self::backflow) the 2D co-rotation term's λ part,
+    /// `λ(D·Q + Q·D) - λ tr(D·Q) I`, is identically zero for an incompressible
+    /// flow, since `D·Q + Q·D = tr(D·Q) I` for traceless symmetric 2 x 2
+    /// tensors, so λ has no effect on a 2D run.
     pub lambda: f64,
+    /// Passive hydrodynamic coupling, the Beris-Edwards terms the default wet
+    /// run leaves out. When set, the Q equation gains the flow-aligning source
+    /// `λ S D` with `S = 2|q|`, and the Stokes forcing gains the stresses
+    /// conjugate to the flow terms of the Q equation: `-λ S H / 2` from the
+    /// aligning source, `Q·H - H·Q` from co-rotation, and the Ericksen body
+    /// force `-Σ_α h_α ∇q_α` from advection. With these, a passive run obeys
+    /// `dF/dt = -Γ_r ∫|H|² - η ∫|∇v|²`, and the flow the elastic stress drives
+    /// (backflow) exists at `zeta_eff = 0`. Off by default, which reproduces
+    /// every earlier result.
+    #[serde(default)]
+    pub backflow: bool,
 
     // ── Langevin noise ────────────────────────────────────────────────────
     /// RMS amplitude of the Langevin noise term added at each time step.
@@ -378,6 +394,7 @@ impl ActiveNematicParams {
             a_landau: -0.5,
             c_landau: 4.5,
             lambda: 0.7,
+            backflow: false,
             noise_amp: 0.0,
             k_l: 0.5,
             gamma_l: 1.0,

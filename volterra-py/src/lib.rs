@@ -46,7 +46,7 @@ pub struct PyActiveNematicParams {
 impl PyActiveNematicParams {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta, a_landau, c_landau, lambda_, k_l, gamma_l, xi_l, noise_amp=0.0, chi_ms=0.5, kappa_ch=1.0, a_ch=1.0, b_ch=1.0, m_l=0.1))]
+    #[pyo3(signature = (nx, ny, dx, dt, k_r, gamma_r, zeta_eff, eta, a_landau, c_landau, lambda_, k_l, gamma_l, xi_l, noise_amp=0.0, chi_ms=0.5, kappa_ch=1.0, a_ch=1.0, b_ch=1.0, m_l=0.1, backflow=false))]
     fn new(
         nx: usize,
         ny: usize,
@@ -68,6 +68,7 @@ impl PyActiveNematicParams {
         a_ch: f64,
         b_ch: f64,
         m_l: f64,
+        backflow: bool,
     ) -> PyResult<Self> {
         let p = ActiveNematicParams {
             nx,
@@ -81,6 +82,7 @@ impl PyActiveNematicParams {
             a_landau,
             c_landau,
             lambda: lambda_,
+            backflow,
             k_l,
             gamma_l,
             xi_l,

@@ -4,6 +4,27 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [0.9.0] - 2026-09-15
+
+### Added
+
+- `ActiveNematicParams::backflow`, off by default, gives the 2D wet solver
+  the passive Beris-Edwards coupling it lacked. The Q equation gains the
+  flow-aligning source `λ S D`, and the Stokes forcing gains the stresses
+  conjugate to each flow term: `-λ S H / 2`, `Q·H - H·Q`, and the Ericksen
+  body force `-Σ h_α ∇q_α`. Elastic stress then drives flow at zero activity.
+  `tests/backflow.rs` checks each term's power against its force's work, that
+  the solve is exact Stokes for the whole force, that a passive run only loses
+  free energy, and that a +1/2 defect outruns a -1/2 in annihilation, as Toth,
+  Denniston and Yeomans (2002) found. The Python constructor takes
+  `backflow=False`.
+
+### Fixed
+
+- Documented that without `backflow` the 2D co-rotation term's λ part is
+  identically zero for an incompressible flow, since `D·Q + Q·D = tr(D·Q) I`
+  for traceless symmetric 2 x 2 tensors, so λ had no effect on 2D wet runs.
+
 ## [0.8.0] - 2026-09-14
 
 ### Changed
