@@ -4,6 +4,21 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [0.10.0] - 2026-09-15
+
+### Changed (breaking)
+
+- One activity sign across volterra. The 2D finite-difference Stokes solve
+  now uses the active stress `-zeta_eff Q`, as the 3D solver, the CUDA
+  kernels and the DEC solvers already did, so `zeta_eff > 0` is extensile
+  everywhere and drives a +1/2 disclination towards its head. Before this
+  release the 2D solve used `+zeta_eff Q`: **a 2D wet or BECH run from an
+  earlier version reproduces here with `zeta_eff` negated**, and
+  `a_landau` adjusted to keep `a_eff = a_landau - zeta_eff/2` if it matters.
+  The dry runners are unchanged. For zeta without backflow the new velocity is
+  the old one negated to the bit. `tests/active_sign.rs` pins the new
+  direction, and the 2D wet and BECH golden oracles are recaptured.
+
 ## [0.9.0] - 2026-09-15
 
 ### Added

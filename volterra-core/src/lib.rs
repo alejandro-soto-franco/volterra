@@ -145,14 +145,15 @@ pub struct ActiveNematicParams {
     /// Effective activity ζ_eff = ζ₀ B₀² ω_B τ_r / (1 + (ω_B τ_r)²).
     /// Controls defect density: ρ_d ~ |ζ_eff| / K_r.
     ///
-    /// Sign. The two-dimensional Stokes solve forces the flow with
-    /// `F = +ζ_eff ∇·Q`, an active stress `σ = +ζ_eff Q`, which drives a +1/2
-    /// disclination towards its tail when `ζ_eff > 0`: the contractile sense.
-    /// `ζ_eff < 0` is extensile and drives it towards its head. The rotor
-    /// model's own ζ_eff is non-negative; a negative value describes an
-    /// extensile material. The three-dimensional solver in `stokes_3d` writes
-    /// `σ = -ζ_eff Q`, the opposite convention, so a value carried from one to
-    /// the other changes sign.
+    /// Sign. The active stress is `σ = -ζ_eff Q`, so `ζ_eff > 0` is extensile
+    /// and drives a +1/2 disclination towards its head, and `ζ_eff < 0` is
+    /// contractile and drives it towards its tail. Every volterra solver that
+    /// takes an activity ζ uses this convention: the 2D and 3D
+    /// finite-difference solvers, the CUDA kernels and the DEC solvers. The DEC
+    /// `ActiveNematicEngine` takes a Péclet number with an explicit
+    /// `activity_sign`, +1 contractile, which agrees. Before 0.10.0 the 2D
+    /// finite-difference Stokes solve used `σ = +ζ_eff Q`, so a 2D value from
+    /// an earlier version changes sign.
     pub zeta_eff: f64,
     /// Fluid viscosity η.
     pub eta: f64,
@@ -239,7 +240,7 @@ pub struct ActiveNematicParams {
     // ── Optional spatial activity ─────────────────────────────────────────
     /// Optional per-vertex active coefficient field ζ(x), row-major `i*ny + j`,
     /// length `nx*ny`. When present it overrides the scalar [`zeta_eff`] in the
-    /// active stress `σ = ζ(x) Q(x)`; when `None` the scalar `zeta_eff` is used
+    /// active stress `σ = -ζ(x) Q(x)`; when `None` the scalar `zeta_eff` is used
     /// uniformly. A spatial field lets a contact-driven conversion front cross
     /// the activity threshold in space (the saddle-node of the intermittency
     /// prediction), which a single scalar cannot represent.

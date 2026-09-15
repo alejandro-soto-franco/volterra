@@ -3,9 +3,10 @@
 //! With the director at half the polar angle, theta = phi / 2, the divergence
 //! of Q points along +x, towards the tail where the director runs straight, and
 //! the rounded head lies along -x. The wet solver forces the flow with
-//! `+zeta_eff div Q`, so a positive activity drives the core towards its tail,
-//! the contractile sense, and a negative one towards its head, the extensile
-//! sense. Without activity the core stays where it is.
+//! `-zeta_eff div Q`, the active stress `-zeta_eff Q` every volterra solver
+//! uses, so a positive activity drives the core towards its head, the
+//! extensile sense, and a negative one towards its tail, the contractile sense.
+//! Without activity the core stays where it is.
 
 use volterra_core::{ActiveNematicParams, QField2D};
 use volterra_fd::run_active_nematic_hydro;
@@ -72,15 +73,15 @@ fn moved(zeta: f64) -> f64 {
 }
 
 #[test]
-fn positive_activity_drives_a_plus_half_core_towards_its_tail() {
+fn positive_activity_drives_a_plus_half_core_towards_its_head() {
     let dx = moved(0.3);
-    assert!(dx > 2.0, "core moved {dx} along x");
+    assert!(dx < -2.0, "core moved {dx} along x");
 }
 
 #[test]
-fn negative_activity_drives_a_plus_half_core_towards_its_head() {
+fn negative_activity_drives_a_plus_half_core_towards_its_tail() {
     let dx = moved(-0.3);
-    assert!(dx < -2.0, "core moved {dx} along x");
+    assert!(dx > 2.0, "core moved {dx} along x");
 }
 
 #[test]

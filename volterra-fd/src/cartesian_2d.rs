@@ -412,16 +412,17 @@ pub fn k0_convolution(q_rot: &QField2D, params: &ActiveNematicParams) -> QField2
 /// Solve the 2D incompressible Stokes equation for the active velocity field.
 ///
 /// Given the Q-tensor field, computes the incompressible flow driven by the
-/// active stress `σ^a = ζ_eff Q` via the stream-function biharmonic equation:
+/// active stress `σ^a = -ζ_eff Q` via the stream-function biharmonic equation:
 ///
 /// ```text
-/// η ∇⁴ψ = ∂_x F_y - ∂_y F_x,   F = ∇·σ^a = ζ_eff ∇·Q
+/// η ∇⁴ψ = ∂_x F_y - ∂_y F_x,   F = ∇·σ^a = -ζ_eff ∇·Q
 /// ```
 ///
+/// `ζ_eff > 0` is extensile, as in `stokes_3d` and the DEC and CUDA solvers.
 /// Solved spectrally (pseudospectral FFT on a periodic grid):
 ///
 /// ```text
-/// ψ̂(k) = ζ [(k_y² - k_x²) q̂_2 + 2 k_x k_y q̂_1] / [η (k²)²]
+/// ψ̂(k) = -ζ [(k_y² - k_x²) q̂_2 + 2 k_x k_y q̂_1] / [η (k²)²]
 /// ```
 ///
 /// The velocity components follow from `v_x = ∂_y ψ`, `v_y = -∂_x ψ`.
@@ -510,19 +511,19 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
         buf.iter().map(|c| c.re / norm).collect()
     };
 
-    // Active stress components s = ζ(x) Q(x), built in real space so a spatial
+    // Active stress components s = -ζ(x) Q(x), built in real space so a spatial
     // ζ field (params.zeta_field) is handled correctly: the FFT of the real-space
     // product is the right Fourier source. A uniform ζ reproduces the scalar
     // result exactly by linearity (s_hat = ζ q_hat).
     let s1_field: Vec<f64> =
         q.q.iter()
             .enumerate()
-            .map(|(i, [q1, _])| params.zeta_at(i) * q1)
+            .map(|(i, [q1, _])| -params.zeta_at(i) * q1)
             .collect();
     let s2_field: Vec<f64> =
         q.q.iter()
             .enumerate()
-            .map(|(i, [_, q2])| params.zeta_at(i) * q2)
+            .map(|(i, [_, q2])| -params.zeta_at(i) * q2)
             .collect();
 
     let mut s1_field = s1_field;
@@ -1140,7 +1141,7 @@ pub struct BechStats {
 /// K₀ orientational transfer map.  At each time step:
 ///
 /// 1. **Stokes**: `v ← stokes_solve(Q^rot, params)`: compute the incompressible
-///    velocity field driven by active stress σ^a = ζ_eff Q^rot.
+///    velocity field driven by active stress σ^a = -ζ_eff Q^rot.
 /// 2. **Beris-Edwards (Euler)**: `Q^rot ← Q^rot + dt · [−v·∇Q^rot + S(W,Q^rot) + Γ_r H]`,
 ///    advancing the rotor Q-field with flow.
 /// 3. **Transfer map**: `Q^lip ← K₀ * Q^rot`: convolve to get the lipid orientational
