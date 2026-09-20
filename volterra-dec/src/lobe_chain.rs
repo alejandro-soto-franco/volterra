@@ -98,6 +98,20 @@ impl LobeChain {
         self.n - 1
     }
 
+    /// Parameter span of the left end wall, which the inlet is cut into.
+    ///
+    /// The circuit runs the lower train left to right, the right end wall
+    /// upward, the upper train right to left, and the left end wall downward,
+    /// so the two end walls are the last and the middle of the four legs.
+    pub fn inlet_span(&self) -> (f64, f64) {
+        (TAU * (2.0 * F_WALL + F_END), TAU)
+    }
+
+    /// Parameter span of the right end wall, which the outlet is cut into.
+    pub fn outlet_span(&self) -> (f64, f64) {
+        (TAU * F_WALL, TAU * (F_WALL + F_END))
+    }
+
     fn amp(&self) -> f64 {
         (self.h - self.y_tip) / 2.0
     }
