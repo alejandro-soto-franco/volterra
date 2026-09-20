@@ -50,6 +50,7 @@ pub mod ichol;
 pub mod implicit;
 pub mod mesh_gen;
 pub mod mimetic;
+pub mod lobe_chain;
 pub mod molecular_field_dec;
 pub mod nematic_params;
 pub mod poisson;
