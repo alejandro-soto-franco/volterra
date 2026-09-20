@@ -194,6 +194,21 @@ pub struct ActiveNematicParams {
     /// Set to 0.0 (default) to disable noise.
     pub noise_amp: f64,
 
+    // ── External field ────────────────────────────────────────────────────
+    /// Magnetic anisotropy, encoding `mu_0 Delta_chi / 2`, as in
+    /// [`ActiveNematicParams3D::chi_a`].
+    #[serde(default)]
+    pub chi_a: f64,
+    /// Magnetic field amplitude. Zero removes the term identically.
+    #[serde(default)]
+    pub b0: f64,
+    /// Rotation rate of the field in the plane; zero holds it along x.
+    ///
+    /// The rotating case is the MARS actuation, a suspension of magnetic rods
+    /// driven past its rotational relaxation rate.
+    #[serde(default)]
+    pub omega_b: f64,
+
     // ── Lipid phase (Component 2: one-way coupling) ───────────────────────
     /// Lipid Frank elastic constant K_l.
     pub k_l: f64,
@@ -381,6 +396,37 @@ impl ActiveNematicParams {
     /// The CH coherence length ξ_CH = sqrt(κ_ch/a_ch) = 1.0 (one grid cell),
     /// which is << ℓ_d = sqrt(K_r/ζ_eff) = 0.71 in the default active state,
     /// consistent with the UCA scale-separation argument.
+    /// The traceless rank-two term the external field contributes to the
+    /// planar molecular field, `chi_a b0^2 (d (x) d - I/2)` with
+    /// `d = (cos omega_b t, sin omega_b t)`.
+    ///
+    /// In the planar packing this is
+    ///
+    /// ```text
+    /// [Q_xx, Q_xy] = (chi_a b0^2 / 2) [cos(2 omega_b t), sin(2 omega_b t)]
+    /// ```
+    ///
+    /// The drive appears at twice its own phase because `Q` carries the spin-2
+    /// representation of a frame rotation: a field turned by a right angle
+    /// describes the same director and returns the term negated. The
+    /// three-dimensional counterpart projects with `I/3` and packs five
+    /// components; here `Q_yy = -Q_xx`, so tracelessness needs no projection
+    /// and no component to hold it.
+    ///
+    /// A zero coefficient or a zero amplitude returns zeros exactly, so a run
+    /// that sets neither is unchanged to the last bit by this term existing.
+    /// `Gamma_r` is not applied here, matching the three-dimensional lane,
+    /// where the single rotational-viscosity multiplication belongs to the
+    /// Beris-Edwards right-hand side.
+    pub fn field_term(&self, t: f64) -> [f64; 2] {
+        let a2 = self.chi_a * self.b0 * self.b0;
+        if a2 == 0.0 {
+            return [0.0, 0.0];
+        }
+        let (sin, cos) = (2.0 * self.omega_b * t).sin_cos();
+        [0.5 * a2 * cos, 0.5 * a2 * sin]
+    }
+
     pub fn default_test() -> Self {
         Self {
             nx: 64,
@@ -397,6 +443,9 @@ impl ActiveNematicParams {
             lambda: 0.7,
             backflow: false,
             noise_amp: 0.0,
+            chi_a: 0.0,
+            b0: 0.0,
+            omega_b: 0.0,
             k_l: 0.5,
             gamma_l: 1.0,
             xi_l: 5.0,

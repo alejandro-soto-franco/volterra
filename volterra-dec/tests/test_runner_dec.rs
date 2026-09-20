@@ -104,7 +104,7 @@ fn dec_molecular_field_zero_q() {
     let params = ActiveNematicParams::default_test();
     let q = QField::zeros(mesh.n_vertices());
 
-    let h = volterra_dec::molecular_field_dec(&q, &params, &ops, None);
+    let h = volterra_dec::molecular_field_dec(&q, &params, &ops, None, 0.0);
     let h_norm: f64 = h.q1.iter().chain(&h.q2).map(|x| x.abs()).sum();
     assert!(h_norm < 1e-12, "H(Q=0) should vanish, got {h_norm}");
 }

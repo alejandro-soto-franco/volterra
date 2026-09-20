@@ -21,7 +21,7 @@ use cartan_core::Manifold;
 use cartan_dec::{Mesh, Operators};
 use volterra_core::ActiveNematicParams;
 use volterra_core::sim::PhysicsStep;
-use volterra_core::sim::integrate::rk4;
+use volterra_core::sim::integrate::rk4_t;
 use volterra_core::sim::stats::StepStats;
 
 /// Dry active nematic on a 2D DEC mesh: RK4 of `dQ/dt = gamma_r * H` (no flow).
@@ -41,14 +41,16 @@ pub struct DecDry<'a, M: Manifold> {
 impl<M: Manifold> PhysicsStep for DecDry<'_, M> {
     type Field = QField;
 
-    fn step(&mut self, q: &mut QField, _t: f64) -> StepStats {
+    fn step(&mut self, q: &mut QField, t: f64) -> StepStats {
         let params = &self.params;
         let ops = self.ops;
         let cc = self.cc;
         // dQ/dt = gamma_r * H, integrated with RK4. Same op tree as the legacy
-        // `rk4_step` of `beris_edwards_rhs_dec`.
-        *q = rk4(q, params.dt, |qq| {
-            let h = molecular_field_dec(qq, params, ops, cc);
+        // `rk4_step` of `beris_edwards_rhs_dec`. The stage time is threaded
+        // because the external field moves with it; with no field set the
+        // right-hand side is autonomous and this is bit-for-bit the old `rk4`.
+        *q = rk4_t(q, t, params.dt, |qq, stage| {
+            let h = molecular_field_dec(qq, params, ops, cc, stage);
             h.scale(params.gamma_r)
         });
         StepStats::default().with_order_param(q.mean_order_param())
@@ -85,7 +87,7 @@ pub struct DecWet<'a, M: Manifold> {
 impl<M: Manifold> PhysicsStep for DecWet<'_, M> {
     type Field = QField;
 
-    fn step(&mut self, q: &mut QField, _t: f64) -> StepStats {
+    fn step(&mut self, q: &mut QField, t: f64) -> StepStats {
         let params = &self.params;
         let ops = self.ops;
         let mesh = self.mesh;
@@ -98,8 +100,8 @@ impl<M: Manifold> PhysicsStep for DecWet<'_, M> {
         // 2. RK4 step: molecular field + directional advection. The RHS closure
         //    is preserved exactly from the legacy runner (gamma_r scaling,
         //    advect_q args, the per-component subtraction loop).
-        *q = rk4(q, params.dt, |qq| {
-            let h = molecular_field_dec(qq, params, ops, cc);
+        *q = rk4_t(q, t, params.dt, |qq, stage| {
+            let h = molecular_field_dec(qq, params, ops, cc, stage);
             let mut dq = h.scale(params.gamma_r);
             let adv = advect_q(qq, &vel, &mesh.boundaries, &mesh.vertex_boundaries, coords);
             for i in 0..qq.n_vertices {

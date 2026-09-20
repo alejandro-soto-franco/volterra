@@ -34,6 +34,35 @@ where
     state.add_scaled(&k, dt)
 }
 
+/// RK4 step for a right-hand side that depends on the time: `rhs(state, t)`.
+///
+/// The four stages are evaluated at `t`, `t + dt/2`, `t + dt/2` and `t + dt`,
+/// which is what keeps the method fourth order when the forcing moves. Holding
+/// the forcing at `t` across all four instead costs three orders: measured at
+/// 0.99 against 4.0 on `dy/dt = cos t` in `tests/integrate_time_dependent.rs`.
+/// That matters here because the magnetic drive makes the molecular field
+/// explicitly time dependent and the drive frequency is the axis the design map
+/// is swept along.
+///
+/// On an autonomous right-hand side this is the same arithmetic as [`rk4`], to
+/// the last bit, which is also tested.
+pub fn rk4_t<F, R>(state: &F, t: f64, dt: f64, rhs: R) -> F
+where
+    F: FieldVec,
+    R: Fn(&F, f64) -> F,
+{
+    let half = 0.5 * dt;
+    let k1 = rhs(state, t);
+    let k2 = rhs(&state.add_scaled(&k1, half), t + half);
+    let k3 = rhs(&state.add_scaled(&k2, half), t + half);
+    let k4 = rhs(&state.add_scaled(&k3, dt), t + dt);
+    let sum = k1
+        .add_scaled(&k2, 2.0)
+        .add_scaled(&k3, 2.0)
+        .add_scaled(&k4, 1.0);
+    state.add_scaled(&sum, dt / 6.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{FieldVec, euler, rk4};

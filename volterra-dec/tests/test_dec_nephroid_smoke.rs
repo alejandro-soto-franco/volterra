@@ -117,7 +117,7 @@ fn dec_nephroid_confined_wet_smoke() {
         let nan_v = (0..nv).any(|i| !vel_check.speed(i).is_finite());
         println!("[diag] Stokes: max_speed={max_v:.3e}, has_nan={nan_v}");
 
-        let mol_h = volterra_dec::molecular_field_dec(&q0, &params, &ops, None);
+        let mol_h = volterra_dec::molecular_field_dec(&q0, &params, &ops, None, 0.0);
         let max_h: f64 = (0..nv)
             .map(|i| mol_h.q1[i].abs().max(mol_h.q2[i].abs()))
             .fold(0.0_f64, f64::max);

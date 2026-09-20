@@ -83,7 +83,7 @@ fn molecular_field_zero_at_zero_q() {
     let params = ActiveNematicParams::default_test();
     let q = QField::zeros(mesh.n_vertices());
 
-    let h = molecular_field_dec(&q, &params, &ops, None);
+    let h = molecular_field_dec(&q, &params, &ops, None, 0.0);
     let h_norm: f64 = h.q1.iter().chain(&h.q2).map(|x| x.abs()).sum();
     assert!(h_norm < 1e-12, "H(Q=0) should vanish, got norm = {h_norm}");
 }
@@ -101,7 +101,7 @@ fn molecular_field_uniform_q_no_laplacian() {
 
     let q0 = 0.001;
     let q = QField::uniform(mesh.n_vertices(), q0, 0.0);
-    let h = molecular_field_dec(&q, &params, &ops, None);
+    let h = molecular_field_dec(&q, &params, &ops, None, 0.0);
 
     // At small Q, cubic term is negligible:
     // H_q1 approx -a_eff * q0 = (zeta_eff/2 - a_landau) * q0

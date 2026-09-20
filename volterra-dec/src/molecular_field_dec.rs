@@ -7,7 +7,14 @@
 //!
 //! ```text
 //! H = -K_frank * Delta_L Q  +  (zeta_eff/2 - a_landau) Q  -  2 c_landau Tr(Q^2) Q
+//!     + H_ext(t)
 //! ```
+//!
+//! `H_ext(t) = chi_a b0^2 (d (x) d - I/2)` with `d` turning at `omega_b`, from
+//! [`ActiveNematicParams::field_term`]. It is uniform over the mesh, so it adds
+//! the same pair of numbers at every vertex, and `Gamma_r` is not applied here:
+//! the single rotational-viscosity multiplication belongs to the Beris-Edwards
+//! right-hand side, as it does in the three-dimensional lane.
 //!
 //! The DEC Laplacian Delta_L is positive-semidefinite (positive at maxima),
 //! so the elastic smoothing term enters with a minus sign.
@@ -23,6 +30,9 @@ use crate::QField;
 
 /// Compute the molecular field H at each vertex on a DEC mesh.
 ///
+/// `t` is the simulation time, which the external field needs and nothing else
+/// in this function does. A static drive makes the result independent of it.
+///
 /// `curvature_correction`: optional per-vertex Weitzenboeck endomorphism for the
 /// Lichnerowicz Laplacian on curved surfaces. Pass `None` for flat meshes.
 /// For a surface of constant Gaussian curvature K, pass
@@ -32,6 +42,7 @@ pub fn molecular_field_dec<M: Manifold>(
     params: &ActiveNematicParams,
     ops: &Operators<M, 3, 2>,
     curvature_correction: Option<&dyn Fn(usize) -> [[f64; 3]; 3]>,
+    t: f64,
 ) -> QField {
     let nv = q.n_vertices;
     let k_frank = params.k_r;
@@ -48,12 +59,15 @@ pub fn molecular_field_dec<M: Manifold>(
     //   = -K * lap(Q) + (zeta_eff/2 - a_landau) * Q - 2c * Tr(Q^2) * Q
     let tr_q2 = q.trace_q_squared();
 
+    // Uniform over the mesh, so it is evaluated once rather than per vertex.
+    let [ext1, ext2] = params.field_term(t);
+
     let bulk_linear = -a_eff;
     let mut h = QField::zeros(nv);
     for (i, &tr) in tr_q2.iter().enumerate() {
         let bulk = bulk_linear - 2.0 * c * tr;
-        h.q1[i] = -k_frank * lap_field.q1[i] + bulk * q.q1[i];
-        h.q2[i] = -k_frank * lap_field.q2[i] + bulk * q.q2[i];
+        h.q1[i] = -k_frank * lap_field.q1[i] + bulk * q.q1[i] + ext1;
+        h.q2[i] = -k_frank * lap_field.q2[i] + bulk * q.q2[i] + ext2;
     }
 
     h
