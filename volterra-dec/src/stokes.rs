@@ -13,6 +13,7 @@ use std::cell::RefCell;
 
 use crate::QField;
 use crate::poisson::PoissonSolver;
+use crate::ports::Ports;
 
 /// Precomputed Stokes solver with cached vertex coordinates and Poisson factorisation.
 pub struct SurfaceStokes {
@@ -54,6 +55,19 @@ pub struct SurfaceStokes {
     no_slip_vertices: Vec<usize>,
     /// Present when the solver was built for a clamped, that is no-slip, wall.
     clamped: Option<ClampedCorrection>,
+    /// Present when ports are cut into that wall. See [`Lift`].
+    lift: Option<Lift>,
+}
+
+/// Stream function of unit flux through the ports, and the flux it scales by.
+///
+/// Stokes is linear and the port data enters only through the boundary
+/// condition, so the whole of the through-flow is one field solved once per
+/// geometry. A sweep over flux scales it; a sweep over drive frequency reuses
+/// it untouched.
+struct Lift {
+    psi_unit: Vec<f64>,
+    flux: f64,
 }
 
 /// Precomputed data for the CLAMPED biharmonic condition.
@@ -209,6 +223,7 @@ impl SurfaceStokes {
             e1_frames,
             no_slip_vertices: Vec::new(),
             clamped: None,
+            lift: None,
             inner_cache: Default::default(),
         })
     }
@@ -295,6 +310,7 @@ impl SurfaceStokes {
             e1_frames,
             no_slip_vertices: boundary_vertices.to_vec(),
             clamped: None,
+            lift: None,
         })
     }
 
@@ -333,6 +349,10 @@ impl SurfaceStokes {
         let zeta = params.zeta_eff;
         let eta = params.eta;
         if zeta.abs() < 1e-30 || eta.abs() < 1e-30 {
+            if self.lift.is_some() {
+                let (vel, psi) = self.lift_only(mesh);
+                return (vel, psi, 0);
+            }
             return (VelocityField::zeros(nv), vec![0.0; nv], 0);
         }
         let omega = compute_vorticity_source(
@@ -351,7 +371,7 @@ impl SurfaceStokes {
         let (inner, its_inner) = self.solve_inner(0, &omega, tol);
         let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = psi_ss.iter().copied().collect();
-        self.clamp(&mut psi_v, mesh);
+        self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let its = its_inner + its_outer;
         let mut vel =
@@ -376,6 +396,9 @@ impl SurfaceStokes {
         let eta = params.eta;
 
         if zeta.abs() < 1e-30 || eta.abs() < 1e-30 {
+            if self.lift.is_some() {
+                return self.lift_only(mesh).0;
+            }
             return VelocityField::zeros(nv);
         }
 
@@ -456,7 +479,7 @@ impl SurfaceStokes {
         let (inner, its_inner) = self.solve_inner(1, &omega, tol);
         let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = psi_ss.iter().copied().collect();
-        self.clamp(&mut psi_v, mesh);
+        self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let mut vel = velocity_from_psi(
             self.n_vertices,
@@ -504,6 +527,10 @@ impl SurfaceStokes {
     ) -> (VelocityField, Vec<f64>, usize) {
         let nv = self.n_vertices;
         if eta.abs() < 1e-30 {
+            if self.lift.is_some() {
+                let (vel, psi) = self.lift_only(mesh);
+                return (vel, psi, 0);
+            }
             return (VelocityField::zeros(nv), vec![0.0; nv], 0);
         }
         let mut f3: Vec<[f64; 3]> = force.iter().map(|v| [v[0], v[1], 0.0]).collect();
@@ -523,7 +550,7 @@ impl SurfaceStokes {
         let (inner, its_inner) = self.solve_inner(2, &rhs, tol);
         let (psi_raw, its_outer) = self.outer.solve_from(&inner, psi0, tol);
         let mut psi_v: Vec<f64> = (psi_raw / eta).iter().copied().collect();
-        self.clamp(&mut psi_v, mesh);
+        self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let mut vel =
             velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1);
@@ -719,6 +746,121 @@ impl SurfaceStokes {
         self.clamped.is_some()
     }
 
+    /// Cut ports into the wall this solver was built on.
+    ///
+    /// `ports` must be the partition of the same boundary list the solver was
+    /// constructed with, in the same order. Two things change: the no-slip set
+    /// shrinks to the wall, since zeroing a port would remove the inflow it was
+    /// given, and the lift is solved and stored.
+    ///
+    /// The lift is a harmonic `psi` matching the port data on the wall, which
+    /// solves the homogeneous biharmonic whatever the screening is, because the
+    /// composite operator applies its second factor to `Delta psi`. The clamp
+    /// then drives `dpsi/dn` to zero over the whole boundary. It adds multiples
+    /// of fields that vanish on the wall, so the data just imposed survives it,
+    /// and at a port the added condition is that the flow enters normal to the
+    /// opening.
+    pub fn with_ports<M: Manifold>(
+        mut self,
+        mesh: &Mesh<M, 3, 2>,
+        ports: &Ports,
+        flux: f64,
+    ) -> Result<Self, String> {
+        if ports.boundary() != self.no_slip_vertices.as_slice() {
+            return Err(format!(
+                "the ports partition {} boundary vertices and the solver was built on {}, \
+                 and the two lists must agree in order",
+                ports.boundary().len(),
+                self.no_slip_vertices.len()
+            ));
+        }
+        let nv = self.n_vertices;
+        let mut g = vec![0.0_f64; nv];
+        for (i, &b) in ports.boundary().iter().enumerate() {
+            g[b] = ports.psi_unit()[i];
+        }
+        let zero = DVector::zeros(nv);
+        let mut psi_unit: Vec<f64> = self
+            .outer
+            .solve_with_boundary(&zero, &g, 1e-12)
+            .iter()
+            .copied()
+            .collect();
+        self.clamp(&mut psi_unit, mesh);
+        self.no_slip_vertices = ports.wall_vertices().to_vec();
+        self.lift = Some(Lift { psi_unit, flux });
+        Ok(self)
+    }
+
+    /// Scale the port data. The lift itself was solved at construction.
+    pub fn set_flux(&mut self, flux: f64) -> Result<(), String> {
+        match self.lift.as_mut() {
+            Some(l) => {
+                l.flux = flux;
+                Ok(())
+            }
+            None => Err("this solver has no ports to pass a flux".to_string()),
+        }
+    }
+
+    /// Flux through the ports, zero for a closed wall.
+    pub fn flux(&self) -> f64 {
+        self.lift.as_ref().map_or(0.0, |l| l.flux)
+    }
+
+    /// Stream function of unit flux through the ports.
+    pub fn psi_lift(&self) -> Option<&[f64]> {
+        self.lift.as_ref().map(|l| l.psi_unit.as_slice())
+    }
+
+    /// Clamp the wall, then add what the ports drive.
+    fn finish<M: Manifold>(&self, psi: &mut [f64], mesh: &Mesh<M, 3, 2>) {
+        self.clamp(psi, mesh);
+        self.add_lift(psi);
+    }
+
+    /// Add the port-driven stream function.
+    ///
+    /// A closed wall, or a flux of exactly zero, leaves the array untouched.
+    /// Adding `0.0` is bit-for-bit harmless at every value but `-0.0`, which it
+    /// would return as `+0.0`, so this guard is what makes the zero-flux run
+    /// identical to a confined one on any mesh rather than on the meshes
+    /// measured.
+    fn add_lift(&self, psi: &mut [f64]) {
+        let Some(l) = self.lift.as_ref() else {
+            return;
+        };
+        if l.flux == 0.0 {
+            return;
+        }
+        for (p, u) in psi.iter_mut().zip(&l.psi_unit) {
+            *p += l.flux * u;
+        }
+    }
+
+    /// The flow the ports drive with no active stress at all.
+    ///
+    /// The entry points below return a resting fluid when the activity is
+    /// negligible. That is right for a closed chamber and wrong for a ported
+    /// one, where the ports drive the flow the mixer is measured against.
+    fn lift_only<M: Manifold>(&self, mesh: &Mesh<M, 3, 2>) -> (VelocityField, Vec<f64>) {
+        let mut psi_v = vec![0.0_f64; self.n_vertices];
+        self.add_lift(&mut psi_v);
+        let psi = DVector::from_vec(psi_v);
+        let mut vel = velocity_from_psi(
+            self.n_vertices,
+            &psi,
+            mesh,
+            &self.coords,
+            &self.dual_areas,
+            &self.star1,
+        );
+        for &bv in &self.no_slip_vertices {
+            vel.v[bv] = [0.0, 0.0, 0.0];
+        }
+        (vel, psi.iter().copied().collect())
+    }
+
     /// Apply the clamped correction to a simply supported stream function.
     fn clamp<M: Manifold>(&self, psi: &mut [f64], mesh: &Mesh<M, 3, 2>) {
         let Some(c) = self.clamped.as_ref() else {
@@ -805,7 +947,7 @@ impl SurfaceStokes {
             .iter()
             .copied()
             .collect();
-        self.clamp(&mut psi_v, mesh);
+        self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let mut vel = velocity_from_psi(
             self.n_vertices,
