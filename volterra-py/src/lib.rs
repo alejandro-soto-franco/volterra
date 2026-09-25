@@ -98,6 +98,11 @@ impl PyActiveNematicParams {
             // was. Exposing the depth is a binding change this task does not
             // make.
             screening: Screening::None,
+            // No magnetic drive from the Python constructor either: with all
+            // three zero, field_term returns zeros and the run is unchanged.
+            chi_a: 0.0,
+            b0: 0.0,
+            omega_b: 0.0,
         };
         p.validate()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
