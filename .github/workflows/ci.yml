@@ -32,8 +32,14 @@ jobs:
       - run: cargo check -p volterra-py
 
   pytest:
-    name: Python bindings (maturin + pytest)
+    name: Python bindings (maturin + pytest, ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14t is the free-threaded build: the extension must load there
+        # without turning the GIL back on.
+        python: ["3.14", "3.14t"]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.89
@@ -48,10 +54,13 @@ jobs:
       - name: Build and test
         working-directory: volterra-py
         run: |
-          uv venv
+          uv venv --python ${{ matrix.python }}
           uv pip install maturin pytest numpy
           source .venv/bin/activate
           maturin develop --release
+          if [ "${{ matrix.python }}" = "3.14t" ]; then
+            python -W error -c "import sys, volterra; assert not sys._is_gil_enabled(), 'importing volterra re-enabled the GIL'"
+          fi
           pytest tests/ -q
 
   cuda:

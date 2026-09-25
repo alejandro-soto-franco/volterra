@@ -470,16 +470,16 @@ impl PyQField3D {
     /// Returns the curves and the threshold they were read at, which is the
     /// value to contour `disclination_magnitude` on to draw the same surface.
     #[pyo3(signature = (fraction = 0.25, floor = 0.0))]
-    fn disclination_curves(&self, fraction: f64, floor: f64) -> (Vec<PyDisclinationCurve>, f64) {
-        let (curves, threshold) = disclination_lines_at_fraction(
-            &self.inner.q,
-            self.inner.nx,
-            self.inner.ny,
-            self.inner.nz,
-            self.inner.dx,
-            fraction,
-            floor,
-        );
+    fn disclination_curves(
+        &self,
+        py: Python<'_>,
+        fraction: f64,
+        floor: f64,
+    ) -> (Vec<PyDisclinationCurve>, f64) {
+        let f = &self.inner;
+        let (curves, threshold) = py.detach(|| {
+            disclination_lines_at_fraction(&f.q, f.nx, f.ny, f.nz, f.dx, fraction, floor)
+        });
         (
             curves
                 .into_iter()
@@ -1069,6 +1069,7 @@ impl PyDisclinationEvent {
 #[pyfunction]
 #[pyo3(name = "run_dry_active_nematic_3d")]
 fn run_dry_active_nematic_3d_py(
+    py: Python<'_>,
     q_init: &PyQField3D,
     params: &PyActiveNematicParams3D,
     n_steps: usize,
@@ -1077,14 +1078,10 @@ fn run_dry_active_nematic_3d_py(
     track_defects: bool,
 ) -> PyResult<(PyQField3D, Vec<PySnapStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, stats) = volterra_fd::run_dry_active_nematic_3d(
-        &q_init.inner,
-        &params.inner,
-        n_steps,
-        snap_every,
-        path,
-        track_defects,
-    );
+    let (q, p) = (&q_init.inner, &params.inner);
+    let (q_final, stats) = py.detach(|| {
+        volterra_fd::run_dry_active_nematic_3d(q, p, n_steps, snap_every, path, track_defects)
+    });
     let py_q = PyQField3D { inner: q_final };
     let py_stats: Vec<PySnapStats3D> = stats
         .into_iter()
@@ -1099,7 +1096,9 @@ fn run_dry_active_nematic_3d_py(
 /// `(q_final, phi_final, stats)` where `stats` contains one `BechStats3D` per snapshot.
 #[pyfunction]
 #[pyo3(name = "run_bech_3d")]
+#[allow(clippy::too_many_arguments)]
 fn run_bech_3d_py(
+    py: Python<'_>,
     q_init: &PyQField3D,
     phi_init: &PyScalarField3D,
     params: &PyActiveNematicParams3D,
@@ -1109,15 +1108,9 @@ fn run_bech_3d_py(
     track_defects: bool,
 ) -> PyResult<(PyQField3D, PyScalarField3D, Vec<PyBechStats3D>)> {
     let path = std::path::Path::new(out_dir);
-    let (q_final, phi_final, stats) = volterra_fd::run_bech_3d(
-        &q_init.inner,
-        &phi_init.inner,
-        &params.inner,
-        n_steps,
-        snap_every,
-        path,
-        track_defects,
-    );
+    let (q, phi, p) = (&q_init.inner, &phi_init.inner, &params.inner);
+    let (q_final, phi_final, stats) =
+        py.detach(|| volterra_fd::run_bech_3d(q, phi, p, n_steps, snap_every, path, track_defects));
     let py_q = PyQField3D { inner: q_final };
     let py_phi = PyScalarField3D { inner: phi_final };
     let py_stats: Vec<PyBechStats3D> = stats

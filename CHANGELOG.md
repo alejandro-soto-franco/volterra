@@ -4,6 +4,27 @@ All notable changes to volterra are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- Free-threaded CPython. The extension declares `gil_used = false`, so it
+  loads on CPython 3.14t without turning the GIL back on, and the release
+  builds a `cp314t` wheel beside the abi3 one.
+- Every binding whose work scales with the grid releases the GIL while the Rust
+  runs: the 2D and 3D runners, `stokes_solve`, `k0_convolution`,
+  `scan_defects`, `ch_step_etd`, the braid defect detectors and entropy, and
+  `QField3D.disclination_curves`. Independent runs on Python threads now
+  proceed in parallel on either build: 32 wet 2D runs at 64 by 64 on 16
+  threads finish 11.5 times faster than on one, where they previously
+  serialised.
+
+### Fixed
+
+- `volterra-py` compiles again. The magnetic drive fields `chi_a`, `b0` and
+  `omega_b` were missing from its `ActiveNematicParams` constructor; the
+  Python constructor sets all three to zero, which leaves a run unchanged.
+
 ## [0.10.0] - 2026-09-15
 
 ### Changed (breaking)

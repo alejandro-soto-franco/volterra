@@ -152,6 +152,7 @@ impl PyBraidWord {
 #[pyfunction]
 #[pyo3(signature = (qxx, qxy, nx, ny, threshold, mask))]
 fn braid_detect_defects(
+    py: Python<'_>,
     qxx: Vec<f64>,
     qxy: Vec<f64>,
     nx: usize,
@@ -159,7 +160,7 @@ fn braid_detect_defects(
     threshold: f64,
     mask: Vec<bool>,
 ) -> Vec<(f64, f64, i64)> {
-    detect_defects(&qxx, &qxy, nx, ny, threshold, &mask)
+    py.detach(|| detect_defects(&qxx, &qxy, nx, ny, threshold, &mask))
         .into_iter()
         .map(|d| (d.pos[0], d.pos[1], d.charge as i64))
         .collect()
@@ -197,6 +198,7 @@ fn braid_detect_defects(
 #[pyfunction]
 #[pyo3(signature = (qxx, qxy, nx, ny, mask, dual = false))]
 fn braid_detect_defects_winding(
+    py: Python<'_>,
     qxx: Vec<f64>,
     qxy: Vec<f64>,
     nx: usize,
@@ -205,7 +207,7 @@ fn braid_detect_defects_winding(
     dual: bool,
 ) -> Vec<(f64, f64, i64)> {
     let lattice = if dual { Lattice::Dual } else { Lattice::Primal };
-    detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, lattice)
+    py.detach(|| detect_defects_winding_on(&qxx, &qxy, nx, ny, &mask, lattice))
         .into_iter()
         .map(|d| (d.pos[0], d.pos[1], d.charge as i64))
         .collect()
@@ -225,8 +227,9 @@ fn braid_word_from_frames(frames: Vec<Vec<(f64, f64, i64)>>) -> (usize, Vec<i32>
 /// Topological entropy of the braid given by `(n_strands, codes)`.
 #[pyfunction]
 #[pyo3(signature = (n_strands, codes))]
-fn braid_topological_entropy(n_strands: usize, codes: Vec<i32>) -> PyResult<f64> {
-    Ok(topological_entropy(&make_braidword(n_strands, &codes)?))
+fn braid_topological_entropy(py: Python<'_>, n_strands: usize, codes: Vec<i32>) -> PyResult<f64> {
+    let word = make_braidword(n_strands, &codes)?;
+    Ok(py.detach(|| topological_entropy(&word)))
 }
 
 /// Register the braid class and functions on the extension module.

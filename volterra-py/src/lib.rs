@@ -570,13 +570,14 @@ impl PyDefectInfo {
 #[pyfunction]
 #[pyo3(name = "run_dry_active_nematic")]
 fn run_dry_active_nematic_py(
+    py: Python<'_>,
     q_init: &PyQField2D,
     params: &PyActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, Vec<PySnapStats>) {
-    let (q_final, stats) =
-        run_dry_active_nematic(&q_init.inner, &params.inner, n_steps, snap_every);
+    let (q, p) = (&q_init.inner, &params.inner);
+    let (q_final, stats) = py.detach(|| run_dry_active_nematic(q, p, n_steps, snap_every));
     let py_stats = stats
         .into_iter()
         .map(|s| PySnapStats { inner: s })
@@ -587,9 +588,14 @@ fn run_dry_active_nematic_py(
 /// Apply the K₀ transfer map Q_lip = M_SM(Q_rot).
 #[pyfunction]
 #[pyo3(name = "k0_convolution")]
-fn k0_convolution_py(q_rot: &PyQField2D, params: &PyActiveNematicParams) -> PyQField2D {
+fn k0_convolution_py(
+    py: Python<'_>,
+    q_rot: &PyQField2D,
+    params: &PyActiveNematicParams,
+) -> PyQField2D {
+    let (q, p) = (&q_rot.inner, &params.inner);
     PyQField2D {
-        inner: k0_convolution(&q_rot.inner, &params.inner),
+        inner: py.detach(|| k0_convolution(q, p)),
     }
 }
 
@@ -598,8 +604,9 @@ fn k0_convolution_py(q_rot: &PyQField2D, params: &PyActiveNematicParams) -> PyQF
 /// threshold: rotation angle cutoff in radians (default: pi/2).
 #[pyfunction]
 #[pyo3(name = "scan_defects", signature = (q, threshold = std::f64::consts::FRAC_PI_2))]
-fn scan_defects_py(q: &PyQField2D, threshold: f64) -> Vec<PyDefectInfo> {
-    scan_defects(&q.inner, threshold)
+fn scan_defects_py(py: Python<'_>, q: &PyQField2D, threshold: f64) -> Vec<PyDefectInfo> {
+    let q = &q.inner;
+    py.detach(|| scan_defects(q, threshold))
         .into_iter()
         .map(|d| PyDefectInfo { inner: d })
         .collect()
@@ -616,13 +623,14 @@ fn scan_defects_py(q: &PyQField2D, threshold: f64) -> Vec<PyDefectInfo> {
 #[pyfunction]
 #[pyo3(name = "run_active_nematic_hydro")]
 fn run_active_nematic_hydro_py(
+    py: Python<'_>,
     q_init: &PyQField2D,
     params: &PyActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, Vec<PySnapStats>) {
-    let (q_final, stats) =
-        run_active_nematic_hydro(&q_init.inner, &params.inner, n_steps, snap_every);
+    let (q, p) = (&q_init.inner, &params.inner);
+    let (q_final, stats) = py.detach(|| run_active_nematic_hydro(q, p, n_steps, snap_every));
     let py_stats = stats
         .into_iter()
         .map(|s| PySnapStats { inner: s })
@@ -636,9 +644,14 @@ fn run_active_nematic_hydro_py(
 /// of the stream-function biharmonic equation.
 #[pyfunction]
 #[pyo3(name = "stokes_solve")]
-fn stokes_solve_py(q: &PyQField2D, params: &PyActiveNematicParams) -> PyVelocityField2D {
+fn stokes_solve_py(
+    py: Python<'_>,
+    q: &PyQField2D,
+    params: &PyActiveNematicParams,
+) -> PyVelocityField2D {
+    let (q, p) = (&q.inner, &params.inner);
     PyVelocityField2D {
-        inner: stokes_solve(&q.inner, &params.inner),
+        inner: py.detach(|| stokes_solve(q, p)),
     }
 }
 
@@ -821,19 +834,15 @@ impl PyBechStats {
 #[pyfunction]
 #[pyo3(name = "run_bech")]
 fn run_bech_py(
+    py: Python<'_>,
     q_init: &PyQField2D,
     phi_init: &PyScalarField2D,
     params: &PyActiveNematicParams,
     n_steps: usize,
     snap_every: usize,
 ) -> (PyQField2D, PyScalarField2D, Vec<PyBechStats>) {
-    let (q_fin, phi_fin, stats) = run_bech(
-        &q_init.inner,
-        &phi_init.inner,
-        &params.inner,
-        n_steps,
-        snap_every,
-    );
+    let (q, phi, p) = (&q_init.inner, &phi_init.inner, &params.inner);
+    let (q_fin, phi_fin, stats) = py.detach(|| run_bech(q, phi, p, n_steps, snap_every));
     let py_stats = stats
         .into_iter()
         .map(|s| PyBechStats { inner: s })
@@ -852,13 +861,15 @@ fn run_bech_py(
 #[pyfunction]
 #[pyo3(name = "ch_step_etd")]
 fn ch_step_etd_py(
+    py: Python<'_>,
     phi: &PyScalarField2D,
     q_lip: &PyQField2D,
     v: &PyVelocityField2D,
     params: &PyActiveNematicParams,
 ) -> PyScalarField2D {
+    let (phi, q, v, p) = (&phi.inner, &q_lip.inner, &v.inner, &params.inner);
     PyScalarField2D {
-        inner: ch_step_etd(&phi.inner, &q_lip.inner, &v.inner, &params.inner),
+        inner: py.detach(|| ch_step_etd(phi, q, v, p)),
     }
 }
 
@@ -881,7 +892,7 @@ fn ch_step_etd_py(
 ///   q0 = volterra.QField2D.random_perturbation(p.nx, p.ny, p.dx, 0.001, 42)
 ///   q, stats = volterra.run_dry_active_nematic(q0, p, 5000, 100)
 ///   S = np.array(q.order_param()).reshape(p.nx, p.ny)
-#[pymodule]
+#[pymodule(gil_used = false)]
 fn volterra(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyActiveNematicParams>()?;
     m.add_class::<PyQField2D>()?;
