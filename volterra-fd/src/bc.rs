@@ -47,7 +47,7 @@ fn sign_i(v: f64) -> i64 {
 /// Wrapping neighbour index (Python: (i - a) where a can be -1,0,1; wraps via %.
 #[inline(always)]
 fn wrap(i: usize, delta: i64, n: usize) -> usize {
-    (i as i64 + n as i64 + delta).rem_euclid(n as i64) as usize
+    volterra_core::fields::index::wrap_signed(i as i64 + delta, n)
 }
 
 // ---------------------------------------------------------------------------

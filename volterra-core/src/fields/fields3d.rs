@@ -353,7 +353,7 @@ impl SpeciesField3D {
     /// Flat index of a lattice position.
     #[inline]
     pub fn idx(&self, i: usize, j: usize, l: usize) -> usize {
-        ((i % self.nx) * self.ny + (j % self.ny)) * self.nz + (l % self.nz)
+        super::index::periodic_idx3(i, j, l, self.nx, self.ny, self.nz)
     }
 
     /// Total amount of each species, which advection and diffusion both conserve.

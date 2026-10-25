@@ -1,4 +1,5 @@
 /target
+.lake
 Cargo.lock
 .worktrees/
 .venv/

@@ -137,17 +137,13 @@ impl QField3D {
     /// Linear index for vertex `(i, j, l)` with periodic wrapping.
     #[inline]
     pub fn idx(&self, i: usize, j: usize, l: usize) -> usize {
-        ((i % self.nx) * self.ny + (j % self.ny)) * self.nz + (l % self.nz)
+        super::index::periodic_idx3(i, j, l, self.nx, self.ny, self.nz)
     }
 
     /// Inverse of `idx`: returns (i, j, l) from linear index k.
     #[inline]
     pub fn ijk(&self, k: usize) -> (usize, usize, usize) {
-        let l = k % self.nz;
-        let ij = k / self.nz;
-        let j = ij % self.ny;
-        let i = ij / self.ny;
-        (i, j, l)
+        super::index::coords3(k, self.ny, self.nz)
     }
 
     /// Embed the 5-component Q at vertex k into a 3x3 nalgebra SMatrix.
@@ -321,7 +317,7 @@ impl cartan_geo::QTensorField3D for QField3D {
         self.dx
     }
     fn idx(&self, i: usize, j: usize, l: usize) -> usize {
-        ((i % self.nx) * self.ny + (j % self.ny)) * self.nz + (l % self.nz)
+        super::index::periodic_idx3(i, j, l, self.nx, self.ny, self.nz)
     }
     fn embed_matrix3(&self, k: usize) -> nalgebra::SMatrix<f64, 3, 3> {
         self.embed_matrix3(k)

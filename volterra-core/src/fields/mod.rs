@@ -36,6 +36,7 @@
 use nalgebra::SMatrix;
 use serde::{Deserialize, Serialize};
 
+pub mod index;
 pub mod qfield3d;
 pub use qfield3d::QField3D;
 
@@ -109,15 +110,13 @@ impl QField2D {
     /// Linear index for vertex `(i, j)` with periodic wrapping.
     #[inline]
     pub fn idx(&self, i: usize, j: usize) -> usize {
-        (i % self.nx) * self.ny + (j % self.ny)
+        index::periodic_idx2(i, j, self.nx, self.ny)
     }
 
     /// Linear index with signed (possibly negative) coordinates, using periodic BCs.
     #[inline]
     pub fn idx_i(&self, i: i64, j: i64) -> usize {
-        let ii = i.rem_euclid(self.nx as i64) as usize;
-        let jj = j.rem_euclid(self.ny as i64) as usize;
-        ii * self.ny + jj
+        index::periodic_idx2_signed(i, j, self.nx, self.ny)
     }
 
     /// Number of vertices.
@@ -274,15 +273,13 @@ impl VelocityField2D {
     /// Linear index for vertex `(i, j)` with periodic wrapping.
     #[inline]
     pub fn idx(&self, i: usize, j: usize) -> usize {
-        (i % self.nx) * self.ny + (j % self.ny)
+        index::periodic_idx2(i, j, self.nx, self.ny)
     }
 
     /// Linear index with signed coordinates.
     #[inline]
     pub fn idx_i(&self, i: i64, j: i64) -> usize {
-        let ii = i.rem_euclid(self.nx as i64) as usize;
-        let jj = j.rem_euclid(self.ny as i64) as usize;
-        ii * self.ny + jj
+        index::periodic_idx2_signed(i, j, self.nx, self.ny)
     }
 
     /// Compute u·∇Q at each vertex using upwind advection.
@@ -385,15 +382,13 @@ impl ScalarField2D {
     /// Linear index for vertex `(i, j)` with periodic wrapping.
     #[inline]
     pub fn idx(&self, i: usize, j: usize) -> usize {
-        (i % self.nx) * self.ny + (j % self.ny)
+        index::periodic_idx2(i, j, self.nx, self.ny)
     }
 
     /// Linear index with signed (possibly negative) coordinates, using periodic BCs.
     #[inline]
     pub fn idx_i(&self, i: i64, j: i64) -> usize {
-        let ii = i.rem_euclid(self.nx as i64) as usize;
-        let jj = j.rem_euclid(self.ny as i64) as usize;
-        ii * self.ny + jj
+        index::periodic_idx2_signed(i, j, self.nx, self.ny)
     }
 
     /// Number of vertices.

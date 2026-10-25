@@ -1,0 +1,9 @@
+[package]
+name = "index_core"
+version = "0.0.0"
+edition = "2024"
+description = "volterra's periodic grid index maps, extracted to Lean with Charon and Aeneas"
+publish = false
+
+# Its own workspace: Charon needs the nightly in rust-toolchain.toml.
+[workspace]
