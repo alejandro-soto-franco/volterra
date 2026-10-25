@@ -8,7 +8,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use cuda_core::{CudaContext, CudaStream, DeviceBuffer, LaunchConfig};
+use cuda_core::simt::LaunchConfig;
+use cuda_core::{CudaContext, CudaStream, DeviceBuffer};
 use cuda_device::atomic::DeviceAtomicF64;
 
 use crate::error::CudaError;

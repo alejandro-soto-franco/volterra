@@ -54,7 +54,7 @@ volterra-py       PyO3 bindings  (pip install volterra-py)
 ```
 
 The CUDA paths live in two further crates. Each is its own workspace, because the
-cuda-oxide codegen backend needs a pinned nightly toolchain that must not reach
+cuda-oxide codegen backend needs a pinned toolchain that must not reach
 the stable workspace above, and neither is published:
 
 ```

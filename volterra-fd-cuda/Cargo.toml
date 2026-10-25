@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 # Its own workspace, exactly as volterra-cuda and cartan-cuda: the pinned
-# nightly and the codegen backend must not leak into volterra's stable
+# toolchain and the codegen backend must not leak into volterra's stable
 # workspace, which is why this crate is not a member of ../Cargo.toml.
 [workspace]
 
@@ -22,9 +22,9 @@ name = "volterra-fd-cuda"
 path = "src/main.rs"
 
 [dependencies]
-cuda-device = { git = "https://github.com/NVIDIA/cuda-rust", rev = "bad4d05559c188cdcfb3469d1497c5b9c3c303fa" }
-cuda-host = { git = "https://github.com/NVIDIA/cuda-rust", rev = "bad4d05559c188cdcfb3469d1497c5b9c3c303fa" }
-cuda-core = { git = "https://github.com/NVIDIA/cuda-rust", rev = "bad4d05559c188cdcfb3469d1497c5b9c3c303fa" }
+cuda-device = { git = "https://github.com/NVIDIA/cuda-rust", rev = "9df9e7cef561e03a066230b3bb433b3d8285da81" }
+cuda-host = { git = "https://github.com/NVIDIA/cuda-rust", rev = "9df9e7cef561e03a066230b3bb433b3d8285da81" }
+cuda-core = { git = "https://github.com/NVIDIA/cuda-rust", rev = "9df9e7cef561e03a066230b3bb433b3d8285da81" }
 
 # The CPU reference every kernel is checked against, and the boundary and
 # parameter construction both sides share.

@@ -9,7 +9,8 @@
 
 use std::sync::Arc;
 
-use cuda_core::{CudaStream, DeviceBuffer, LaunchConfig};
+use cuda_core::simt::LaunchConfig;
+use cuda_core::{CudaStream, DeviceBuffer};
 
 use crate::device::{Device, DeviceBoundary};
 use crate::error::CudaError;
