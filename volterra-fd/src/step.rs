@@ -177,19 +177,16 @@ pub fn update_step_inner(
         bnd,
     );
 
-    // 2. Apply H boundary conditions
-    // Need to split borrows: h, q, u, s are all in state.
-    // Use raw pointer trick via temporary slices for the immutable reads.
-    {
-        // Safety: apply_h_bc reads q, u, s and writes h.
-        // We need to pass h as mutable and q/u/s as immutable simultaneously.
-        // Since they are distinct Vec fields, we can take their slices separately.
-        let h_ptr = state.h.as_mut_ptr();
-        let h_len = state.h.len();
-        // SAFETY: h, q, u, s are distinct fields of State: no aliasing.
-        let h_mut = unsafe { std::slice::from_raw_parts_mut(h_ptr, h_len) };
-        apply_h_boundary_conditions(h_mut, params.gamma, &state.q, &state.u, &state.s, bnd);
-    }
+    // 2. Apply H boundary conditions. h, q, u and s are distinct fields of
+    // State, so the borrow checker splits the borrows.
+    apply_h_boundary_conditions(
+        &mut state.h,
+        params.gamma,
+        &state.q,
+        &state.u,
+        &state.s,
+        bnd,
+    );
 
     // 3. Calculate Π
     calculate_pi(
@@ -334,13 +331,8 @@ fn relax_pressure_with_bc(
 
         // Real Neumann BC on p
         {
-            // Need p (mut), p_aux (immut), u/pi_s/pi_a (immut)
-            // All are distinct fields: use raw pointer for p to allow simultaneous borrows.
-            let p_ptr = state.p.as_mut_ptr();
-            let p_len = state.p.len();
-            let p_mut = unsafe { std::slice::from_raw_parts_mut(p_ptr, p_len) };
             apply_p_boundary_conditions(
-                p_mut,
+                &mut state.p,
                 &state.p_aux,
                 &state.u,
                 params.rho,

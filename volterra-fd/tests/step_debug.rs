@@ -98,11 +98,7 @@ fn debug_substeps() {
     eprintln!("Step 1 H_S_from_Q:   max|H diff|={diff_h:.3e}  max|S diff|={diff_s:.3e}");
 
     // ── Step 2: apply_H_bc (u=0 so H should be -gamma*S on boundary) ────────
-    {
-        let h_ptr = h.as_mut_ptr();
-        let h_slice = unsafe { std::slice::from_raw_parts_mut(h_ptr, N2) };
-        apply_h_boundary_conditions(h_slice, GAMMA, &q, &u, &s, &bnd);
-    }
+    apply_h_boundary_conditions(&mut h, GAMMA, &q, &u, &s, &bnd);
     // After H_bc, the Python step_H.txt was saved AFTER apply_H_bc,
     // so compare against step_H.txt
     let diff_h_bc = max_abs_diff(&h, &h_ref);
@@ -152,11 +148,7 @@ fn debug_substeps() {
     for _ in 0..MAX_P_ITERS {
         p_aux.copy_from_slice(&p);
         relax_pressure_inner_loop(&mut p, &p_aux, &rhs, &bnd);
-        {
-            let p_ptr = p.as_mut_ptr();
-            let p_mut = unsafe { std::slice::from_raw_parts_mut(p_ptr, N) };
-            apply_p_boundary_conditions(p_mut, &p_aux, &u, RHO, NU, &pi_s, &pi_a, &bnd);
-        }
+        apply_p_boundary_conditions(&mut p, &p_aux, &u, RHO, NU, &pi_s, &pi_a, &bnd);
     }
     let diff_p_mid = max_abs_diff(&p, &p_mid_ref);
     let (_, pm_idx) = max_abs_diff_at(&p, &p_mid_ref);
