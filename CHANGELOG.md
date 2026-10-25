@@ -6,8 +6,28 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
+### Changed (breaking)
+
+- `volterra_dec::molecular_field_dec` takes the simulation time `t` as its
+  last argument, which the external field term needs. A run with no field set
+  returns the same result for every `t`.
+
 ### Added
 
+- A rotating magnetic drive for the 2D nematic. `ActiveNematicParams` gains
+  `chi_a`, `b0` and `omega_b`, each defaulting to zero under serde, and
+  `ActiveNematicParams::field_term(t)` returns the planar term
+  `(chi_a b0^2 / 2) [cos 2 omega_b t, sin 2 omega_b t]`. `rk4_t` is a
+  fourth-order step for a right-hand side that depends on time and matches
+  `rk4` bit for bit on an autonomous one.
+- `volterra_dec::LobeChain`, a channel of `n` lobes whose cusped junctions
+  impose a charge of `n` at every neck width from 0.02 to 0.65.
+- `volterra_dec::Ports`, which splits a confined wall into no-slip wall and
+  inflow or outflow ports, and `SurfaceStokes::with_ports` and `set_flux`,
+  which drive the Stokes solve through them with a stream-function lift solved
+  once per geometry. A straight channel at rest reproduces Poiseuille flow.
 - Free-threaded CPython. The extension declares `gil_used = false`, so it
   loads on CPython 3.14t without turning the GIL back on, and the release
   builds a `cp314t` wheel beside the abi3 one.
@@ -24,6 +44,16 @@ All notable changes to volterra are documented here.
 - `volterra-py` compiles again. The magnetic drive fields `chi_a`, `b0` and
   `omega_b` were missing from its `ActiveNematicParams` constructor; the
   Python constructor sets all three to zero, which leaves a run unchanged.
+- volterra-fd no longer builds a second mutable slice from a raw pointer to
+  update the boundary-condition fields. It borrows them directly, and the
+  crate has no `unsafe` left.
+
+### Verified
+
+- Every field type indexes its periodic grid through
+  `volterra_core::fields::index`. `verify/` translates that module to Lean
+  with Charon and Aeneas and proves the maps free of overflow and panics,
+  in range, periodic and inverse to each other for every grid size.
 
 ## [0.10.0] - 2026-09-15
 
