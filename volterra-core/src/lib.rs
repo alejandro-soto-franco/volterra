@@ -614,16 +614,22 @@ impl ActiveNematicParams3D {
     }
 
     /// The equilibrium scalar order parameter, the positive root of
-    /// `6a + 3b q + 8c q^2 = 0` in the `Q = q (nn - I/3)` convention.
+    /// `3a + 3b q + 4c q^2 = 0` in the `Q = q (nn - I/3)` convention.
+    ///
+    /// The molecular field these parameters feed, `-a Q - 2c Tr(Q^2) Q - 3b
+    /// (Q^2)_0`, is the variation of `f = (a/2) Tr Q^2 + b Tr Q^3 + (c/2)(Tr
+    /// Q^2)^2`. With `Tr Q^2 = 2q^2/3` and `Tr Q^3 = 2q^3/9`, `df/dq = (2q/9)(3a
+    /// + 3bq + 4cq^2)`. Open-Qmin's `6a + 3bq + 8cq^2` belongs to its own
+    /// `a Tr Q^2 + c (Tr Q^2)^2` and agrees with this one only at `b = 0`.
     ///
     /// Zero where the quartic has no ordered minimum, which is the isotropic
     /// state and has no disclination in it to find.
     pub fn equilibrium_q(&self) -> f64 {
-        let disc = 9.0 * self.b_landau * self.b_landau - 192.0 * self.a_landau * self.c_landau;
+        let disc = 9.0 * self.b_landau * self.b_landau - 48.0 * self.a_landau * self.c_landau;
         if disc < 0.0 || self.c_landau == 0.0 {
             return 0.0;
         }
-        (-3.0 * self.b_landau + disc.sqrt()) / (16.0 * self.c_landau)
+        (-3.0 * self.b_landau + disc.sqrt()) / (8.0 * self.c_landau)
     }
 
     /// The floor on the disclination threshold this run should use.
@@ -848,6 +854,37 @@ mod tests_3d {
         let mut p = ActiveNematicParams3D::default_test();
         p.nz = 0;
         assert!(p.validate().is_err());
+    }
+
+    /// `f(q) = (a/2) Tr Q^2 + b Tr Q^3 + (c/2)(Tr Q^2)^2` at `Q = q (nn - I/3)`.
+    fn uniaxial_bulk(p: &ActiveNematicParams3D, q: f64) -> f64 {
+        let t2 = 2.0 * q * q / 3.0;
+        let t3 = 2.0 * q * q * q / 9.0;
+        0.5 * p.a_landau * t2 + p.b_landau * t3 + 0.5 * p.c_landau * t2 * t2
+    }
+
+    #[test]
+    fn equilibrium_q_is_the_minimum_of_the_bulk_energy_for_every_b() {
+        for b in [0.0, -0.5, -1.5, -3.0, 0.7] {
+            let mut p = ActiveNematicParams3D::default_test();
+            p.b_landau = b;
+            let q = p.equilibrium_q();
+            assert!(q > 0.0, "b = {b}: no ordered root");
+            let h = 1e-5;
+            let slope = (uniaxial_bulk(&p, q + h) - uniaxial_bulk(&p, q - h)) / (2.0 * h);
+            let curv = (uniaxial_bulk(&p, q + h) - 2.0 * uniaxial_bulk(&p, q)
+                + uniaxial_bulk(&p, q - h))
+                / (h * h);
+            assert!(slope.abs() < 1e-9, "b = {b}: df/dq = {slope} at q = {q}");
+            assert!(curv > 0.0, "b = {b}: q = {q} is not a minimum");
+        }
+    }
+
+    #[test]
+    fn equilibrium_q_at_b_zero_is_unchanged() {
+        let p = ActiveNematicParams3D::default_test();
+        let old = (-3.0 * p.a_landau / (4.0 * p.c_landau)).sqrt();
+        assert!((p.equilibrium_q() - old).abs() < 1e-14);
     }
 }
 

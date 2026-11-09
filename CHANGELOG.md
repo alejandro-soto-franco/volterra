@@ -6,6 +6,16 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- `ActiveNematicParams3D::equilibrium_q` solved open-Qmin's `6a + 3bq + 8cq^2
+  = 0`, which belongs to the bulk energy `a Tr Q^2 + c (Tr Q^2)^2`. These
+  parameters feed `(a/2) Tr Q^2 + (c/2)(Tr Q^2)^2`, whose uniaxial minimum is the
+  root of `3a + 3bq + 4cq^2 = 0`. The two agree at `b = 0`, the default; for `a
+  = -0.5`, `b = -1.5`, `c = 4.5` the old value was 0.358 against a minimum at
+  0.440. `LdgFromChi::equilibrium_q` uses open-Qmin's convention throughout and
+  was already correct.
+
 ## [0.11.0] - 2026-10-25
 
 ### Changed (breaking)
