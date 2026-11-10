@@ -21,6 +21,10 @@ All notable changes to volterra are documented here.
   transpose. Under a rigid rotation the director now turns with the flow. Every
   3D run with flow (the wet and BECH runners) is affected; the 2D solver had the
   sign right. The `golden_cartesian3d_bech` oracle is recaptured.
+- `cartesian_2d::stokes_solve` ignored `ActiveNematicParams::screening`. It now
+  solves the Brinkman balance `eta lap u - (eta / l^2) u - grad p + F = 0`,
+  whose stream-function symbol is `eta k^2 (k^2 + 1/l^2)`. Without screening
+  the result is unchanged.
 
 ### Added
 

@@ -430,6 +430,7 @@ pub fn k0_convolution(q_rot: &QField2D, params: &ActiveNematicParams) -> QField2
 ///
 /// Returns a [`VelocityField2D`] on the same grid.
 pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField2D {
+    let inv_l2 = params.screening.inverse_square();
     let nx = q.nx;
     let ny = q.ny;
     let n = nx * ny;
@@ -598,7 +599,11 @@ pub fn stokes_solve(q: &QField2D, params: &ActiveNematicParams) -> VelocityField
             if let (Some(a_hat), Some(fx_hat), Some(fy_hat)) = (&a_hat, &fx_hat, &fy_hat) {
                 rhs += k2 * a_hat[k] + i_unit * kx * fy_hat[k] - i_unit * ky * fx_hat[k];
             }
-            let psi_hat = rhs / (eta * k4);
+            // Brinkman screening: with friction mu = eta / l^2 the curl of
+            // eta lap u - mu u - grad p + F = 0 is eta lap^2 psi - mu lap psi =
+            // curl F, so the symbol is eta k^2 (k^2 + 1/l^2). No screening
+            // gives back eta k^4.
+            let psi_hat = rhs / (eta * (k4 + k2 * inv_l2));
             // v̂_x = i k_y ψ̂, v̂_y = -i k_x ψ̂
             vx_hat[k] = i_unit * ky * psi_hat;
             vy_hat[k] = -i_unit * kx * psi_hat;
@@ -1245,6 +1250,40 @@ pub fn run_bech(
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
+
+    /// A transverse shear mode `q2 = A cos(k x)` gives the force `F_y = zeta A k
+    /// sin(k x)` with no pressure, so the Brinkman velocity is `u_y = zeta A k
+    /// sin(k x) / (eta (k^2 + 1/l^2))` exactly, with and without screening.
+    #[test]
+    fn stokes_solve_matches_the_brinkman_symbol_on_a_shear_mode() {
+        use volterra_core::Screening;
+        for screening in [Screening::None, Screening::Length(3.0)] {
+            let mut p = ActiveNematicParams::default_test();
+            p.nx = 32;
+            p.ny = 8;
+            p.dx = 1.0;
+            p.eta = 1.7;
+            p.zeta_eff = 0.9;
+            p.screening = screening;
+            let (a, m) = (0.2, 3.0);
+            let k = 2.0 * std::f64::consts::PI * m / (p.nx as f64 * p.dx);
+            let mut q = QField2D::zeros(p.nx, p.ny, p.dx);
+            for i in 0..p.nx {
+                for j in 0..p.ny {
+                    q.q[i * p.ny + j] = [0.0, a * (k * i as f64 * p.dx).cos()];
+                }
+            }
+            let v = stokes_solve(&q, &p);
+            let inv = screening.inverse_square();
+            for i in 0..p.nx {
+                let expect =
+                    p.zeta_eff * a * k * (k * i as f64 * p.dx).sin() / (p.eta * (k * k + inv));
+                let got = v.v[i * p.ny + 3];
+                assert_abs_diff_eq!(got[1], expect, epsilon = 1e-12);
+                assert_abs_diff_eq!(got[0], 0.0, epsilon = 1e-12);
+            }
+        }
+    }
     use std::f64::consts::PI;
 
     fn default_params() -> ActiveNematicParams {
