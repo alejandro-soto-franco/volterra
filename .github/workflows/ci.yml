@@ -65,7 +65,10 @@ jobs:
 
   cuda:
     name: CUDA crates (clippy)
-    runs-on: ubuntu-latest
+    # Pinned: on the ubuntu-26.04 image that ubuntu-latest became, NVIDIA's apt
+    # repository has no cuda-13-2 package and the toolkit action fails before
+    # any code is built (2026-11-10).
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
