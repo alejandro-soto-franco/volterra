@@ -15,6 +15,12 @@ All notable changes to volterra are documented here.
   = -0.5`, `b = -1.5`, `c = 4.5` the old value was 0.358 against a minimum at
   0.440. `LdgFromChi::equilibrium_q` uses open-Qmin's convention throughout and
   was already correct.
+- `co_rotation_3d` turned the director against the flow. `velocity_gradient_at`
+  returns `omega_ab = (d_a u_b - d_b u_a)/2`, derivative index first, and the
+  corotation `Omega Q - Q Omega` used it as the vorticity tensor, which is its
+  transpose. Under a rigid rotation the director now turns with the flow. Every
+  3D run with flow (the wet and BECH runners) is affected; the 2D solver had the
+  sign right. The `golden_cartesian3d_bech` oracle is recaptured.
 
 ### Added
 

@@ -482,7 +482,11 @@ pub fn co_rotation_3d(vel: &VelocityField3D, q: &QField3D, xi: f64) -> QField3D 
         let (d_arr, omega_arr) = vel.velocity_gradient_at(k);
 
         let d = SMatrix::<f64, 3, 3>::from_fn(|r, c| d_arr[r][c]);
-        let omega = SMatrix::<f64, 3, 3>::from_fn(|r, c| omega_arr[r][c]);
+        // `velocity_gradient_at` puts the derivative index first, `omega_ab =
+        // (d_a u_b - d_b u_a)/2`. The corotation `Omega Q - Q Omega` needs the
+        // vorticity tensor `Omega_ab = (d_b u_a - d_a u_b)/2`, its transpose:
+        // with it the director turns with a rigid rotation, not against it.
+        let omega = SMatrix::<f64, 3, 3>::from_fn(|r, c| omega_arr[c][r]);
 
         // Tr(Q . D) = trace of matrix product Q*D
         let tr_qd = (qm * d).trace();
@@ -536,6 +540,36 @@ mod tests {
                 tr
             );
         }
+    }
+
+    /// A rigid rotation `u = w e_z x r` turns the director with the flow: for
+    /// `n = e_x`, `Q = q (nn - I/3)`, the corotation gives `dQ_xy/dt = q w`
+    /// (the director turns from `e_x` towards `e_y`). Strain is zero, so the
+    /// flow-alignment terms vanish whatever `xi` is.
+    #[test]
+    fn co_rotation_turns_the_director_with_a_rigid_rotation() {
+        let (n, w, q) = (8, 0.3, 0.5);
+        let mut vel = VelocityField3D::zeros(n, n, n, 1.0);
+        let c = (n / 2) as f64;
+        for i in 0..n {
+            for j in 0..n {
+                for l in 0..n {
+                    let k = vel.idx(i, j, l);
+                    vel.u[k] = [-w * (j as f64 - c), w * (i as f64 - c), 0.0];
+                }
+            }
+        }
+        let t = 1.0 / 3.0;
+        let qf = QField3D::uniform(n, n, n, 1.0, [q * (1.0 - t), 0.0, 0.0, -q * t, 0.0]);
+        let s = co_rotation_3d(&vel, &qf, 0.7);
+        let k = qf.idx(n / 2, n / 2, n / 2);
+        assert!(
+            (s.q[k][1] - q * w).abs() < 1e-12,
+            "dQ_xy/dt = {}, expected {}",
+            s.q[k][1],
+            q * w
+        );
+        assert!(s.q[k][0].abs() < 1e-12 && s.q[k][3].abs() < 1e-12);
     }
 
     #[test]
