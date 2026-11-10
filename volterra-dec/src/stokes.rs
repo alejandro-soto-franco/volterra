@@ -57,6 +57,11 @@ pub struct SurfaceStokes {
     clamped: Option<ClampedCorrection>,
     /// Present when ports are cut into that wall. See [`Lift`].
     lift: Option<Lift>,
+    /// Present on a closed surface whose curvature is not constant. The
+    /// factored biharmonic `Delta (Delta + 2K)` inverts `Delta^2 + 2 Delta(K .)`,
+    /// while surface Stokes is `Delta^2 + 2 div(K grad .)`; the two differ by
+    /// `2 div(psi grad K)`, which this corrects by defect iteration.
+    curvature_correction: Option<CurvatureCorrection>,
 }
 
 /// Stream function of unit flux through the ports, and the flux it scales by.
@@ -208,6 +213,7 @@ impl SurfaceStokes {
         let curvature = gaussian_curvature(n_vertices, &mesh.simplices, &coords, &dual_areas);
         let shift: Vec<f64> = curvature.iter().map(|k| 2.0 * k).collect();
         let outer = PoissonSolver::new_shifted(ops, &shift, &coords)?;
+        let curvature_correction = CurvatureCorrection::new(ops, &curvature, &dual_areas);
         let s1 = ops.hodge.star1();
         let star1: Vec<f64> = (0..s1.len()).map(|i| s1[i]).collect();
         let normals = compute_vertex_normals_stokes(&mesh.simplices, &coords);
@@ -225,6 +231,7 @@ impl SurfaceStokes {
             clamped: None,
             lift: None,
             inner_cache: Default::default(),
+            curvature_correction,
         })
     }
 
@@ -311,6 +318,7 @@ impl SurfaceStokes {
             no_slip_vertices: boundary_vertices.to_vec(),
             clamped: None,
             lift: None,
+            curvature_correction: None,
         })
     }
 
@@ -327,6 +335,138 @@ impl SurfaceStokes {
         };
         *self.inner_cache[slot].borrow_mut() = Some(inner.as_slice().to_vec());
         (inner, its)
+    }
+
+    /// The surface Stokes biharmonic `Delta^2 psi + 2 div(K grad psi) = rhs`.
+    ///
+    /// The factored solve `outer(inner(rhs))` inverts `Delta (Delta + 2K)`,
+    /// which equals `Delta^2 + 2 div(K grad .) + 2 div(. grad K)`. Where the
+    /// curvature varies, the last term is moved to the right and iterated:
+    /// `psi_{n+1} = P^{-1} (rhs + 2 div(psi_n grad K))`. On a surface of constant
+    /// curvature it vanishes and the factored solve is exact.
+    /// [`Self::biharmonic`] without the warm-start caches, at the tolerance of
+    /// [`PoissonSolver::solve`].
+    fn biharmonic_cold(&self, rhs: &DVector<f64>) -> DVector<f64> {
+        match &self.curvature_correction {
+            None => self.outer.solve(&self.poisson.solve(rhs)),
+            Some(cc) => self.fgmres(cc, None, rhs, None, 1e-10).0,
+        }
+    }
+
+    /// The surface Stokes biharmonic `Delta^2 psi + 2 div(K grad psi) = rhs`.
+    ///
+    /// The factored solve `outer(inner(rhs))` inverts `P = Delta (Delta + 2K)`,
+    /// which is `Delta^2 + 2 div(K grad .) + 2 div(. grad K)`. On a surface of
+    /// constant curvature the last term vanishes and `P` is exact. Elsewhere `P`
+    /// preconditions a flexible GMRES on the true operator in the space of zero
+    /// mean: `A` annihilates constants, `P` does not.
+    fn biharmonic(
+        &self,
+        slot: usize,
+        rhs: &DVector<f64>,
+        psi0: Option<&[f64]>,
+        tol: f64,
+    ) -> (DVector<f64>, usize) {
+        match &self.curvature_correction {
+            None => {
+                let (inner, a) = self.solve_inner(slot, rhs, tol);
+                let (psi, b) = self.outer.solve_from(&inner, psi0, tol);
+                (psi, a + b)
+            }
+            Some(cc) => self.fgmres(cc, Some(slot), rhs, psi0, tol),
+        }
+    }
+
+    /// Right-preconditioned flexible GMRES(30) for `A psi = rhs`, with `P^{-1}`
+    /// as the preconditioner and every iterate at zero mean. Returns the solution
+    /// and the Poisson iterations spent.
+    fn fgmres(
+        &self,
+        cc: &CurvatureCorrection,
+        slot: Option<usize>,
+        rhs: &DVector<f64>,
+        psi0: Option<&[f64]>,
+        tol: f64,
+    ) -> (DVector<f64>, usize) {
+        const RESTART: usize = 30;
+        const MAX_RESTARTS: usize = 20;
+        let n = rhs.len();
+        let mut its = 0usize;
+        let mut b: Vec<f64> = rhs.iter().copied().collect();
+        cc.project(&mut b);
+        let dot = |a: &[f64], c: &[f64]| a.iter().zip(c).map(|(p, q)| p * q).sum::<f64>();
+        let bnorm = dot(&b, &b).sqrt();
+        if bnorm == 0.0 {
+            return (DVector::from_vec(vec![0.0; n]), 0);
+        }
+        let mut x: Vec<f64> = psi0.map_or_else(|| vec![0.0; n], |p| p.to_vec());
+        cc.project(&mut x);
+        let precond = |v: &[f64], its: &mut usize| -> Vec<f64> {
+            let v = DVector::from_vec(v.to_vec());
+            let (inner, a) = match slot {
+                Some(sl) => self.solve_inner(sl, &v, tol),
+                None => self.poisson.solve_from(&v, None, tol),
+            };
+            let (z, b) = self.outer.solve_from(&inner, None, tol);
+            *its += a + b;
+            let mut z: Vec<f64> = z.iter().copied().collect();
+            cc.project(&mut z);
+            z
+        };
+        for _ in 0..MAX_RESTARTS {
+            let ax = cc.apply(&x);
+            let r: Vec<f64> = b.iter().zip(&ax).map(|(p, q)| p - q).collect();
+            let beta = dot(&r, &r).sqrt();
+            if beta <= tol * bnorm {
+                break;
+            }
+            let mut v: Vec<Vec<f64>> = vec![r.iter().map(|x| x / beta).collect()];
+            let mut z: Vec<Vec<f64>> = Vec::new();
+            let mut h = vec![vec![0.0; RESTART]; RESTART + 1];
+            let (mut cs, mut sn) = (vec![0.0; RESTART], vec![0.0; RESTART]);
+            let mut g = vec![0.0; RESTART + 1];
+            g[0] = beta;
+            let mut k_used = 0;
+            for j in 0..RESTART {
+                let zj = precond(&v[j], &mut its);
+                let mut w = cc.apply(&zj);
+                z.push(zj);
+                for i in 0..=j {
+                    h[i][j] = dot(&w, &v[i]);
+                    let hij = h[i][j];
+                    w.iter_mut().zip(&v[i]).for_each(|(a, c)| *a -= hij * c);
+                }
+                let wn = dot(&w, &w).sqrt();
+                h[j + 1][j] = wn;
+                for i in 0..j {
+                    let t = cs[i] * h[i][j] + sn[i] * h[i + 1][j];
+                    h[i + 1][j] = -sn[i] * h[i][j] + cs[i] * h[i + 1][j];
+                    h[i][j] = t;
+                }
+                let den = (h[j][j] * h[j][j] + h[j + 1][j] * h[j + 1][j]).sqrt();
+                cs[j] = h[j][j] / den;
+                sn[j] = h[j + 1][j] / den;
+                h[j][j] = den;
+                h[j + 1][j] = 0.0;
+                g[j + 1] = -sn[j] * g[j];
+                g[j] *= cs[j];
+                k_used = j + 1;
+                if g[j + 1].abs() <= tol * bnorm || wn == 0.0 {
+                    break;
+                }
+                v.push(w.iter().map(|x| x / wn).collect());
+            }
+            let mut y = vec![0.0; k_used];
+            for i in (0..k_used).rev() {
+                let s: f64 = (i + 1..k_used).map(|l| h[i][l] * y[l]).sum();
+                y[i] = (g[i] - s) / h[i][i];
+            }
+            for (yi, zi) in y.iter().zip(&z) {
+                x.iter_mut().zip(zi).for_each(|(a, c)| *a += yi * c);
+            }
+            cc.project(&mut x);
+        }
+        (DVector::from_vec(x), its)
     }
 
     /// Solve Stokes, warm-started from a previous stream function.
@@ -368,12 +508,11 @@ impl SurfaceStokes {
         // Two sequential Poisson solves, as in `solve`; see the note there for
         // why one is wrong. The inner solve starts cold, since the caller's
         // cached iterate is a stream function and not a vorticity.
-        let (inner, its_inner) = self.solve_inner(0, &omega, tol);
-        let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
+        let (psi_ss, its_bih) = self.biharmonic(0, &omega, psi0, tol);
         let mut psi_v: Vec<f64> = psi_ss.iter().copied().collect();
         self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
-        let its = its_inner + its_outer;
+        let its = its_bih;
         let mut vel =
             velocity_from_psi(nv, &psi, mesh, &self.coords, &self.dual_areas, &self.star1);
         for &bv in &self.no_slip_vertices {
@@ -476,8 +615,7 @@ impl SurfaceStokes {
             &self.normals,
             &self.e1_frames,
         );
-        let (inner, its_inner) = self.solve_inner(1, &omega, tol);
-        let (psi_ss, its_outer) = self.outer.solve_from(&inner, psi0, tol);
+        let (psi_ss, its_bih) = self.biharmonic(1, &omega, psi0, tol);
         let mut psi_v: Vec<f64> = psi_ss.iter().copied().collect();
         self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
@@ -492,7 +630,7 @@ impl SurfaceStokes {
         for &bv in &self.no_slip_vertices {
             vel.v[bv] = [0.0, 0.0, 0.0];
         }
-        (vel, psi.iter().copied().collect(), its_inner + its_outer)
+        (vel, psi.iter().copied().collect(), its_bih)
     }
 
     /// Solve Stokes from a nodal FORCE, with a symmetric operator.
@@ -547,8 +685,7 @@ impl SurfaceStokes {
                 0.0
             };
         }
-        let (inner, its_inner) = self.solve_inner(2, &rhs, tol);
-        let (psi_raw, its_outer) = self.outer.solve_from(&inner, psi0, tol);
+        let (psi_raw, its_bih) = self.biharmonic(2, &rhs, psi0, tol);
         let mut psi_v: Vec<f64> = (psi_raw / eta).iter().copied().collect();
         self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
@@ -557,7 +694,7 @@ impl SurfaceStokes {
         for &bv in &self.no_slip_vertices {
             vel.v[bv] = [0.0, 0.0, 0.0];
         }
-        (vel, psi.iter().copied().collect(), its_inner + its_outer)
+        (vel, psi.iter().copied().collect(), its_bih)
     }
 
     /// The pressure that belongs to the flow this solver returns.
@@ -933,7 +1070,7 @@ impl SurfaceStokes {
     /// what the trait backend uses.
     pub fn stream_from_vorticity(&self, source: &DVector<f64>, er: f64) -> DVector<f64> {
         let scaled = source * er;
-        self.outer.solve(&self.poisson.solve(&scaled))
+        self.biharmonic_cold(&scaled)
     }
 
     pub fn stream_and_velocity<M: Manifold>(
@@ -941,12 +1078,7 @@ impl SurfaceStokes {
         source: &DVector<f64>,
         mesh: &Mesh<M, 3, 2>,
     ) -> (VelocityField, Vec<f64>) {
-        let mut psi_v: Vec<f64> = self
-            .outer
-            .solve(&self.poisson.solve(source))
-            .iter()
-            .copied()
-            .collect();
+        let mut psi_v: Vec<f64> = self.biharmonic_cold(source).iter().copied().collect();
         self.finish(&mut psi_v, mesh);
         let psi = DVector::from_vec(psi_v);
         let mut vel = velocity_from_psi(
@@ -1813,6 +1945,105 @@ pub(crate) fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+/// The term `div(psi grad K)` that separates `Delta (Delta + 2K)` from the
+/// surface Stokes operator `Delta^2 + 2 div(K grad .)` where `K` varies.
+///
+/// With `L = -Delta` the mass-normalised cotan operator, `div(psi grad K)_i =
+/// -sum_{j != i} L_ij (K_j - K_i)(psi_i + psi_j)/2`: the flux of `grad K` through
+/// each dual edge times the edge average of `psi`. It vanishes for constant `K`
+/// and returns `Delta K` for `psi = 1`, the residue that shows the factored
+/// operator does not annihilate constants.
+#[derive(Debug, Clone)]
+pub(crate) struct CurvatureCorrection {
+    k: Vec<f64>,
+    /// Off-diagonal entries of `L = -Delta`, by row.
+    rows: Vec<Vec<(usize, f64)>>,
+    /// Diagonal of `L`.
+    diag: Vec<f64>,
+    /// Dual-area mass, for the zero-mean projection.
+    mass: Vec<f64>,
+}
+
+impl CurvatureCorrection {
+    /// `None` when the curvature is constant to rounding, so a sphere or a flat
+    /// torus keeps the factored solve exactly.
+    pub(crate) fn new<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        k: &[f64],
+        mass: &[f64],
+    ) -> Option<Self> {
+        let kmax = k.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
+        let spread = k.iter().fold(f64::NEG_INFINITY, |m, &x| m.max(x))
+            - k.iter().fold(f64::INFINITY, |m, &x| m.min(x));
+        // Written so that a NaN spread also returns None.
+        let varies = spread > 1e-10 * kmax.max(1e-300);
+        if !varies {
+            return None;
+        }
+        let l = &ops.laplace_beltrami;
+        let mut rows = vec![Vec::new(); l.nrows()];
+        let mut diag = vec![0.0; l.nrows()];
+        for (r, c, &v) in l.triplet_iter() {
+            if r == c {
+                diag[r] += v;
+            } else if v != 0.0 {
+                rows[r].push((c, v));
+            }
+        }
+        Some(Self {
+            k: k.to_vec(),
+            rows,
+            diag,
+            mass: mass.to_vec(),
+        })
+    }
+
+    /// `Delta f = -L f`.
+    fn lap(&self, f: &[f64]) -> Vec<f64> {
+        (0..f.len())
+            .map(|i| {
+                -(self.diag[i] * f[i] + self.rows[i].iter().map(|&(j, v)| v * f[j]).sum::<f64>())
+            })
+            .collect()
+    }
+
+    /// The surface Stokes operator `A psi = Delta (Delta psi + 2K psi) - 2 div(psi grad K)`,
+    /// which is `Delta^2 psi + 2 div(K grad psi)`.
+    fn apply(&self, psi: &[f64]) -> Vec<f64> {
+        let lp = self.lap(psi);
+        let inner: Vec<f64> = lp
+            .iter()
+            .zip(psi)
+            .zip(&self.k)
+            .map(|((d, p), k)| d + 2.0 * k * p)
+            .collect();
+        let div = self.div_psi_grad_k(psi);
+        self.lap(&inner)
+            .iter()
+            .zip(&div)
+            .map(|(a, d)| a - 2.0 * d)
+            .collect()
+    }
+
+    /// Remove the mass-weighted mean, the constant that carries no velocity.
+    fn project(&self, v: &mut [f64]) {
+        let area: f64 = self.mass.iter().sum();
+        let mean = v.iter().zip(&self.mass).map(|(x, m)| x * m).sum::<f64>() / area;
+        v.iter_mut().for_each(|x| *x -= mean);
+    }
+
+    pub(crate) fn div_psi_grad_k(&self, psi: &[f64]) -> Vec<f64> {
+        (0..self.k.len())
+            .map(|i| {
+                -self.rows[i]
+                    .iter()
+                    .map(|&(j, lij)| lij * (self.k[j] - self.k[i]) * 0.5 * (psi[i] + psi[j]))
+                    .sum::<f64>()
+            })
+            .collect()
+    }
+}
+
 /// Discrete Gaussian curvature at each vertex, by angle defect.
 ///
 /// `K_i = (2 pi - sum of the incident triangle angles at i) / A_i`, with `A_i`
@@ -1874,6 +2105,123 @@ mod tests {
     use super::*;
     use cartan_dec::mesh::FlatMesh;
     use cartan_manifolds::euclidean::Euclidean;
+
+    /// `-L f` with `L = -Delta` the mass-normalised cotan operator.
+    fn lap(ops: &Operators<Euclidean<3>, 3, 2>, f: &[f64]) -> Vec<f64> {
+        let l = &ops.laplace_beltrami;
+        let mut out = vec![0.0; f.len()];
+        for (r, c, &v) in l.triplet_iter() {
+            out[r] -= v * f[c];
+        }
+        out
+    }
+
+    /// The surface Stokes operator `Delta (Delta + 2K) - 2 div(. grad K)`
+    /// applied discretely, which is `Delta^2 + 2 div(K grad .)`.
+    fn surface_stokes_operator(
+        ops: &Operators<Euclidean<3>, 3, 2>,
+        cc: &CurvatureCorrection,
+        psi: &[f64],
+    ) -> Vec<f64> {
+        let inner: Vec<f64> = lap(ops, psi)
+            .iter()
+            .zip(psi)
+            .zip(&cc.k)
+            .map(|((d, p), k)| d + 2.0 * k * p)
+            .collect();
+        let div = cc.div_psi_grad_k(psi);
+        lap(ops, &inner)
+            .iter()
+            .zip(&div)
+            .map(|(a, d)| a - 2.0 * d)
+            .collect()
+    }
+
+    fn torus() -> (Mesh<Euclidean<3>, 3, 2>, Operators<Euclidean<3>, 3, 2>) {
+        let mesh = crate::mesh_gen::torus_mesh(1.0, 0.4, 48, 24);
+        let ops = Operators::from_mesh_generic(&mesh, &Euclidean::<3>).unwrap();
+        (mesh, ops)
+    }
+
+    /// The factored operator `Delta (Delta + 2K)` sends a constant to `2 Delta K`,
+    /// so it does not annihilate the constants that carry no velocity. The
+    /// corrected operator does, exactly, because the cotan rows sum to zero.
+    #[test]
+    fn surface_stokes_operator_annihilates_constants_on_a_torus() {
+        let (mesh, ops) = torus();
+        let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
+        let cc = solver
+            .curvature_correction
+            .as_ref()
+            .expect("a torus has varying curvature");
+        let ones = vec![1.0; cc.k.len()];
+        let lap_k = lap(&ops, &cc.k);
+        let factored: f64 = lap_k.iter().map(|x| (2.0 * x).abs()).fold(0.0, f64::max);
+        let corrected = surface_stokes_operator(&ops, cc, &ones);
+        let worst = corrected.iter().map(|x| x.abs()).fold(0.0, f64::max);
+        assert!(
+            factored > 1e-2,
+            "2 Delta K should be visible on a torus: {factored}"
+        );
+        assert!(
+            worst < 1e-9 * factored.max(1.0),
+            "corrected operator on a constant: {worst}"
+        );
+        // and div(1 grad K) is Delta K itself
+        let d = cc.div_psi_grad_k(&ones);
+        let err = d
+            .iter()
+            .zip(&lap_k)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(err < 1e-9 * factored.max(1.0));
+    }
+
+    /// The corrected biharmonic solves `Delta^2 psi + 2 div(K grad psi) = rhs`
+    /// to solver tolerance on a torus; the factored solve leaves a residual of
+    /// the size of the curvature-gradient term.
+    #[test]
+    fn corrected_biharmonic_solves_surface_stokes_on_a_torus() {
+        let (mesh, ops) = torus();
+        let solver = SurfaceStokes::new(&ops, &mesh).unwrap();
+        let cc = solver.curvature_correction.as_ref().unwrap();
+        let n = cc.k.len();
+        // A smooth source with zero mean in the dual-area weight.
+        let mut rhs: Vec<f64> = solver
+            .coords
+            .iter()
+            .map(|x| (2.0 * x[0]).sin() * (1.0 + x[2]) + 0.3 * (3.0 * x[1]).cos())
+            .collect();
+        let area: f64 = solver.dual_areas.iter().sum();
+        let mean: f64 = rhs
+            .iter()
+            .zip(&solver.dual_areas)
+            .map(|(r, a)| r * a)
+            .sum::<f64>()
+            / area;
+        rhs.iter_mut().for_each(|r| *r -= mean);
+        let rhs_v = DVector::from_vec(rhs.clone());
+        let norm = rhs.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let residual = |psi: &[f64]| {
+            let a = surface_stokes_operator(&ops, cc, psi);
+            a.iter()
+                .zip(&rhs)
+                .map(|(x, r)| (x - r).powi(2))
+                .sum::<f64>()
+                .sqrt()
+                / norm
+        };
+        let corrected = solver.biharmonic_cold(&rhs_v);
+        let factored = solver.outer.solve(&solver.poisson.solve(&rhs_v));
+        let rc = residual(corrected.as_slice());
+        let rf = residual(factored.as_slice());
+        assert_eq!(corrected.len(), n);
+        assert!(
+            rf > 1e-3,
+            "the factored solve should miss surface Stokes on a torus: {rf}"
+        );
+        assert!(rc < 1e-6, "corrected residual {rc} (factored {rf})");
+    }
 
     /// `I_0` by Abramowitz and Stegun 9.8.1 and 9.8.2, relative error below
     /// `4e-7` over `[0, 60]`.

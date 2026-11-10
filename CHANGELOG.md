@@ -6,6 +6,19 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- `SurfaceStokes` on a closed surface solved `Delta (Delta + 2K) psi = curl f` as
+  two Poisson solves. That operator is `Delta^2 + 2 div(K grad .) + 2 div(. grad K)`;
+  surface Stokes is `Delta^2 + 2 div(K grad .)`. The two agree where `K` is
+  constant and differ by `2 div(psi grad K)` elsewhere, and the factored one
+  does not annihilate constants (it sends `1` to `2 Delta K`) although a
+  constant stream function carries no flow. Where the curvature varies the
+  biharmonic is now solved by flexible GMRES on the true operator, preconditioned
+  by the factored solve, at zero mean. On a torus with radii 1 and 0.4 the
+  factored solve left a residual 25 times the source; the corrected one meets
+  the solver tolerance. Surfaces of constant curvature keep the factored solve.
+
 ## [0.11.1] - 2026-11-10
 
 ### Fixed
