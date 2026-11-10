@@ -17,7 +17,10 @@ All notable changes to volterra are documented here.
   biharmonic is now solved by flexible GMRES on the true operator, preconditioned
   by the factored solve, at zero mean. On a torus with radii 1 and 0.4 the
   factored solve left a residual 25 times the source; the corrected one meets
-  the solver tolerance. Surfaces of constant curvature keep the factored solve.
+  the solver tolerance. The correction applies where the angle-defect
+  curvature spreads by more than half its largest magnitude; an icosphere
+  (spread 13 per cent, concentrated on the twelve valence-5 vertices) keeps the
+  factored solve, since the gradient of that measure is not a curvature gradient.
 
 ### Added
 

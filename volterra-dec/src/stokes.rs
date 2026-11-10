@@ -2005,8 +2005,9 @@ pub(crate) struct CurvatureCorrection {
 }
 
 impl CurvatureCorrection {
-    /// `None` when the curvature is constant to rounding, so a sphere or a flat
-    /// torus keeps the factored solve exactly.
+    /// `None` unless the curvature varies at large scale (spread above half of
+    /// `max |K|`), so a sphere, an icosphere or a flat torus keeps the factored
+    /// solve exactly.
     pub(crate) fn new<M: Manifold>(
         ops: &Operators<M, 3, 2>,
         k: &[f64],
@@ -2015,8 +2016,14 @@ impl CurvatureCorrection {
         let kmax = k.iter().fold(0.0f64, |m, &x| m.max(x.abs()));
         let spread = k.iter().fold(f64::NEG_INFINITY, |m, &x| m.max(x))
             - k.iter().fold(f64::INFINITY, |m, &x| m.min(x));
-        // Written so that a NaN spread also returns None.
-        let varies = spread > 1e-10 * kmax.max(1e-300);
+        // Angle-defect curvature is a measure, not a pointwise value: on an
+        // icosphere it runs from 0.997 to 1.146 at every refinement, the excess
+        // sitting on the twelve valence-5 vertices, while the true gradient is
+        // zero. Its gradient there would be a spurious force. The correction
+        // is for curvature that varies at large scale, as on a torus where it
+        // changes sign, so it is applied only when the spread exceeds half of
+        // max |K|. Written so that a NaN spread also returns None.
+        let varies = spread > 0.5 * kmax;
         if !varies {
             return None;
         }
