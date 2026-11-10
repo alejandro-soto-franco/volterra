@@ -144,10 +144,21 @@ impl StreamFunctionStokes {
         gaussian_k: &[f64],
         er: f64,
     ) -> Result<Self, String> {
-        let n_vertices = mesh.n_vertices();
         // The solver builds its own curvature from the mesh, by angle defect.
         let _ = gaussian_k;
-        let inner = SurfaceStokes::new(ops, mesh)?;
+        Self::new_screened(ops, mesh, er, volterra_core::Screening::None)
+    }
+
+    /// [`Self::new`] with Brinkman screening, through
+    /// [`SurfaceStokes::new_screened`].
+    pub fn new_screened<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        mesh: &Mesh<M, 3, 2>,
+        er: f64,
+        screening: volterra_core::Screening,
+    ) -> Result<Self, String> {
+        let n_vertices = mesh.n_vertices();
+        let inner = SurfaceStokes::new_screened(ops, mesh, screening)?;
 
         let coords = stokes::extract_coords(mesh);
 
