@@ -235,6 +235,44 @@ impl SurfaceStokes {
         })
     }
 
+    /// [`Self::new`] with Brinkman screening: substrate friction `mu = eta / l^2`
+    /// on a closed surface.
+    ///
+    /// The curl of `eta (Delta_B + K) u - mu u - grad p + f = 0` is `eta [Delta^2 +
+    /// 2 div(K grad .) - l^{-2} Delta] psi = curl f`. The factored solve inverts
+    /// `Delta (Delta + 2K - l^{-2})`, so the screening moves the outer shift, and
+    /// the true operator applied by the GMRES takes the same shift. On a sphere
+    /// the rigid rotations are no longer in the kernel: friction damps them.
+    pub fn new_screened<M: Manifold>(
+        ops: &Operators<M, 3, 2>,
+        mesh: &Mesh<M, 3, 2>,
+        screening: Screening,
+    ) -> Result<Self, String> {
+        let inv_sq = screening.inverse_square();
+        if !inv_sq.is_finite() {
+            return Err(format!(
+                "screening length must be positive and finite, {screening:?} gives \
+                 an inverse square of {inv_sq}"
+            ));
+        }
+        let mut solver = Self::new(ops, mesh)?;
+        if inv_sq == 0.0 {
+            return Ok(solver);
+        }
+        let curvature = gaussian_curvature(
+            solver.n_vertices,
+            &mesh.simplices,
+            &solver.coords,
+            &solver.dual_areas,
+        );
+        let shift: Vec<f64> = curvature.iter().map(|k| 2.0 * k - inv_sq).collect();
+        solver.outer = PoissonSolver::new_shifted(ops, &shift, &solver.coords)?;
+        if let Some(cc) = solver.curvature_correction.as_mut() {
+            cc.inv_l2 = inv_sq;
+        }
+        Ok(solver)
+    }
+
     /// Build the Stokes solver for a **confined (bounded) domain** with no-slip BCs.
     ///
     /// Enforces ψ = 0 on all vertices in `boundary_vertices` via Dirichlet
@@ -1962,6 +2000,8 @@ pub(crate) struct CurvatureCorrection {
     diag: Vec<f64>,
     /// Dual-area mass, for the zero-mean projection.
     mass: Vec<f64>,
+    /// Brinkman screening `1 / l^2`; zero for Stokes.
+    inv_l2: f64,
 }
 
 impl CurvatureCorrection {
@@ -1995,6 +2035,7 @@ impl CurvatureCorrection {
             rows,
             diag,
             mass: mass.to_vec(),
+            inv_l2: 0.0,
         })
     }
 
@@ -2015,7 +2056,7 @@ impl CurvatureCorrection {
             .iter()
             .zip(psi)
             .zip(&self.k)
-            .map(|((d, p), k)| d + 2.0 * k * p)
+            .map(|((d, p), k)| d + (2.0 * k - self.inv_l2) * p)
             .collect();
         let div = self.div_psi_grad_k(psi);
         self.lap(&inner)
@@ -2175,6 +2216,45 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0, f64::max);
         assert!(err < 1e-9 * factored.max(1.0));
+    }
+
+    /// Screened Stokes on the unit sphere, mode by mode: the operator
+    /// `Delta (Delta + 2 - l^{-2})` takes the rigid rotation `z` (`Delta z = -2z`)
+    /// to `2 l^{-2} z`, so friction alone sets its response, and the `l = 2`
+    /// harmonic `xy` (`Delta = -6`) to `6 (4 + l^{-2}) xy`.
+    #[test]
+    fn screened_stokes_on_the_sphere_matches_the_harmonic_symbols() {
+        let mesh = crate::mesh_gen::icosphere(4);
+        let ops =
+            Operators::from_mesh_generic(&mesh, &cartan_manifolds::sphere::Sphere::<3>).unwrap();
+        let ell = 0.5;
+        let solver = SurfaceStokes::new_screened(&ops, &mesh, Screening::Length(ell)).unwrap();
+        let inv = 1.0 / (ell * ell);
+        for (name, f, symbol) in [
+            ("z", (|x: [f64; 3]| x[2]) as fn([f64; 3]) -> f64, 2.0 * inv),
+            ("xy", |x: [f64; 3]| x[0] * x[1], 6.0 * (4.0 + inv)),
+        ] {
+            let src: Vec<f64> = solver.coords.iter().map(|&x| f(x)).collect();
+            let psi = solver.stream_from_vorticity(&DVector::from_vec(src.clone()), 1.0);
+            // Least-squares amplitude of psi on the source shape.
+            let num: f64 = psi
+                .iter()
+                .zip(&src)
+                .zip(&solver.dual_areas)
+                .map(|((p, s), a)| p * s * a)
+                .sum();
+            let den: f64 = src
+                .iter()
+                .zip(&solver.dual_areas)
+                .map(|(s, a)| s * s * a)
+                .sum();
+            let got = num / den;
+            let want = 1.0 / symbol;
+            assert!(
+                (got / want - 1.0).abs() < 0.03,
+                "{name}: amplitude {got:.6}, expected {want:.6}"
+            );
+        }
     }
 
     /// The corrected biharmonic solves `Delta^2 psi + 2 div(K grad psi) = rhs`

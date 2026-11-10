@@ -19,6 +19,14 @@ All notable changes to volterra are documented here.
   factored solve left a residual 25 times the source; the corrected one meets
   the solver tolerance. Surfaces of constant curvature keep the factored solve.
 
+### Added
+
+- `SurfaceStokes::new_screened`, Brinkman screening on a closed surface: the
+  balance `eta (Delta_B + K) u - (eta / l^2) u - grad p + f = 0`, whose stream
+  function obeys `[Delta^2 + 2 div(K grad .) - l^{-2} Delta] psi = curl f`. On
+  the unit sphere the rigid rotation `z` and the harmonic `xy` match their
+  symbols `2 / l^2` and `6 (4 + 1/l^2)` to within 3 per cent.
+
 ## [0.11.1] - 2026-11-10
 
 ### Fixed
