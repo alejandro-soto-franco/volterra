@@ -87,7 +87,7 @@ use volterra_core::{QField3D, VelocityField3D};
 /// Tr(Q^3)`). `b_landau = 0.0` returns exactly `[0.0; 5]`.
 #[inline]
 #[allow(clippy::too_many_arguments)]
-fn cubic_bulk_term(
+pub(crate) fn cubic_bulk_term(
     q11: f64,
     q12: f64,
     q13: f64,

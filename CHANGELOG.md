@@ -16,6 +16,17 @@ All notable changes to volterra are documented here.
   0.440. `LdgFromChi::equilibrium_q` uses open-Qmin's convention throughout and
   was already correct.
 
+### Added
+
+- `volterra_fd::meridional`, the dry passive Q-tensor relaxation reduced
+  exactly to the meridional half-plane for fields whose Cartesian components
+  depend on `(rho, z)` alone. `MeridionalQ` holds a cell-centred grid with
+  the flux-form axisymmetric Laplacian, zero flux through the axis and the
+  outer faces, and a free energy whose variation that Laplacian is.
+  `seed_solid_angle_ring` seeds a disclination loop from the solid angle of
+  its disc. A loop of radius 36 follows the 3D solver to within 0.03 voxels
+  over the first half of its collapse at a thousandth of the cost.
+
 ## [0.11.0] - 2026-10-25
 
 ### Changed (breaking)

@@ -424,4 +424,7 @@ pub use gauss_bonnet_3d::gauss_bonnet_chi;
 pub mod runner_3d;
 pub use runner_3d::{BechStats3D, SnapStats3D, run_bech_3d, run_dry_active_nematic_3d};
 
+pub mod meridional;
+pub use meridional::MeridionalQ;
+
 pub mod sim_impls;
