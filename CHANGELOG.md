@@ -6,6 +6,8 @@ All notable changes to volterra are documented here.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-10
+
 ### Fixed
 
 - `ActiveNematicParams3D::equilibrium_q` solved open-Qmin's `6a + 3bq + 8cq^2
