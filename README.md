@@ -33,11 +33,11 @@ All derivatives are covariant with respect to the Levi-Civita connection of the 
 
 volterra is designed around three principles:
 
-**Correctness of the geometry.** The Laplacian acting on Q is the Lichnerowicz operator (the Bochner connection Laplacian plus a Riemann curvature correction). The background manifold geometry enters the equations of motion exactly, not as a perturbation. This makes volterra suitable for studying systems where curvature is itself the variable of interest.
+Correctness of the geometry. The Laplacian acting on Q is the Lichnerowicz operator (the Bochner connection Laplacian plus a Riemann curvature correction). The background manifold geometry enters the equations of motion exactly, not as a perturbation. This makes volterra suitable for studying systems where curvature is itself the variable of interest.
 
-**Cache-friendly DEC.** Differential operators are built from DEC on well-centred Delaunay meshes. Well-centred meshes give diagonal Hodge stars, so the full Laplace-Beltrami operator is two sparse {0, +1, -1} matrix-vector products interleaved with diagonal scalings. Simplices are Hilbert-curve reordered for spatial locality. Field arrays use structure-of-arrays layout for SIMD vectorisation.
+Cache-friendly DEC. Differential operators are built from DEC on well-centred Delaunay meshes. Well-centred meshes give diagonal Hodge stars. The full Laplace-Beltrami operator is therefore two sparse {0, +1, -1} matrix-vector products interleaved with diagonal scalings. Simplices are Hilbert-curve reordered for spatial locality. Field arrays use structure-of-arrays layout for SIMD vectorisation.
 
-**Ludwig-quality numerics.** Time integration uses at minimum fourth-order Runge-Kutta. The pressure Poisson solve enforces the incompressibility constraint exactly at each step.
+Ludwig-quality numerics. Time integration uses at minimum fourth-order Runge-Kutta. The pressure Poisson solve enforces the incompressibility constraint exactly at each step.
 
 ## Crate structure
 
@@ -67,22 +67,22 @@ volterra-fd-cuda  double-precision CUDA path for the finite-difference solver,
 ## Defect detection
 
 `volterra_braid::detect_defects_winding` sums the wrapped director increments
-round each contour, so the charge is a topological quantity and needs no
+round each contour. The charge is a topological quantity and needs no
 threshold. Three things a caller has to know.
 
-**Memory layout.** `qxx[x * ny + y]`, with `x` as the slow index. A numpy array
-indexed `[row, column]` is transposed with respect to that, so pass
+Memory layout. `qxx[x * ny + y]`, with `x` as the slow index. A numpy array
+indexed `[row, column]` is transposed with respect to that. Pass
 `numpy.ascontiguousarray(field.T).ravel()`, and the mask the same way. The
 untransposed array returns positions with the axes swapped and, on a field that
 is not symmetric, the wrong defects.
 
-**Charge sums over the cluster in half units.** `+1` is a `+1/2`
+Charge sums over the cluster in half units. `+1` is a `+1/2`
 disclination and `+2` an integer `+1` core. Before September 2026 the merged
-cluster reported the sign alone, so an integer core came back as a half and the
-information was lost rather than wrong-signed. Downstream sign filters, which
+cluster reported the sign alone. An integer core came back as a half and the
+information was lost; the sign was never wrong. Downstream sign filters, which
 is what the braid tracking uses, are unaffected.
 
-**Contour lattice.** The default contours enclose the points at
+Contour lattice. The default contours enclose the points at
 `(x + 1/2, y + 1/2)`. A core sitting on a grid node then shares its singular
 corner between the contours around it, and the merged cluster reads twice the
 charge or loses the core outright, depending on the sign. `Lattice::Dual`, or
@@ -102,7 +102,7 @@ those.
 
 ## Substrate
 
-volterra depends on [cartan](https://github.com/alejandro-soto-franco/cartan) for Riemannian geometry. Any type implementing `cartan_core::Manifold` can serve as the simulation domain. This includes the manifolds shipped with cartan (`Sphere<N>`, `SpecialOrthogonal<N>`, `SpecialEuclidean<N>`, flat `Euclidean<N>`) and any user-defined manifold.
+volterra depends on [cartan](https://github.com/alejandro-soto-franco/cartan) for Riemannian geometry. Any type implementing `cartan_core::Manifold` can be the simulation domain. This includes the manifolds shipped with cartan (`Sphere<N>`, `SpecialOrthogonal<N>`, `SpecialEuclidean<N>`, flat `Euclidean<N>`) and any user-defined manifold.
 
 ## Status
 
